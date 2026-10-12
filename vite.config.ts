@@ -1,9 +1,14 @@
+import process from "node:process";
 import { mdsvex } from "mdsvex";
 import { defineConfig } from "vitest/config";
 import { playwright } from "@vitest/browser-playwright";
-import adapter from "@sveltejs/adapter-node";
+import adapter from "@sveltejs/adapter-static";
 import { sveltekit } from "@sveltejs/kit/vite";
 import { vitePreprocess } from "@sveltejs/vite-plugin-svelte";
+
+// GitHub Pages serves a project site under /<repo>/, so the app must know its base path.
+// The Pages workflow exports BASE_PATH="/<repo>"; dev, preview, check and tests run at "/".
+const basePath = (process.env.BASE_PATH ?? "") as "" | `/${string}`;
 
 export default defineConfig({
   plugins: [
@@ -13,9 +18,15 @@ export default defineConfig({
         runes: ({ filename }) => (filename.split(/[/\\]/).includes("node_modules") ? undefined : true),
       },
 
-      // Node server: the app is local-first (RxDB in the browser, see src/lib/client/coding-db.ts);
-      // the server only serves the app itself.
-      adapter: adapter(),
+      // Static export (GitHub Pages): the app is local-first (RxDB in the browser, see
+      // src/lib/client/coding-db.ts), so the build is a plain static site — no server runtime.
+      // `404.html` is the GitHub Pages SPA fallback: deep links like /text/<folder>/<name>
+      // are not prerenderable (their data lives in the browser), so GitHub serves this shell
+      // and the client router takes over.
+      adapter: adapter({ fallback: "404.html" }),
+      paths: {
+        base: process.argv.includes("dev") ? "" : basePath,
+      },
       preprocess: [vitePreprocess(), mdsvex({ extensions: [".svx", ".md"] })],
       extensions: [".svelte", ".svx", ".md"],
     }),

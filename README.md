@@ -44,11 +44,15 @@ Without Nix, any Node ≥ 22 + pnpm works the same.
 | Command                | What it does                                          |
 | ---------------------- | ----------------------------------------------------- |
 | `pnpm dev`             | dev server                                            |
-| `pnpm build`           | production build (`@sveltejs/adapter-node`)           |
-| `pnpm preview`         | serve the build with `node build`                     |
+| `pnpm build`           | static export (`@sveltejs/adapter-static` → `build/`) |
+| `pnpm preview`         | serve the export with `vite preview`                  |
 | `pnpm check`           | `svelte-kit sync` + `svelte-check` (must stay clean)  |
 | `pnpm test`            | all vitest projects (client = browser, server = node) |
 | `pnpm lint` / `format` | prettier                                              |
+
+`pnpm build && pnpm check:pages` runs a local GitHub-Pages simulation (static server under
+`/Kodakool/`, unknown paths answered with `404.html`) and drives the built app with Playwright:
+prerendered dashboard, example seed, coding-page deep link, base-aware links.
 
 Single test file: `pnpm test:unit --run src/tests/dashboard.svelte.spec.ts`.
 The client suite runs headless Chromium by default; in the devShell
@@ -67,13 +71,28 @@ The client suite runs headless Chromium by default; in the devShell
   logic (entry verification, excerpt ellipsis, smart-select segmentation, palette, QDC I/O).
 - **UI components** — [bits-ui](https://bits-ui.com) 2.x primary, Melt UI only for the catalog
   tree + file uploads; icons from `material-symbols`.
-- The SvelteKit server only serves the app (`adapter-node`); it owns no data.
+- **Static app** — `@sveltejs/adapter-static` exports the whole app to `build/`; there is no
+  server runtime and the server owns no data.
 
 ## Tests
 
 Vitest splits into two projects: `server` (node, pure logic) and `client`
 (`src/tests/*.svelte.spec.ts`, headless browser via Playwright — browsers come from the Nix
 devShell). UI specs drive the real pages against a fresh RxDB per test.
+
+## Deployment (GitHub Pages)
+
+`.github/workflows/deploy.yml` builds on every push to `main` (`pnpm check` + `pnpm build`) and
+publishes `build/` to GitHub Pages.
+
+- Enable it once per repo: **Settings → Pages → Source: GitHub Actions**.
+- Pages serves a project site under `/<repo>/`, so the export must know its base path: the
+  workflow exports `BASE_PATH=/<repo>` (derived from the repo name) and `vite.config.ts` feeds it
+  into `config.paths.base`. Dev, preview, check and tests run at `/`.
+- `/` is prerendered (`src/routes/+layout.ts` → `prerender = true`). Coding pages are
+  `ssr = false` with their data in RxDB, so they can never be prerendered: `adapter-static`
+  generates `404.html` as the SPA fallback, GitHub Pages serves it for every unknown path, and
+  the client router takes over from there. `static/.nojekyll` keeps Jekyll out of the output.
 
 ## License / provenance
 
