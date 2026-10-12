@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { codeIndex, deviceIndex, idByCode, instructionsSchema, uniqueIds, type FrameDevice } from "./instructions.ts";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const file = path.join(HERE, "../../../coding/test/.INSTRUCTIONS.json");
+const file = path.join(HERE, "../assets/examples/frame-devices.json");
 const raw = JSON.parse(readFileSync(file, "utf8"));
 
 describe("instructions format", () => {

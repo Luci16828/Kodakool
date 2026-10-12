@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { buildCatalogView } from "./catalog-view";
 import { DEVICE_COMMENT, DEVICE_QUOTE, testInstructions } from "../../tests/fixtures";
-import type { CatalogView } from "$lib/server/coding/store";
+import type { CatalogView } from "$lib/coding/catalog-view";
 
 function find(nodes: CatalogView[], code: string): CatalogView | undefined {
   const walk = (list: CatalogView[]): CatalogView | undefined => {

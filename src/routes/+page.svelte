@@ -8,43 +8,52 @@
   import { toQdc } from "$lib/coding/qdc";
   import { useColors } from "$lib/coding/prefs.svelte";
   import ColorPanel from "$lib/coding/ColorPanel.svelte";
+  import ConfirmDialog from "$lib/coding/ConfirmDialog.svelte";
+  import { EXAMPLE_PROJECT } from "$lib/client/examples";
   import {
     createArticle,
-    DEFAULT_PROJECT,
+    createFolder,
+    deleteFolder,
     exportDatabase,
     importDatabase,
     listLocalCatalogs,
     watchArticles,
+    watchFolders,
     type ArticleSummary,
   } from "$lib/client/coding-db";
   import type { Instructions } from "$lib/coding/instructions";
 
-  let {
-    data,
-  }: {
-    data: { catalogs: { folder: string; instructions: Instructions }[] };
-  } = $props();
-
   const prefs = useColors();
 
   let articles = $state<ArticleSummary[]>([]);
+  let folders = $state<string[]>([]);
   let loading = $state(true);
   let busy = $state(false);
   let errMsg = $state("");
-  /** locally edited catalogs override the server copies (for display + .qdc export) */
+  /** local frame-device catalogs (drive display + .qdc export) */
   const localCats = new SvelteMap<string, Instructions>();
   /** colors customization popup (Bits Dialog) */
   let colorsOpen = $state(false);
+  /** inline "new project" name input */
+  let newProj = $state(false);
+  let projName = $state("");
+  /** project marked for deletion (ConfirmDialog target) */
+  let deleteProj = $state<string | null>(null);
+  let confirmOpen = $state(false);
 
   onMount(() => {
-    const unwatch = watchArticles((list) => {
+    const unwatchA = watchArticles((list) => {
       articles = list;
       loading = false;
     });
+    const unwatchF = watchFolders((names) => (folders = names));
     void listLocalCatalogs().then((m) => {
       for (const [folder, instr] of m) localCats.set(folder, instr);
     });
-    return unwatch;
+    return () => {
+      unwatchA();
+      unwatchF();
+    };
   });
 
   let totals = $derived.by(() => {
@@ -54,26 +63,35 @@
       codes += a.codes;
       versions += a.versions;
     }
-    return { documents: articles.length, codes, versions };
+    return { projects: projects.length, documents: articles.length, codes, versions };
   });
 
-  let targetProject = $derived(
-    data.catalogs[0]?.folder ?? articles.find((a) => a.project !== DEFAULT_PROJECT)?.project ?? DEFAULT_PROJECT,
-  );
+  /** every project: folders + any project that currently holds documents */
+  let projects = $derived.by(() => {
+    const set = new Set(folders);
+    for (const a of articles) set.add(a.project);
+    return [...set].sort((x, y) => x.localeCompare(y));
+  });
 
   let byProject = $derived.by(() => {
-    const groups: [string, ArticleSummary[]][] = [];
-    for (const a of [...articles].sort((x, y) => x.name.localeCompare(y.name))) {
-      const group = groups.find((entry) => entry[0] === a.project);
-      if (group) group[1].push(a);
-      else groups.push([a.project, [a]]);
+    const groups = new Map<string, ArticleSummary[]>();
+    for (const a of [...articles].sort((x, y) => x.name.localeCompare(y.name, undefined, { numeric: true }))) {
+      const group = groups.get(a.project);
+      if (group) group.push(a);
+      else groups.set(a.project, [a]);
     }
-    return groups.sort((x, y) => x[0].localeCompare(y[0]));
+    return groups;
   });
 
-  let catalogByProject = $derived(
-    new SvelteMap(data.catalogs.map((c) => [c.folder, localCats.get(c.folder) ?? c.instructions])),
-  );
+  function statsOf(items: ArticleSummary[]): { codes: number; versions: number } {
+    let codes = 0;
+    let versions = 0;
+    for (const a of items) {
+      codes += a.codes;
+      versions += a.versions;
+    }
+    return { codes, versions };
+  }
 
   function exportQdc(folder: string, instr: Instructions) {
     const url = URL.createObjectURL(new Blob([toQdc(instr, { options: prefs.options })], { type: "application/xml" }));
@@ -84,17 +102,37 @@
     URL.revokeObjectURL(url);
   }
 
-  async function newArticle() {
+  async function newProject() {
+    const name = projName.trim();
+    if (!name) return;
     busy = true;
     errMsg = "";
     try {
-      const article = await createArticle(targetProject);
+      await createFolder(name);
+      newProj = false;
+      projName = "";
+    } catch (e) {
+      errMsg = String(e);
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function newArticle(project: string) {
+    busy = true;
+    errMsg = "";
+    try {
+      const article = await createArticle(project);
       await goto(resolve("/text/[folder]/[name]", { folder: article.project, name: article.name }));
     } catch (e) {
       errMsg = String(e);
     } finally {
       busy = false;
     }
+  }
+
+  async function removeProject(name: string) {
+    await deleteFolder(name);
   }
 
   // ----- whole-database export / import (local RxDB snapshot as JSON) -----
@@ -109,7 +147,7 @@
       const url = URL.createObjectURL(new Blob([JSON.stringify(dump, null, 2)], { type: "application/json" }));
       const a = document.createElement("a");
       a.href = url;
-      a.download = `luci-db-${new Date().toISOString().slice(0, 10)}.json`;
+      a.download = `kodakool-db-${new Date().toISOString().slice(0, 10)}.json`;
       a.click();
       URL.revokeObjectURL(url);
       dbMsg = `exported ${dump.articles.length} documents, ${dump.catalogs.length} catalogs`;
@@ -134,12 +172,13 @@
 </script>
 
 <svelte:head>
-  <title>Coding dashboard</title>
+  <title>Projects — Kodakool</title>
 </svelte:head>
 
 <main>
   <Dialog.Root bind:open={colorsOpen}>
-    <h1>Text coding</h1>
+    <h1>Kodakool</h1>
+    <p class="sub">Projects, documents, coding entries and frame devices live entirely in this browser.</p>
     <p class="nav">
       <Dialog.Trigger class="pill">
         <span class="material-symbols-rounded" aria-hidden="true">palette</span>colors
@@ -160,52 +199,106 @@
     </p>
     {#if dbMsg}<p class="dbmsg">{dbMsg}</p>{/if}
     <p class="summary">
+      <span class="chip">{totals.projects} projects</span>
       <span class="chip">{totals.documents} documents</span>
       <span class="chip">{totals.codes} codes</span>
       <span class="chip versions">{totals.versions} versions</span>
     </p>
 
     <div class="actions">
-      <button type="button" class="go" onclick={newArticle} disabled={busy}>
-        <span class="material-symbols-rounded" aria-hidden="true">note_add</span>{busy
-          ? "creating…"
-          : `new document in ${targetProject}`}
+      <button type="button" class="go" onclick={() => (newProj = !newProj)} disabled={busy}>
+        <span class="material-symbols-rounded" aria-hidden="true">create_new_folder</span>new project
       </button>
+      {#if newProj}
+        <span class="nfrow">
+          <input
+            type="text"
+            class="nfinput"
+            placeholder="project name"
+            aria-label="new project name"
+            bind:value={projName}
+            onkeydown={(e) => e.key === "Enter" && void newProject()}
+          />
+          <button type="button" class="go" onclick={() => void newProject()} disabled={busy || projName.trim() === ""}>
+            create
+          </button>
+        </span>
+      {/if}
       {#if errMsg}<span class="msg err">{errMsg}</span>{/if}
     </div>
 
     {#if loading}
-      <p class="empty">Loading local articles…</p>
+      <p class="empty">Loading projects…</p>
     {:else}
-      {#each byProject as [project, items] (project)}
-        {@const instr = catalogByProject.get(project)}
-        <section>
+      {#each projects as project (project)}
+        {@const items = byProject.get(project) ?? []}
+        {@const instr = localCats.get(project)}
+        {@const stats = statsOf(items)}
+        <section class="card">
           <h2>
-            {project}/
+            {project}
+            {#if project === EXAMPLE_PROJECT}
+              <span class="chip ex">example</span>
+            {/if}
+            <span class="chip">{items.length} documents</span>
+            <span class="chip">{stats.codes} codes</span>
+            {#if stats.versions}
+              <span class="chip versions">{stats.versions} versions</span>
+            {/if}
+          </h2>
+          <div class="prow">
+            <button type="button" class="go" onclick={() => void newArticle(project)} disabled={busy}>
+              <span class="material-symbols-rounded" aria-hidden="true">note_add</span>new document in {project}
+            </button>
             {#if instr}
               <button type="button" class="export" onclick={() => exportQdc(project, instr)}>
                 <span class="material-symbols-rounded" aria-hidden="true">file_download</span>export .qdc
               </button>
             {/if}
-          </h2>
-          <ul>
-            {#each items as a (a.id)}
-              <li>
-                <a href={resolve("/text/[folder]/[name]", { folder: a.project, name: a.name })}>
-                  <span class="name">{a.name}</span>
-                </a>
-                <span class="codes">{a.codes}</span>
-                {#if a.versions}
-                  <span class="chip versions">{a.versions} v</span>
-                {/if}
-              </li>
-            {/each}
-          </ul>
+            <button
+              type="button"
+              class="delproj"
+              aria-label="delete project {project}"
+              onclick={() => {
+                deleteProj = project;
+                confirmOpen = true;
+              }}
+            >
+              <span class="material-symbols-rounded" aria-hidden="true">delete</span>delete project
+            </button>
+          </div>
+          {#if items.length}
+            <ul>
+              {#each items as a (a.id)}
+                <li>
+                  <a href={resolve("/text/[folder]/[name]", { folder: a.project, name: a.name })}>
+                    <span class="name">{a.name}</span>
+                  </a>
+                  <span class="codes">{a.codes}</span>
+                  {#if a.versions}
+                    <span class="chip versions">{a.versions} v</span>
+                  {/if}
+                </li>
+              {/each}
+            </ul>
+          {:else}
+            <p class="empty">Empty project — add a document to start coding.</p>
+          {/if}
         </section>
       {:else}
-        <p class="empty">No documents yet — create one to start coding.</p>
+        <p class="empty">No projects yet — create one to start coding.</p>
       {/each}
     {/if}
+
+    <ConfirmDialog
+      bind:open={confirmOpen}
+      title={deleteProj === null ? "" : `Delete project ${deleteProj}/?`}
+      detail="Deletes the project with all its documents, coding entries and its frame-device catalog."
+      onconfirm={() => {
+        if (deleteProj !== null) void removeProject(deleteProj);
+        deleteProj = null;
+      }}
+    />
 
     <Dialog.Overlay class="dlg-overlay" />
     <Dialog.Content class="colorsdlg" aria-label="colors">
@@ -225,16 +318,37 @@
   }
   h1 {
     font-size: 1.4rem;
+    margin-bottom: 0.15rem;
+  }
+  .sub {
+    margin: 0 0 0.8rem;
+    font-size: 0.85rem;
+    color: var(--on-surface-variant);
   }
   .summary {
     display: flex;
     gap: 0.5rem;
+    flex-wrap: wrap;
   }
   .actions {
     margin-top: 1rem;
     display: flex;
     align-items: center;
     gap: 0.75rem;
+    flex-wrap: wrap;
+  }
+  .nfrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .nfinput {
+    font: inherit;
+    padding: 0.3rem 0.6rem;
+    border: 1px solid var(--outline, #888);
+    border-radius: 8px;
+    background: var(--surface, white);
+    color: var(--on-surface, #111);
   }
   .go {
     font: inherit;
@@ -261,10 +375,16 @@
   .msg.err {
     color: #b3261e;
   }
+  .card {
+    margin-top: 1.25rem;
+    padding: 0.75rem 0.9rem 0.9rem;
+    border: 1px solid var(--outline, #888);
+    border-radius: 12px;
+  }
   ul {
     list-style: none;
     padding: 0;
-    margin-top: 1.5rem;
+    margin-top: 0.75rem;
     display: flex;
     flex-direction: column;
     gap: 0.25rem;
@@ -295,11 +415,19 @@
   }
   h2 {
     font-size: 1rem;
-    margin: 1.5rem 0 0.25rem;
+    margin: 0;
     color: var(--on-surface-variant);
     display: flex;
     align-items: baseline;
     gap: 0.6rem;
+    flex-wrap: wrap;
+  }
+  .prow {
+    margin-top: 0.6rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
   }
   .export {
     font: inherit;
@@ -320,6 +448,26 @@
   .export:hover {
     filter: brightness(1.1);
   }
+  .delproj {
+    font: inherit;
+    font-size: 0.75rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    color: #b3261e;
+    background: none;
+    border: 1px solid #b3261e;
+    border-radius: 99px;
+    padding: 0.1rem 0.6rem;
+    cursor: pointer;
+  }
+  .delproj .material-symbols-rounded {
+    font-size: 1rem;
+  }
+  .delproj:hover {
+    background: #b3261e;
+    color: white;
+  }
   .dbfile {
     display: none;
   }
@@ -335,7 +483,7 @@
     text-align: right;
   }
   .empty {
-    margin-top: 1.5rem;
+    margin-top: 0.75rem;
     color: var(--on-surface-variant);
   }
   .chip {
@@ -348,5 +496,9 @@
   .chip.versions {
     background: var(--primary-container);
     color: var(--on-primary-container);
+  }
+  .chip.ex {
+    background: var(--primary);
+    color: var(--on-primary);
   }
 </style>

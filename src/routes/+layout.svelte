@@ -1,14 +1,21 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import "@fontsource-variable/source-sans-3";
   import "@fontsource-variable/source-serif-4";
   import "material-symbols/rounded.css";
   import favicon from "$lib/assets/favicon.svg";
   import { provideColors } from "$lib/coding/prefs.svelte";
+  import { seedExampleProject } from "$lib/client/examples";
 
   let { children } = $props();
 
   // the single color source for the whole app (theme + every marker palette)
   const prefs = provideColors();
+
+  // first visit: seed the bundled example project into the local store
+  onMount(() => {
+    void seedExampleProject();
+  });
   const vars = (t: Record<string, string>) =>
     [
       `--surface: ${t.surface}`,

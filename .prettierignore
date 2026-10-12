@@ -9,6 +9,3 @@ bun.lockb
 /static/
 opencode.jsonc
 .opencode/memory/
-
-# Generated
-coding/progress.json

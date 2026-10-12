@@ -13,7 +13,8 @@ export default defineConfig({
         runes: ({ filename }) => (filename.split(/[/\\]/).includes("node_modules") ? undefined : true),
       },
 
-      // Node server: coding data is served/edited at runtime (see /api/coding + src/lib/client/coding-db.ts).
+      // Node server: the app is local-first (RxDB in the browser, see src/lib/client/coding-db.ts);
+      // the server only serves the app itself.
       adapter: adapter(),
       preprocess: [vitePreprocess(), mdsvex({ extensions: [".svx", ".md"] })],
       extensions: [".svelte", ".svx", ".md"],

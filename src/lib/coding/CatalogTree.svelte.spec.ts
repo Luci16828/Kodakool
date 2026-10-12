@@ -2,7 +2,7 @@ import { page } from "vitest/browser";
 import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import CatalogTree from "./CatalogTree.svelte";
-import type { CatalogView } from "$lib/server/coding/store";
+import type { CatalogView } from "$lib/coding/catalog-view";
 
 const GROUP_ID = "11111111-1111-4111-8111-111111111111";
 const CHILD_ID = "22222222-2222-4222-8222-222222222222";

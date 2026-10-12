@@ -1,5 +1,5 @@
 <script lang="ts" module>
-  import type { CatalogView } from "$lib/server/coding/store";
+  import type { CatalogView } from "$lib/coding/catalog-view";
 </script>
 
 <script lang="ts">

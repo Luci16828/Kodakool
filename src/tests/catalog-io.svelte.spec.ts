@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { render } from "vitest-browser-svelte";
 import ColorProvider from "./ColorProvider.svelte";
 import ArticlePage from "../routes/text/[folder]/[name]/+page.svelte";
-import { getLocalCatalog } from "$lib/client/coding-db";
+import { getLocalCatalog, saveLocalCatalog } from "$lib/client/coding-db";
 import { parseCatalogFile, parseCatalogJson, parseQdc } from "$lib/coding/import";
 import { toQdc } from "$lib/coding/qdc";
 import { DEVICE_COMMENT, DEVICE_FRAME, DEVICE_QUOTE, resetArticles, seedArticle, testInstructions } from "./fixtures";
@@ -72,11 +72,8 @@ describe("frame-device catalog export/import", () => {
 
   it("imports a catalog through the aside import button (local override)", async () => {
     await seedArticle({ project: FOLDER, name: "spd 1", text: "Ein Zitat im Text." });
-    lastRender = render(
-      ArticlePage,
-      { data: { folder: FOLDER, name: "spd 1", instructions: testInstructions } },
-      { wrapper: ColorProvider },
-    );
+    await saveLocalCatalog(FOLDER, testInstructions);
+    lastRender = render(ArticlePage, { data: { folder: FOLDER, name: "spd 1" } }, { wrapper: ColorProvider });
     await expect.element(page.getByRole("textbox")).toBeInTheDocument();
 
     const imported = {

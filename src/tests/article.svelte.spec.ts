@@ -3,7 +3,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import ColorProvider from "./ColorProvider.svelte";
 import ArticlePage from "../routes/text/[folder]/[name]/+page.svelte";
-import { getArticle, getLocalCatalog, getPdfData, readCodes, savePdfData } from "$lib/client/coding-db";
+import {
+  getArticle,
+  getLocalCatalog,
+  getPdfData,
+  readCodes,
+  saveLocalCatalog,
+  savePdfData,
+} from "$lib/client/coding-db";
 import { extractPdfDoc } from "$lib/coding/pdf";
 import { buildPdf } from "$lib/coding/pdf-sample";
 import type { CodeEntry } from "$lib/coding/types";
@@ -26,8 +33,8 @@ const quoteEntry: CodeEntry = { device: DEVICE_QUOTE, line: 1, range: [4, 9], ex
 
 let lastRender: ReturnType<typeof render> | undefined;
 
-function renderArticle(name = NAME, instructions = testInstructions) {
-  lastRender = render(ArticlePage, { data: { folder: FOLDER, name, instructions } }, { wrapper: ColorProvider });
+function renderArticle(name = NAME) {
+  lastRender = render(ArticlePage, { data: { folder: FOLDER, name } }, { wrapper: ColorProvider });
   return lastRender;
 }
 
@@ -75,6 +82,8 @@ afterEach(() => {
 beforeEach(async () => {
   navigated.length = 0;
   await resetArticles();
+  // the catalog is local-only now: seed it like the example project does
+  await saveLocalCatalog(FOLDER, testInstructions);
 });
 
 describe("article coding page", () => {

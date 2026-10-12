@@ -1,9 +1,25 @@
 import type { FrameDevice, Instructions } from "./instructions";
 import { shortSlugs } from "./shortlabel";
-import type { CatalogView } from "$lib/server/coding/store";
+import type { Slug } from "./shortlabel";
+
+/** Catalog tree node for the UI; `count` = entries assigned to this device. */
+export interface CatalogView {
+  id: string;
+  code: string;
+  name: string;
+  kind: "device" | "element";
+  count: number;
+  /** Manual short-tag override (wins over the heuristic slug). */
+  tag?: string | undefined;
+  /** Heuristic short label (unique across the catalog's devices), or null when exhausted. */
+  slug: Slug | null;
+  /** Legacy code labels from this article that fold into this node. */
+  alias?: string[];
+  children: CatalogView[];
+}
 
 /**
- * Client-side CatalogView builder (mirrors the server's `toCatalogView`):
+ * Client-side CatalogView builder:
  * numeric codes are derived from tree position, short tags from `shortSlugs`
  * (manual `tag` overrides win and reserve their label), entry keys that are
  * not in the catalog fold into matching nodes or surface as orphan rows.

@@ -20,7 +20,7 @@
   import { mdExtensions } from "$lib/coding/code-md";
   import { toQdc } from "$lib/coding/qdc";
   import type { FrameDevice, Instructions } from "$lib/coding/instructions";
-  import type { CatalogView } from "$lib/server/coding/store";
+  import type { CatalogView } from "$lib/coding/catalog-view";
   import type { CodeEntry } from "$lib/coding/types";
   import {
     addVersion,
@@ -48,7 +48,7 @@
   } from "$lib/client/coding-db";
   import { codingMarks, smartSelect, syncCodingMarks, type CodingMarkSpec } from "$lib/coding/code-mark";
 
-  const { data }: { data: { folder: string; name: string; instructions: Instructions | null } } = $props();
+  const { data }: { data: { folder: string; name: string } } = $props();
 
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -173,7 +173,7 @@
   let renameDraft = $state("");
   /** versions popover open (Bits Popover) */
   let versionsOpen = $state(false);
-  /** locally edited frame-device catalog (overrides the server copy) + edit draft */
+  /** local frame-device catalog for this folder + edit draft */
   let localCatalog = $state<Instructions | null>(null);
   let editCat = $state(false);
   let draft = $state<Instructions | null>(null);
@@ -306,8 +306,8 @@
   }
 
   const entryKeys = $derived(entries.map((e) => e.device ?? e.code ?? "").filter((k) => k !== ""));
-  /** effective catalog: the local override wins over the server copy */
-  const catalog = $derived(buildCatalogView(localCatalog ?? data.instructions, entryKeys));
+  /** effective catalog: the local RxDB copy (seeded, imported, or edited) */
+  const catalog = $derived(buildCatalogView(localCatalog, entryKeys));
 
   function flatten(nodes: CatalogView[], out: CatalogView[] = []) {
     for (const n of nodes) {
@@ -706,7 +706,7 @@
   }
   function startEditCat(): void {
     catMsg = "";
-    draft = plainClone(localCatalog ?? data.instructions);
+    draft = plainClone(localCatalog);
     editCat = true;
   }
   function cancelCat(): void {
@@ -760,12 +760,12 @@
   let catIoMsg = $state("");
 
   function exportCatJson(): void {
-    const instr = localCatalog ?? data.instructions;
+    const instr = localCatalog;
     if (!instr) return;
     downloadText(`${data.folder}-devices.json`, JSON.stringify(instr, null, 2), "application/json");
   }
   function exportCatQdc(): void {
-    const instr = localCatalog ?? data.instructions;
+    const instr = localCatalog;
     if (!instr) return;
     downloadText(
       `${data.folder}.qdc`,
@@ -1510,13 +1510,13 @@
               <div class="cathd">
                 <h2>
                   Frame devices
-                  {#if !editCat && (data.instructions !== null || localCatalog !== null)}
+                  {#if !editCat && localCatalog !== null}
                     <button type="button" class="editcat" aria-label="edit devices" onclick={startEditCat}>
                       <span class="material-symbols-rounded" aria-hidden="true">edit</span>Edit
                     </button>
                   {/if}
                 </h2>
-                {#if !editCat && (data.instructions !== null || localCatalog !== null)}
+                {#if !editCat && localCatalog !== null}
                   <div class="cattools">
                     <button type="button" class="cattool" onclick={exportCatJson} title="export frame devices as JSON">
                       <span class="material-symbols-rounded" aria-hidden="true">file_download</span>json
@@ -1556,11 +1556,8 @@
                       <span class="material-symbols-rounded" aria-hidden="true">add</span>new device
                     </button>
                     {#if localCatalog !== null}
-                      <button
-                        type="button"
-                        class="catcancel"
-                        onclick={resetCat}
-                        title="discard local edits and use the server catalog">server copy</button
+                      <button type="button" class="catcancel" onclick={resetCat} title="discard the local catalog"
+                        >remove catalog</button
                       >
                     {/if}
                     {#if catMsg}<span class="msg err">{catMsg}</span>{/if}

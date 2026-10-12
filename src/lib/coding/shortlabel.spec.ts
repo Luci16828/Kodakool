@@ -39,7 +39,7 @@ describe("shortSlugs", () => {
 
   it("produces a unique slug for every frame device in the catalog", () => {
     const instr = JSON.parse(
-      readFileSync(new URL("../../../coding/test/.INSTRUCTIONS.json", import.meta.url), "utf8"),
+      readFileSync(new URL("../assets/examples/frame-devices.json", import.meta.url), "utf8"),
     ) as { devices: { name: string; children?: { name: string; children?: never }[] }[] };
     const names: string[] = [];
     const walk = (ds: { name: string; children?: { name: string }[] }[]): void => {

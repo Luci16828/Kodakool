@@ -8,6 +8,12 @@ declare global {
     // interface PageState {}
     // interface Platform {}
   }
+
+  // Vite's `?raw` imports (bundled example assets)
+  declare module "*?raw" {
+    const content: string;
+    export default content;
+  }
 }
 
 export {};
