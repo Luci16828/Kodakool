@@ -1,0 +1,194 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<CodeBook xmlns="urn:QDA-XML:codebook:1.0" xsi:schemaLocation="urn:QDA-XML:codebook:1.0 Codebook.xsd" origin="QualCoder" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+<Codes>
+<Code guid="29f7e5d1-10fc-420e-8a1d-b09d19fc2976" name="1. Männer sind Schweine" isCodable="false">
+<Code guid="69411e08-2d8f-4bdd-bc68-3104e4e6d899" name="1.1 Was ist das zentrale Problem mit Transmenschen?" isCodable="false">
+<Code guid="751fdbb0-3b9f-4425-ada2-c36943f3d607" name="1.1.1 Männer nutzen das SBGG aus" isCodable="true" color="#00FF7F" />
+<Code guid="c4047b2e-0be7-41c0-9513-ea277ffca4b2" name="1.1.2 und schaden dadurch Frauen" isCodable="true" color="#00FF7F" />
+</Code>
+<Code guid="32901121-05c1-4be9-b70f-3b1c58d657e3" name="1.2 Was ist die Ursache des Problems?" isCodable="false">
+<Code guid="740d17a3-3309-40fc-abaa-c09521608058" name="1.2.1 Männer, die sich als Transfrauen ausgeben" isCodable="true" color="#FF6F00" />
+<Code guid="f6cd3579-b607-45b9-bc6a-87d9e0917e16" name="1.2.2 haben Zugang zu frauenexklusiven Räumen" isCodable="true" color="#FF6F00" />
+<Code guid="c9e57a9a-570f-4f35-bb93-41f897f83fc8" name="1.2.3 wie Saunen, Umkleiden oder Gefängnissen für Frauen" isCodable="true" color="#FF6F00" />
+<Code guid="d6704d53-3373-46d8-8e7d-d09321430365" name="1.2.4 und können dort Frauen" isCodable="true" color="#FF6F00" />
+<Code guid="53106f85-a026-4235-b664-f790e3ff8bf5" name="1.2.6 Zudem werden dadurch effektiv Gleichstellungsgesetze und Richtlinien (z. B. im Sport) abgeschafft" isCodable="true" color="#FF6F00" />
+<Code guid="b32eeb92-456c-4cc3-ba60-ec991ed5a82c" name="1.2.5 und Mädchen schaden." isCodable="true" color="#FF6F00" />
+</Code>
+<Code guid="4acabf5c-2259-4127-bd5d-85868d2e31ff" name="1.3 Verantwortlich dafür " isCodable="false">
+<Code guid="5531fc9d-dd34-4148-9a3b-8a88551fe0ad" name="1.3.7 Gender / Trans-Ideologie + Trans-Lobby" isCodable="false">
+<Code guid="c22daad6-718d-4100-8806-f66c28542671" name="1.3.7.1 bestehend aus Queer-/Transaktivisten (die nicht alle trans sein müssen!)" isCodable="true" color="#F2F5A9" />
+<Code guid="791f4b07-6e0f-4208-81f4-e5d7de4f92e2" name="1.3.7.2 stehen untereinander + Teilen der q. Com. in Konflikt." isCodable="true" color="#F2F5A9" />
+</Code>
+<Code guid="6c06df1a-b380-4dba-ac47-e64b0d82bfac" name="1.3.5. Gender-/Queer-/ Trans-theorie" isCodable="false">
+<Code guid="b0cd3252-8599-4771-82ce-5199634480ec" name="1.3.5.1 ist die Gender-/Queer-/ Trans-theorie," isCodable="true" color="#CAA8EB" />
+<Code guid="f825fedb-2935-4334-9c35-7e38db3ac293" name="1.3.5.2 Diagnose Trans heißt gender Selbstbe." isCodable="true" color="#CAA8EB" />
+</Code>
+<Code guid="497d2a2a-3b1a-440d-ad05-c62a576400fd" name="1.3.1 ist die Regierung" isCodable="true" color="#E65100" />
+<Code guid="2c421bec-b86d-4fcc-8e40-5e7bc3685392" name="1.3.2 da sie das SBGG zulässt" isCodable="true" color="#E65100" />
+<Code guid="4b858809-b619-4bfc-be64-a489e48f3039" name="1.3.3 und insbesondere die Self-ID" isCodable="true" color="#E65100" />
+<Code guid="3de8a3b5-1e30-4102-8a1d-9498a97b1d56" name="1.3.4 der ÖRR" isCodable="true" color="#E65100" />
+<Code guid="04d4d933-b752-475f-877b-40520c951a3a" name="1.3.6 ist die  Gender / Trans-Ideologie" isCodable="true" color="#E65100" />
+<Code guid="059bd8c0-d11f-41f3-83cf-01ad0a0c2582" name="1.3.5 ist die  Trans-Lobby" isCodable="true" color="#E65100" />
+</Code>
+<Code guid="e924e2ee-b83d-4d37-9d93-361c8183e216" name="1.4 Wie wird das Problem bewertet?" isCodable="false">
+<Code guid="e203f989-d0cf-499c-9f6c-dfa85202dbd9" name="1.4.4 echte Trans Menschen" isCodable="false">
+<Code guid="e9fb3392-d090-4e81-8a91-7171af19052e" name="1.4.4.1 Es gibt echte Trans- bzw. Intermensche (Erwachende)" isCodable="true" color="#58FAF4" />
+<Code guid="be893ca1-ddd7-43ff-a187-2c056897af2c" name="1.4.4.3 meisten lieden sie und ihnen soll geholfen werden" isCodable="true" color="#58FAF4" />
+<Code guid="52fb1068-0a17-4a99-89cf-5d46dde7a778" name="1.4.4.4 sie sind aber die Ausnhme." isCodable="true" color="#58FAF4" />
+<Code guid="cc300986-d8bb-4aa1-9ad3-468f1e23e603" name="1.4.4.2 die sind nicht das Problem" isCodable="true" color="#58FAF4" />
+</Code>
+<Code guid="49ca45fe-f12d-4d9c-a585-c051ad901473" name="1.4.1 Das binäre Geschlechtersystem ist das richtige" isCodable="true" color="#880E4F" />
+<Code guid="5ecb9c46-9118-4e9b-bf17-93f5ae971f1e" name="1.4.2 und basiert auf biologischen Fakten" isCodable="true" color="#880E4F" />
+<Code guid="29f3a0d0-fd22-41ad-b673-678e90c036a2" name="1.4.3 die abgeschafft werden sollen" isCodable="true" color="#880E4F" />
+</Code>
+<Code guid="8f50cce1-a19b-4eff-9f80-da0c159aece4" name="1.5 Was soll getan oder nicht getan werden?" isCodable="false">
+<Code guid="1fd8e126-b559-4655-b729-8263395cad4b" name="1.5.1 Das SBGG sollte abgeschafft" isCodable="true" color="#FA58F4" />
+<Code guid="73f433c3-daa3-4d04-8c8a-c98cb2fd5ea5" name="1.5.2 oder zumindest ohne Self-ID sein" isCodable="true" color="#FA58F4" />
+<Code guid="1eab9e89-245f-426d-bd5e-6439767d1816" name="1.5.3 sodass Hürden beim Geschlechtswechsel bestehen bleiben" isCodable="true" color="#FA58F4" />
+</Code>
+<Code guid="8492c7c7-f9be-40c4-834e-b6a4793db1d1" name="1.6 Frame-Elemente" isCodable="false">
+<Code guid="223bcab3-f912-466b-89e7-ac3d1743e688" name="1.6.9 zur Rhetorik:" isCodable="false">
+<Code guid="f2e9af9d-4ff9-40db-9fb5-1b9552243821" name="1.6.9.1 Kultur KAMPF (Kriegsrethorik)" isCodable="true" color="#9AFE2E" />
+</Code>
+<Code guid="3180c802-b209-4cad-aa4c-a11587d0871f" name="1.6.1 Missbrauch wird Tür und Tor geöffnet" isCodable="true" color="#9AFE2E" />
+<Code guid="bdda2a47-ff43-42fa-ad84-15be3c7dc871" name="1.6.2 Frauensaunen" isCodable="true" color="#9AFE2E" />
+<Code guid="b9d1a0ab-0227-430e-b1c9-09fc962e2377" name="1.6.3 Ignorieren bzw. Abschaffen biologischer Fakten" isCodable="true" color="#9AFE2E" />
+<Code guid="29117eb1-aa77-4cc8-a585-b3eb5b11caae" name="1.6.4 Absichtliches Misgendern, Deadnaming und Outing von Transmenschen" isCodable="true" color="#9AFE2E" />
+<Code guid="6f141538-c10e-41ff-a336-abb38c64d435" name="1.6.5 Geschlechtsrevisionismus" isCodable="true" color="#9AFE2E" />
+<Code guid="761db866-19bb-4f92-9dc6-82a432dc9fb7" name="1.6.7 homonationallist" isCodable="true" color="#9AFE2E" />
+<Code guid="1ec781e3-9d3b-43d4-9e71-96be23300007" name="1.6.6 Gender-/Queer-/Trans-aktivisten" isCodable="true" color="#9AFE2E" />
+</Code>
+</Code>
+<Code guid="df8945c3-c28e-4986-a97b-d4cba6bffd45" name="2. Transkinder Frame" isCodable="false">
+<Code guid="e796ee72-17b3-4af1-b3f1-7de48a1f5c45" name="2.1 Was ist das zentrale Problem mit Transmenschen?" isCodable="false">
+<Code guid="7a97340c-bca5-4d3f-bc5c-9d47dfadde34" name="2.1.1 Problematisch sind Transkinder die eigentlich gar nicht trans sind  " isCodable="true" color="#00FF7F" />
+<Code guid="9a9d4098-f971-47b4-bc30-b0ed660d0ca6" name="2.1.2 besonders Transjungen" isCodable="true" color="#00FF7F" />
+<Code guid="a2d13acb-6e3d-48f7-808f-fb9e526a2053" name="2.1.3 und später ihre Transition bereuen werden." isCodable="true" color="#00FF7F" />
+<Code guid="1c36a611-670f-4891-aba6-19817ed451ac" name="2.1.4 " isCodable="true" color="#00FF7F" />
+</Code>
+<Code guid="09e322f2-ea8f-483c-a298-441a095ed62f" name="2.2 Die Ursache dafür ist" isCodable="false">
+<Code guid="b069fd19-7a1c-4345-8d23-c22e0796f065" name="wodurch Kinder und Jugendliche" isCodable="false">
+<Code guid="655d4404-e57c-49e8-b48c-5af2cb88d1f5" name="2.2.9.1 immer häufiger, transitionieren." isCodable="true" color="#FF6F00" />
+<Code guid="5a14fecf-422a-4ee3-ba4b-e43bc2dcb58d" name="2.2.9.2 oft zu schnell, transitionieren." isCodable="true" color="#FF6F00" />
+<Code guid="a2347cd1-a519-4479-a3c1-2b9847f37708" name="2.2.9.3 medizinisch und rechtlich parallel transitionieren." isCodable="true" color="#FF6F00" />
+<Code guid="09a45ffc-d612-4942-8fb3-63468ea20a7d" name="2.2.9.4 sowie vollkommen überraschend transitionieren." isCodable="true" color="#FF6F00" />
+</Code>
+<Code guid="9ebf4231-1e3e-4517-a101-ff02d9812dae" name="2.2.1 ein Hype, Trend oder eine Mode," isCodable="true" color="#FF6F00" />
+<Code guid="69386d55-5109-4bca-a04f-739fefad337b" name="2.2.2 ein übermäßiges Hineinsteigern in eine Entwicklungsphase" isCodable="true" color="#FF6F00">
+<Description>Wahlweise auch als „Trans-Mode“ oder „Trans-Hype“ bezeichnet.</Description>
+</Code>
+<Code guid="98ae34a6-4e1e-4f6b-8135-6a0a4d1d611c" name="2.2.3 ein schädliche Körperbilder" isCodable="true" color="#FF6F00" />
+<Code guid="a1a269b3-454f-42e0-87e8-b25cca3be901" name="2.2.4 schädliche Körperbilder" isCodable="true" color="#FF6F00" />
+<Code guid="5178f6f0-c4b9-4e4f-86d5-7b3a2703f242" name="2.2.5 eine unterdrückte oder fehlinterpretierte Homosexualität" isCodable="true" color="#FF6F00" />
+<Code guid="df515aaf-6e76-4523-b97b-db8a5b51af3b" name="2.2.6 die kindliche Unfähigkeit," isCodable="true" color="#FF6F00" />
+<Code guid="29845390-f687-4ce5-a7f9-9e80de63d65a" name="2.2.0" isCodable="true" color="#FADCCC" />
+</Code>
+<Code guid="213c68da-c9c2-4d06-b2ac-5b121912e83f" name="2.3 Verantwortlich dafür " isCodable="false">
+<Code guid="e0d10bf0-6322-4f53-8440-57b091225191" name="2.3.1 ist die  Gender / Trans-Ideologie" isCodable="true" color="#E65100" />
+<Code guid="fb7be93f-04da-4117-bf64-352eb1ea9431" name="2.3.2 ist die  Trans-Lobby" isCodable="true" color="#E65100">
+<Description>Trans freudnlich debdeuet geht dabei mit dem bahlehen der biologischen Geschtchsbestimmung einher
+</Description>
+</Code>
+<Code guid="e20afba9-735f-4f6f-9fa1-b56d4d549bbb" name="2.3.3  ist die Regierung (SPD,Grüne,FDP)" isCodable="true" color="#E65100">
+<Description>Kritiker werden angefeindet und Menschen, die Transgeschlechtlichkeit infrage stellen, verklagt.</Description>
+</Code>
+<Code guid="85967191-0ea7-48d7-a905-fbfee24fba98" name="2.3.4 die das SBGG (mit Slf-ID) verantwortet." isCodable="true" color="#E65100" />
+<Code guid="d6813baf-9676-448a-93b2-721791d77ff1" name="2.3.5 Psychologen und Ärzte," isCodable="true" color="#E65100" />
+<Code guid="eba2579f-ef30-4256-80aa-4b15230e078b" name="2.3.6 die Transkinder unzureichend hinterfragen und" isCodable="true" color="#E65100" />
+<Code guid="6c64bd67-9177-4099-adbc-48a9db36d8e5" name="2.3.7 dadurch zu schnell eine medizinische Transition ermöglichen." isCodable="true" color="#E65100" />
+<Code guid="cc5b5cd5-4f4e-4f3c-a228-626883ac1aa1" name="2.3.8 ist der ÖRR" isCodable="true" color="#E65100" />
+</Code>
+<Code guid="bcfb59d2-4de6-4e55-96cb-560ba5a235be" name="2.4 Moralische Bewertung:" isCodable="false">
+<Code guid="af1368e0-d8c4-4433-995c-62ce8e019717" name="2.4.1 Die Translobby und Gender-/Trans-Ideologie" isCodable="false">
+<Code guid="25f0b29b-79ce-4f89-bf10-15b7f7f7d652" name="2.4.1.1 sind links bzw. linksradikal." isCodable="true" color="#880E4F" />
+<Code guid="e0695626-0133-4dcb-9786-81ba6d029f4f" name="2.4.1.2 unterdrücken bzw. sanktionieren Kritik und Bedenken." isCodable="true" color="#880E4F" />
+</Code>
+<Code guid="b0d337bf-b3b7-4135-8688-3138cafba83f" name="2.4.2 Kinder sind" isCodable="false">
+<Code guid="40e4798f-e4c5-42aa-be84-528ced4d5593" name="2.4.2.2  unschuldige" isCodable="true" color="#880E4F" />
+<Code guid="04c933fd-4198-40b5-8485-c9065ad00f2f" name="2.4.2.1 unwissende" isCodable="true" color="#880E4F" />
+<Code guid="38417544-dccc-47f5-8ab4-394613cc8358" name="2.4.2.3 Opfer," isCodable="true" color="#880E4F" />
+<Code guid="d0cecfcc-fdb5-4384-b396-72cfc497e203" name="2.4.2.4 da sie die größten Schäden und das größte Leid davontragen." isCodable="true" color="#880E4F" />
+</Code>
+<Code guid="dbdd05c3-e8c4-4542-99e5-18aef20f4342" name="2.4.3 Eltern" isCodable="false">
+<Code guid="eec77096-8471-4086-a36a-057e7dba24e3" name="2.4.3.1 sind hilflos" isCodable="true" color="#880E4F" />
+<Code guid="e7a682eb-401c-4e4a-aeb5-cc3bccb68d49" name="2.4.3.2 und können ihre Kinder nicht vor dem Transsein schützten." isCodable="true" color="#880E4F" />
+</Code>
+<Code guid="b9fbb98f-0ace-4b94-a2ec-2315a955bf55" name="2.4.1" isCodable="true" color="#880E4F" />
+<Code guid="877dd034-5d55-4fc1-9a02-04d7e1595dc2" name="2.4.2" isCodable="true" color="#880E4F" />
+<Code guid="bbe479b2-832e-4004-8fd9-9617a165a789" name="2.4.5 Es gibt echte Trans- bzw. Interpersonen" isCodable="true" color="#880E4F" />
+<Code guid="2cc27dc6-1405-47b9-b39f-b14a6aa2dcd5" name="2.4.4" isCodable="true" color="#E7CEDB" />
+<Code guid="b0a8704d-6994-4055-9263-dd675f25d094" name="2.4.3 " isCodable="true" color="#E7CEDB">
+<Description>Indirekte erwähnungen wie Trankinder  haben häufig pyschische erkrankungen reicht aus. 
+</Description>
+</Code>
+<Code guid="47739c13-d25b-4c49-83a8-7926e4e88c68" name="2.4.6 Familien werden bedroht." isCodable="true" color="#880E4F" />
+<Code guid="1f8e2e4b-ae40-4416-a637-2ca4990185da" name="2.4.7" isCodable="true" color="#E7CEDB" />
+<Code guid="9ee9f777-a5c9-4737-894b-a960105fc2b0" name="2.4.8" isCodable="true" color="#E7CEDB" />
+</Code>
+<Code guid="950f081b-e8fe-4e22-b2e1-098e291c785a" name="2.5 Das Problem ist zu lösen, indem Kinder" isCodable="false">
+<Code guid="3c135cff-c38e-4c16-b320-9a9601d71408" name="2.5.1 so wenig wie möglich mit dem Thema Geschlecht konfrontiert werden." isCodable="true" color="#FA58F4" />
+<Code guid="4763bdd3-7511-42f8-b2f1-492eca551585" name="2.5.2 keinen Zugang zu geschlechtsangleichen-den Maßnahmen haben." isCodable="true" color="#FA58F4" />
+<Code guid="882f8bd5-c940-42e5-bb79-ab4134e8c0a8" name="2.5.3 von den Neuregelungen des SBGG ausgeschlossen werden" isCodable="true" color="#FA58F4" />
+<Code guid="f39920ce-f35a-4b77-a94a-6cd52b49aa3f" name="2.5.4 oder zumindest ihr Geschlecht nicht selbst bestimmen können." isCodable="true" color="#FA58F4" />
+</Code>
+<Code guid="f1f3fd81-5900-4741-882f-9d8adefabd8c" name="2.6 Frame-Elemente" isCodable="false">
+<Code guid="ce67dff8-6f6c-4fdf-b668-c897a5fb5637" name="2.6.2 zur Rhetorik:" isCodable="false">
+<Code guid="b5192d5c-6e87-472f-a6a6-73fc5f40bd45" name="2.6.2.1 Sucht-Rhetorik / Devianz-Diskurs" isCodable="true" color="#C54949" />
+<Code guid="d9bd3dc6-d12f-44e9-bb31-41f095f878f0" name="2.6.2.2 Kultur KAMPF (Kriegsrethorik)" isCodable="true" color="#C54949" />
+</Code>
+<Code guid="eee4a1f5-99fa-4a4d-abad-ce558daa41ee" name="2.6.3 zur Trans-/Genderbewegung: " isCodable="false">
+<Code guid="8d270108-1898-4bee-a8f6-606cfcb68e9b" name="2.6.3.1 Gender/Transideologie" isCodable="true" color="#C54949" />
+<Code guid="bcaf83b3-b649-404e-bd62-83e91a496dc5" name="2.6.3.2 Translobby" isCodable="true" color="#C54949" />
+<Code guid="752b85d5-86ba-4d25-9328-0d4bf1aa9b9f" name="2.6.3.3 Regenbogen (Deutschland)" isCodable="true" color="#C54949" />
+</Code>
+<Code guid="19a98070-9c48-4972-a4ec-d580b7b2b5aa" name="2.6.1 Ablehnung der Transidentität von Transkindern" isCodable="true" color="#C54949" />
+<Code guid="f6b2adde-182b-411e-ba1d-0d69818dff83" name="2.6.3 " isCodable="true" color="#F0D1D1" />
+<Code guid="0f955894-f0ad-4aeb-8ec1-16f01ac2cee5" name="2.6.2 " isCodable="true" color="#F0D1D1" />
+<Code guid="f63ff6a7-1556-4f71-93c1-c1ca63012c87" name="2.6.4 Transaktivisten" isCodable="true" color="#C54949" />
+<Code guid="cf58252d-2732-4a7a-8d1c-567a8bfd037c" name="2.6.5 " isCodable="true" color="#F0D1D1" />
+<Code guid="5554df95-73c4-4b56-96e3-3071103c4a27" name="2.6.6 " isCodable="true" color="#F0D1D1" />
+<Code guid="3a766ab5-deb2-4f3a-a0e8-c9202499a3a9" name="2.6.7 " isCodable="true" color="#F0D1D1" />
+<Code guid="e8c7d2bd-803a-467d-90e9-2aca6bef717e" name="2.6.8 " isCodable="true" color="#F0D1D1" />
+<Code guid="541a80d5-c55d-4cc9-a8a4-b98865e6574d" name="2.6.0 Geschlechtsidentität ist nur ein Sprechakt" isCodable="true" color="#C54949" />
+</Code>
+</Code>
+<Code guid="f58f3a6e-5fb8-445a-ad7a-00a1c8da2b49" name="3. Victim Frame" isCodable="false">
+<Code guid="5852c765-de86-4810-9279-69025df43926" name="3.1 Was ist das zentrale Problem mit Transmenschen?" isCodable="false">
+<Code guid="ea283bc8-3224-4b27-b220-6f5a89f8493b" name="3.1.1 Transmenschen sind eine diskriminierte Minderheit" isCodable="true" color="#00FF7F" />
+</Code>
+<Code guid="1aaa0cee-56b6-41b2-8fd6-9e1f2c73e581" name="3.2 Was ist die Ursache des Problems?" isCodable="false">
+<Code guid="0ab130b6-9e18-42c3-9dd1-115139ff7ce1" name="3.2.1 TM haben nicht dieselben Greundreche wie andere" isCodable="true" color="#FF6F00" />
+<Code guid="5d221174-0edd-4131-b129-e5efcab625fb" name="3.2.2 wodurch sie durch das TSG" isCodable="true" color="#FF6F00" />
+<Code guid="f4c7fa16-e346-4c70-8bb9-8762af0d7aad" name="3.2.3 Gewalt" isCodable="true" color="#FF6F00" />
+<Code guid="9e409cd4-9ddd-4d41-99f6-a7fe98bc708a" name="3.2.4 eine unzureichende medizinische Versorgung und" isCodable="true" color="#FF6F00" />
+<Code guid="a4398e66-727d-4127-9517-f1a9c6f53b74" name="3.2.5 falsche Anschuldigungen diskriminiert werden." isCodable="true" color="#FF6F00" />
+<Code guid="9dbd9b9a-d8fd-4a08-bf21-bdb29a849e0d" name="3.2.6 " isCodable="true" color="#FF6F00" />
+</Code>
+<Code guid="c4d36189-dfcd-4be2-9109-c13460fe14c2" name="3.3 Wer verursacht das Problem?" isCodable="false">
+<Code guid="d5efcf59-2601-4fd8-94ae-2b323f45e8f9" name="3.3.1 Verantwortlich sind Transfeindliche Gruppen wie" isCodable="true" color="#E65100" />
+<Code guid="71c4e45b-b249-4f7a-9339-dc7b8b0e6d92" name="3.3.2 (Trans-Exclusionary Radical-) Feministen" isCodable="true" color="#E65100" />
+<Code guid="ab27b8ff-c902-492a-af95-32f6e6d3b209" name="3.3.3 oder Rechte/konservative Parteien." isCodable="true" color="#E65100" />
+</Code>
+<Code guid="a079c8be-7e8e-4dd2-82e0-54b533436f92" name="3.4 Wie wird das Problem bewertet?" isCodable="false">
+<Code guid="9340e3ab-7b2c-4e57-bb08-cc849f858660" name="3.4.1 Transmenschen litten unter dem TSG" isCodable="true" color="#880E4F" />
+<Code guid="23961ef6-765e-483b-aadb-209b7f94fd12" name="3.4.2 und ihnen wurde nicht geholfen." isCodable="true" color="#880E4F" />
+<Code guid="165de091-6547-45c9-865e-0f17e2f35be4" name="3.4.3 Umso wichtiger ist die Hilfe, die jetzt kommt." isCodable="true" color="#880E4F" />
+</Code>
+<Code guid="fac21e68-4e34-4011-943e-aac465bf057a" name="3.5 Was soll getan oder nicht getan werden?" isCodable="false">
+<Code guid="63d33adb-7b1c-4756-bdf6-cc8e4d6d44fb" name="3.5.1 Tranreche Müssen gestärkt werden" isCodable="true" color="#FA58F4" />
+<Code guid="d2b81426-9aca-417b-a566-e6e24c96f391" name="3.5.2 durch die abschaffung des TSG" isCodable="true" color="#FA58F4" />
+<Code guid="60b3a75b-60e4-4659-abf1-9b7458f3a624" name="3.5.3 und der Einführung des SBGG" isCodable="true" color="#FA58F4" />
+<Code guid="0cd5b7ee-b84b-4e2b-9c5e-db56f8265e95" name="3.5.4 (expitzit (mit)) Self-ID" isCodable="true" color="#FA58F4" />
+<Code guid="ff64e04c-05be-4a2b-9e5a-4cfc259640a5" name="3.5.5 ausbbau von Berautung" isCodable="true" color="#FA58F4" />
+</Code>
+<Code guid="a3204749-78ed-4c6e-9ada-8713ed2f4906" name="3.6 Frame-Elemente" isCodable="false">
+<Code guid="9f3677d9-756f-476e-9b5b-eb41e34a695b" name="3.6.1 Scheingutachten" isCodable="true" color="#C54949" />
+<Code guid="1b597829-4e40-4c8f-a66c-73e6e86b9c67" name="3.6.2 TSG entwürdigt" isCodable="true" color="#C54949" />
+<Code guid="fa144d13-39a4-4144-850f-da015541704a" name="3.6.3 Fremdbestimmung" isCodable="true" color="#C54949" />
+<Code guid="6e8cc4e7-1828-418e-bda3-857a5e70311b" name="3.6.4 Entmündigung" isCodable="true" color="#C54949" />
+<Code guid="78702b22-7ab2-483c-9dad-5c8d7ce4a7ba" name="3.6.5 Mangel an Grundrechten" isCodable="true" color="#C54949" />
+<Code guid="9e25e685-acdf-411e-bf63-6be8d1901a48" name="3.6.6 Solidarisierung" isCodable="true" color="#C54949" />
+</Code>
+</Code>
+</Codes>
+</CodeBook>

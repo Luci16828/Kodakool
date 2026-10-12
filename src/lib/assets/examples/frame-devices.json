@@ -1,0 +1,785 @@
+{
+  "version": 1,
+  "title": "Kodieranweisungen",
+  "devices": [
+    {
+      "id": "1a65646a-1988-499d-b68e-2800fa296158",
+      "name": "Problemdefinition",
+      "kind": "device",
+      "examples": [],
+      "children": [
+        {
+          "id": "31f52015-4574-4f37-8f05-3be592d94065",
+          "name": "Kinder und Jugendliche transitionieren, obwohl ihr Transitionswunsch nicht auf einer dauerhaften transgeschlechtlichen Identität beruht",
+          "kind": "device",
+          "rule": "Immer dann codieren, wenn Transitionswünsche von Kindern oder Jugendlichen als möglicherweise vorübergehend, entwicklungsbedingt, fehlgeleitet oder nicht Ausdruck einer dauerhaften transgeschlechtlichen Identität dargestellt werden.",
+          "examples": [
+            {
+              "text": "„Außerdem gehe die Studie fälschlich davon aus, dass Jugendliche ihren Transitionswunsch im Erwachsenenalter so gut wie nie aufgeben.“",
+              "source": null
+            },
+            {
+              "text": "„Besonders problematisch ist die voraussetzungslose Änderung von Geschlecht und Namen bei Kindern und Jugendlichen. Bei diesen ist zu befürchten, dass sie altersbedingte Persönlichkeitszweifel und Pubertätsphasen mit einem rechtlichen Geschlechtswechsel begegnen und in der Folge geschlechtsangleichende Maßnahmen vornehmen, die sie zu einem späteren Zeitpunkt bitter bereuen.“",
+              "source": null
+            },
+            {
+              "text": "„Aber natürlich bleibt die bange Frage [...]: was, wenn es die falsche Entscheidung war? Wenn sich das Kind, der Jugendliche später mit seinem biologischen Geschlecht ausgesöhnt hätte?“",
+              "source": null
+            },
+            {
+              "text": "„Doch nur bei einem kleinen Teil der Minderjährigen, die sich als ‚trans‘ outen, liege eine transsexuelle Entwicklung vor.“",
+              "source": null
+            },
+            {
+              "text": "„Was ja das Schicksal der Britin Keira Bell ist. Ihr wurden im Jugendalter Hormone verabreicht [...] ehe sie erkannte, dass sie doch eine Frau ist, eine lesbische Frau.“",
+              "source": null
+            }
+          ],
+          "children": []
+        }
+      ]
+    },
+    {
+      "id": "ee15e210-4808-46d8-97e6-0c342d0fc1e2",
+      "name": "Ursachenzuschreibung",
+      "kind": "device",
+      "note": "Eine Ursachenzuschreibung wird codiert, wenn im Text erklärt wird, **warum Kinder oder Jugendliche einen Transitionswunsch entwickeln bzw. warum es zu einer Transition kommt**.",
+      "examples": [],
+      "children": [
+        {
+          "id": "847c4079-1958-49fe-92e8-c7547308be18",
+          "name": "Falsche Hoffnungen oder Vorstellungen vom Transsein",
+          "kind": "device",
+          "rule": "Immer dann codieren, wenn unrealistische, falsche oder überhöhte Vorstellungen über Transsein oder Transition als Ursache für einen Transitionswunsch dargestellt werden.",
+          "examples": [
+            {
+              "text": "„In den Medien berichten Vorbilder euphorisch über ihre angeblich unkomplizierte medizinische Transition. Es wird so getan, als sei mit der Durchführung einer Geschlechtsangleichung das Paradies auf Erden erreicht.“",
+              "source": null
+            }
+          ],
+          "children": []
+        },
+        {
+          "id": "207fb203-a62f-4b8d-a732-b1db439c1e5e",
+          "name": "Rollenbilder oder Rollenverständnisse",
+          "kind": "device",
+          "rule": "Immer dann codieren, wenn gesellschaftliche, geschlechtliche oder familiäre Rollenbilder bzw. ein problematisches Rollenverständnis als Ursache für einen Transitionswunsch dargestellt werden.",
+          "examples": [
+            {
+              "text": "„Es bestand Grund zur Annahme, dass diese Mutter für ihre Tochter nicht als positives weibliches Rollenmodell zur Verfügung stand. Und dass es an der Schwelle zur Pubertät zu der irrtümlichen Überzeugung gelangt: ‚Ich bin trans.‘“",
+              "source": null
+            },
+            {
+              "text": "„Es ist in bestimmten Szenen hip, trans zu sein. Und davon fühlen sich in allererster Linie weibliche Jugendliche angesprochen, die [...] unter den gesellschaftlichen Rollenklischees [...] leiden.“",
+              "source": null
+            }
+          ],
+          "children": []
+        },
+        {
+          "id": "4bd848e8-c736-4532-bb31-0cf5bb9bd8ce",
+          "name": "Hype, Trend oder Mode",
+          "kind": "device",
+          "rule": "Immer dann codieren, wenn ein gesellschaftlicher Trend, Hype oder eine Mode als Ursache dafür dargestellt wird, dass Kinder oder Jugendliche trans sein wollen oder sich als trans identifizieren.",
+          "examples": [
+            {
+              "text": "„Sie sagen, trans ist Mode?“",
+              "source": null
+            },
+            {
+              "text": "„Es ist in bestimmten Szenen hip, trans zu sein.“",
+              "source": null
+            },
+            {
+              "text": "„Von einem ‚Transgender-Hype‘ berichtete die Kinder- und Jugendmedizinerin der Ruhr-Uniklinik Annette Richter-Unruh schon 2019 in der FAZ.“",
+              "source": null
+            },
+            {
+              "text": "„Die Emma-Erfinderin, im vergangenen Dezember 80 Jahre alt geworden, griff darin den aktuellen Trans-Trend massiv an.“",
+              "source": null
+            }
+          ],
+          "children": []
+        },
+        {
+          "id": "40cdff75-a66f-4777-8008-a4a03d9e8804",
+          "name": "Entwicklungsphase oder Pubertät",
+          "kind": "device",
+          "rule": "Immer dann codieren, wenn eine Entwicklungsphase – insbesondere die Pubertät – als Ursache dafür dargestellt wird, dass Kinder oder Jugendliche einen Transitionswunsch entwickeln oder ihre Geschlechtsidentität infrage stellen.",
+          "examples": [
+            {
+              "text": "„Und dass es an der Schwelle zur Pubertät zu der irrtümlichen Überzeugung gelangt: ‚Ich bin trans.‘“",
+              "source": null
+            },
+            {
+              "text": "„Hat nicht jeder in der Pubertät eine schwierige Phase? Ist das Hadern mit seinem Geschlecht nicht normal?“",
+              "source": null
+            },
+            {
+              "text": "„Es geht darum, sich nicht von einer phasenweise bestehenden Verunsicherung in die Irre leiten zu lassen.“",
+              "source": null
+            },
+            {
+              "text": "„Doch nur bei einem kleinen Teil der Minderjährigen, die sich als ‚trans‘ outen, liege eine transsexuelle Entwicklung vor. Sie würden vielmehr an den Herausforderungen der Pubertät scheitern.“",
+              "source": null
+            }
+          ],
+          "children": []
+        },
+        {
+          "id": "87f39e63-ae1c-4551-8107-367e4cce2ab1",
+          "name": "Schönheitsideale",
+          "kind": "device",
+          "rule": "Immer dann codieren, wenn gesellschaftliche Schönheitsideale oder Vorstellungen vom Aussehen als Ursache für einen Transitionswunsch dargestellt werden.",
+          "examples": [
+            {
+              "text": "„Es ist in bestimmten Szenen hip, trans zu sein. Und davon fühlen sich in allererster Linie weibliche Jugendliche angesprochen, die [...] unter den [...] Schönheitsidealen leiden.“",
+              "source": null
+            },
+            {
+              "text": "„Die rigiden Schönheitsideale tragen ihren Teil dazu bei.“",
+              "source": null
+            }
+          ],
+          "children": []
+        },
+        {
+          "id": "1ca7b88e-4b8d-47e8-8610-3e03ec790165",
+          "name": "Homosexualität",
+          "kind": "device",
+          "rule": "Immer dann codieren, wenn homosexuelle Neigungen, eine unterdrückte Homosexualität oder eine vermeintliche Fehlinterpretation homosexueller Gefühle als Ursache eines Transitionswunsches dargestellt werden.",
+          "examples": [
+            {
+              "text": "„Hinzu kommt, dass sich häufig homosexuelle Neigungen hinter Transitionswünschen verbergen.“",
+              "source": null
+            },
+            {
+              "text": "„Geschlechtsatypisches Verhalten und Geschlechtsidentitätsunsicherheit im Kindesalter deuten häufig auf Homosexualität im Erwachsenenalter hin.“",
+              "source": null
+            },
+            {
+              "text": "„[...] ehe sie erkannte, dass sie doch eine Frau ist, eine lesbische Frau.“",
+              "source": null
+            }
+          ],
+          "children": []
+        },
+        {
+          "id": "61cef421-7f1b-4013-9236-e2c5ab221cb8",
+          "name": "Kindliche Unfähigkeit zur selbstständigen Einschätzung",
+          "kind": "device",
+          "rule": "Immer dann codieren, wenn die mangelnde Fähigkeit von Kindern oder Jugendlichen, die Folgen einer Transition bzw. einer Geschlechtsänderung einzuschätzen, als Ursache oder Begründung für problematische Transitionsentscheidungen dargestellt wird.\n\nHier sind insbesondere Aussagen zu codieren, in denen Kindern oder Jugendlichen die notwendige Reife, Entscheidungsfähigkeit oder Fähigkeit zur Einschätzung langfristiger Folgen abgesprochen wird.",
+          "examples": [],
+          "children": []
+        },
+        {
+          "id": "c02dc4db-34dc-4413-9572-cb70caf50292",
+          "name": "Psychische Erkrankungen oder psychische Belastungen",
+          "kind": "device",
+          "rule": "Immer dann codieren, wenn psychische Erkrankungen, psychische Belastungen oder psychische Probleme als Ursache für einen Transitionswunsch oder eine Geschlechtsdysphorie dargestellt werden.",
+          "examples": [
+            {
+              "text": "„Schwedische Studien zeigen, dass hinter der Ablehnung des eigenen Geschlechts nicht selten komplexe psychische Störungen wie Angststörungen, Depressionen, ADHS oder Autismus stecken.“",
+              "source": null
+            },
+            {
+              "text": "„Bei dem Mädchen stellte sich heraus, sie hat nicht nur ein Problem mit Geschlechtlichkeit, sondern auch eine soziale Phobie und eine Depression.“",
+              "source": null
+            },
+            {
+              "text": "„Es ist in bestimmten Szenen hip, trans zu sein. Und davon fühlen sich in allererster Linie weibliche Jugendliche angesprochen, die [...] sexuell traumatisiert sind.“",
+              "source": null
+            }
+          ],
+          "children": []
+        }
+      ]
+    },
+    {
+      "id": "4df558f2-cdca-4c23-8e32-7644d6d3367e",
+      "name": "Verantwortungszuschreibung",
+      "kind": "device",
+      "note": "Eine Verantwortungszuschreibung wird codiert, wenn im Text **Personen, Gruppen, Institutionen, politische Akteure, Gesetze oder gesellschaftliche Strukturen dafür verantwortlich gemacht werden, dass das zuvor beschriebene Problem entsteht oder fortbesteht**.",
+      "examples": [],
+      "children": [
+        {
+          "id": "13640f08-4c92-47c0-85bb-60db71e326de",
+          "name": "LGBTI+-, Gender-, Trans- oder Queer-Ideologie",
+          "kind": "device",
+          "rule": "Immer dann codieren, wenn eine entsprechende Ideologie als Ursache oder verantwortlicher Akteur für das Problem dargestellt wird.",
+          "examples": [
+            {
+              "text": "„Auch in Europa sind die Auswirkungen der Ideologie aus Übersee bereits spürbar.“",
+              "source": null
+            },
+            {
+              "text": "„Doch die Vertreter der Zunft sind durchideologisiert [...].“",
+              "source": null
+            },
+            {
+              "text": "„[...] wie sie in Phasen psychischer Krisen und pubertärer Identitätsfindung zum Spielball der Transgender-Ideologie wurden.“",
+              "source": null
+            }
+          ],
+          "children": []
+        },
+        {
+          "id": "482c5bbe-2eb9-4cd6-b08e-a4d2c1b7f0fe",
+          "name": "LGBTI+-, Gender-, Trans- oder Queer-Lobby",
+          "kind": "device",
+          "rule": "Immer dann codieren, wenn eine Lobby als verantwortlicher Akteur für das Problem dargestellt wird.",
+          "examples": [
+            {
+              "text": "„Die Trans-Lobby ist die neue Hausmacht im Regenbogen-Deutschland.“",
+              "source": null
+            },
+            {
+              "text": "„Lehmanns Logik ist beispielhaft für die Orwellsche Agenda der Trans-Lobby, deren nächster Coup das Selbstbestimmungsgesetz sein soll.“",
+              "source": null
+            }
+          ],
+          "children": []
+        },
+        {
+          "id": "802d50f5-f9f4-40a2-81b0-715aa1f1bfad",
+          "name": "Genderbewegung als links oder linksradikal",
+          "kind": "device",
+          "rule": "Immer dann codieren, wenn die Gender-/Trans-/Queer-Bewegung oder ihre Bestandteile ausdrücklich mit linken, linksradikalen oder linksextremen politischen Positionen verbunden werden.",
+          "examples": [
+            {
+              "text": "„Im universitären Elfenbeinturm der Sozial- und Geisteswissenschaftler wurde aus diesen klinischen Befunden ein ideologisch manipuliertes Riesen-Ei, dem in linksextremen und radikalfeministischen Brutstätten ein Monstrum entschlüpfte [...]“",
+              "source": null
+            }
+          ],
+          "children": []
+        },
+        {
+          "id": "6339372e-b1ad-43ca-b20b-e3b01bbe6ad8",
+          "name": "Regierung bzw. Ampelkoalition",
+          "kind": "device",
+          "rule": "Immer dann codieren, wenn die Bundesregierung bzw. SPD, Grüne und FDP als verantwortlich für das Problem dargestellt werden.\n\nDabei können auch die Bezeichnungen „Ampel“, „Ampelkoalition“ oder entsprechende Kombinationen der Regierungsparteien codiert werden.",
+          "examples": [
+            {
+              "text": "„Um so einiger sind die SPD, Grüne und FDP, wenn es um gesellschaftspolitische Umbaumaßnahmen geht.“",
+              "source": null
+            },
+            {
+              "text": "„Die Ampelkoalition läuft hier wieder ihrer ideologischen Agenda in Scheuklappen bedenkenlos hinterher [...]“",
+              "source": null
+            }
+          ],
+          "children": []
+        },
+        {
+          "id": "8c8f527e-a95c-48df-8418-57b8c8e156ca",
+          "name": "Selbstbestimmungsgesetz (SBGG)",
+          "kind": "device",
+          "rule": "Immer dann codieren, wenn das Selbstbestimmungsgesetz bzw. das „Gesetz über die Selbstbestimmung in Bezug auf den Geschlechtseintrag“ als Ursache oder verantwortlicher Faktor für das Problem dargestellt wird.\n\nNicht ausreichend ist die bloße Erwähnung des SBGG.",
+          "examples": [],
+          "children": []
+        },
+        {
+          "id": "a981d32c-cb6b-4759-83e4-1e861478fb88",
+          "name": "Geschlechtliche Selbstbestimmung / Self-ID",
+          "kind": "device",
+          "rule": "Immer dann codieren, wenn die Möglichkeit der selbstbestimmten Änderung des Geschlechtseintrags als Ursache oder verantwortlicher Faktor für das Problem dargestellt wird.\n\nDazu gehören auch Bezeichnungen wie „Self-ID“ oder „geschlechtliche Selbstbestimmung“.",
+          "examples": [],
+          "children": []
+        },
+        {
+          "id": "ce59e87e-91c6-49c5-af81-7dfd14b761cc",
+          "name": "Öffentlich-rechtlicher Rundfunk",
+          "kind": "device",
+          "rule": "Immer dann codieren, wenn öffentlich-rechtliche Medien bzw. der öffentlich-rechtliche Rundfunk als verantwortlich dafür dargestellt werden, Kinder oder Jugendliche mit Trans-, Gender- oder Queer-Themen zu beeinflussen oder zu „indoktrinieren“.",
+          "examples": [
+            {
+              "text": "„Darin hatten die Verfasser den öffentlich-rechtlichen Sendern vorgeworfen, Kinder ‚im Sinne der Trans-Ideologie zu indoktrinieren‘.“",
+              "source": null
+            },
+            {
+              "text": "„Den verdrehten Sexualkundeunterricht gibt es nicht umsonst, sondern per Rundfunkgebühr für 18,36 Euro im Monat.“",
+              "source": null
+            }
+          ],
+          "children": []
+        },
+        {
+          "id": "33fbeb09-feff-4ff9-88dd-f300abb3c3dc",
+          "name": "Wissenschaft bzw. wissenschaftliche Forschung",
+          "kind": "device",
+          "rule": "Immer dann codieren, wenn Wissenschaftler, wissenschaftliche Institutionen oder eine als mangelhaft dargestellte Forschung als verantwortlich für das Problem dargestellt werden.\n\nDabei können insbesondere mangelnde Evidenz, methodische Mängel, ideologische Einflussnahme oder unzureichende Forschung als Verantwortungszuschreibung auftreten.",
+          "examples": [
+            {
+              "text": "„Es gebe bis heute keine hinreichende wissenschaftliche Bewertungsgrundlage für die Behandlung [...].“",
+              "source": null
+            },
+            {
+              "text": "„Man mag kaum glauben, dass auf einer solch dünnen Evidenzgrundlage weltweit Zehntausende von Kindern behandelt wurden und werden.“",
+              "source": null
+            }
+          ],
+          "children": []
+        },
+        {
+          "id": "af8dba63-313c-4a5b-aca5-eb07975a45c9",
+          "name": "Psychologen und Ärzte bzw. deren Behandlungsmethoden",
+          "kind": "device",
+          "rule": "Immer dann codieren, wenn Ärzte, Psychologen, Therapeuten oder deren Behandlungsmethoden als verantwortlich dafür dargestellt werden, dass Kinder oder Jugendliche problematische Transitionen beginnen oder fortsetzen.",
+          "examples": [
+            {
+              "text": "„Als 16-Jährige bekam Bell auf ihre Aussage hin, sie fühle sich als Junge, die Hormone, die sie wollte.“",
+              "source": null
+            },
+            {
+              "text": "„Man habe ihr nur ‚ein paar oberflächliche Fragen‘ gestellt und hätte ‚ihre Wünsche viel stärker hinterfragen‘ müssen.“",
+              "source": null
+            },
+            {
+              "text": "„Viele Eltern knicken ein, manche suchen nach alternativen Therapie-Angeboten. Doch die Vertreter der Zunft sind durchideologisiert oder verängstigt.“",
+              "source": null
+            }
+          ],
+          "children": []
+        }
+      ]
+    },
+    {
+      "id": "370cd7e2-41a5-415e-87b8-7d489dcde3e6",
+      "name": "(Moralische) Bewertung",
+      "kind": "device",
+      "note": "Eine Bewertung wird codiert, wenn Transkinder, Transitionen, geschlechtsangleichende Maßnahmen oder die gesellschaftliche Behandlung des Themas **positiv oder negativ bewertet bzw. charakterisiert** werden.",
+      "examples": [],
+      "children": [
+        {
+          "id": "1b47ae32-ef71-4158-8c98-ebc3594efc41",
+          "name": "Transitionen treten plötzlich bzw. unerwartet auf",
+          "kind": "device",
+          "rule": "Immer dann codieren, wenn Transitionswünsche von Kindern oder Jugendlichen als plötzlich, unerwartet oder ohne vorherige Entwicklung dargestellt werden.",
+          "examples": [
+            {
+              "text": "„Immer mehr Jugendliche entdecken ihren Transitionswunsch relativ plötzlich in der Pubertät.“",
+              "source": null
+            },
+            {
+              "text": "„[...] ohne Vorgeschichte einer Geschlechtsdysphorie oder geschlechtsbezogener Identitätskonflikte in der Kindheit von jetzt auf gleich ein Transouting haben.“",
+              "source": null
+            }
+          ],
+          "children": []
+        },
+        {
+          "id": "45dcef8a-c810-4bd8-a2b5-59f5d8471caa",
+          "name": "Transitionierte Kinder sind mit den Ergebnissen unzufrieden",
+          "kind": "device",
+          "rule": "Immer dann codieren, wenn dargestellt wird, dass Kinder oder Jugendliche nach einer Transition bzw. geschlechtsangleichenden Behandlung mit deren Ergebnissen unzufrieden sind.",
+          "examples": [
+            {
+              "text": "„Nur wenige sind mit dem Operationsergebnis zufrieden.“",
+              "source": null
+            },
+            {
+              "text": "„Viele sind schnell ernüchtert: Oft entspricht das Operationsergebnis nicht den Vorstellungen.“",
+              "source": null
+            }
+          ],
+          "children": []
+        },
+        {
+          "id": "59274147-7b8a-4969-9d88-f4ea8682c949",
+          "name": "Transitionen betreffen vor allem biologische Mädchen",
+          "kind": "device",
+          "rule": "Immer dann codieren, wenn ausdrücklich hervorgehoben wird, dass insbesondere biologische Mädchen bzw. weibliche Jugendliche einen Transitionswunsch entwickeln oder transitionieren.",
+          "examples": [
+            {
+              "text": "„Mit ihren Selbstdiagnosen und voller Haß auf ihren weiblichen Körper stürmen Mädchen neuerdings in allen westlichen Industrieländern die Kliniken.“",
+              "source": null
+            }
+          ],
+          "children": []
+        },
+        {
+          "id": "84251cfa-8de4-464a-970c-f1cadf7a7c51",
+          "name": "Transitionen nehmen zu",
+          "kind": "device",
+          "rule": "Immer dann codieren, wenn Transitionen, Transidentifizierungen oder entsprechende Diagnosen bei Kindern und Jugendlichen als zunehmend häufig dargestellt werden.",
+          "examples": [
+            {
+              "text": "„Plötzlich sind da vier, fünf Outings in einer Jahrgangsstufe.“",
+              "source": null
+            },
+            {
+              "text": "„So hat sich etwa in Schweden die Diagnosehäufigkeit von Transsexualität bei 13- bis 17jährigen Mädchen von 2008 bis 2018 um 1.500 Prozent erhöht.“",
+              "source": null
+            }
+          ],
+          "children": []
+        },
+        {
+          "id": "94dec5fe-cb28-454b-b271-275507964dde",
+          "name": "Transitionen erfolgen zu schnell bzw. zu früh",
+          "kind": "device",
+          "rule": "Immer dann codieren, wenn Transitionen oder geschlechtsangleichende Maßnahmen bei Kindern und Jugendlichen als zu früh, vorschnell oder ohne ausreichende Prüfung dargestellt werden.",
+          "examples": [
+            {
+              "text": "„Definitiv, ja. Es fragen Eltern von Siebenjährigen: Wann soll meine Tochter Hormone bekommen? Und wann sollen die Eierstöcke raus?“",
+              "source": null
+            },
+            {
+              "text": "„Dem ‚Sprechakt‘ von Teenagern folgt meist die Transition, beginnend mit Hormonblockern.“",
+              "source": null
+            }
+          ],
+          "children": []
+        },
+        {
+          "id": "e788f071-d794-4caf-94c2-62d30b6b6a0c",
+          "name": "Gender-affirming Care verhindert eine Auseinandersetzung mit dem biologischen Geschlecht",
+          "kind": "device",
+          "rule": "Immer dann codieren, wenn dargestellt wird, dass Pubertätsblocker, Hormone oder andere geschlechtsangleichende Maßnahmen verhindern, dass Kinder oder Jugendliche ihr biologisches bzw. bei Geburt zugewiesenes Geschlecht akzeptieren.",
+          "examples": [
+            {
+              "text": "„Ohne die Einnahme von Pubertätsblockern [...] würden sich vier von fünf Betroffenen mit ihrem biologischen Geschlecht aussöhnen.“",
+              "source": null
+            },
+            {
+              "text": "„Anders ist es bei Patienten, deren Pubertät angehalten wurde. Die setzen in der Regel die Transition fort.“",
+              "source": null
+            }
+          ],
+          "children": []
+        },
+        {
+          "id": "79def2c7-5c37-4083-a3db-b6f92516b866",
+          "name": "Transitionierte Kinder leiden bzw. sind unglücklich",
+          "kind": "device",
+          "rule": "Immer dann codieren, wenn Kinder oder Jugendliche nach einer Transition als leidend, unglücklich oder psychisch belastet dargestellt werden.",
+          "examples": [
+            {
+              "text": "„Die wenigsten werden glückliche Menschen.“",
+              "source": null
+            },
+            {
+              "text": "„Nicht wenige werden zu chronisch Depressiven und müssen – und wollen auch – psychiatrisch behandelt werden.“",
+              "source": null
+            }
+          ],
+          "children": []
+        },
+        {
+          "id": "ec255678-5f1b-4046-812d-1632b0c913fd",
+          "name": "Es gibt eine kleine Gruppe tatsächlich transgeschlechtlicher Kinder",
+          "kind": "device",
+          "rule": "Immer dann codieren, wenn ausdrücklich anerkannt wird, dass es Kinder oder Jugendliche mit einer als dauerhaft bzw. tatsächlich transgeschlechtlich dargestellten Identität gibt, diese Gruppe jedoch als klein oder selten dargestellt wird.",
+          "examples": [
+            {
+              "text": "„Ich habe immer gesagt: Ja, es gibt eine kleine Subgruppe von geschlechtsdysphorischen Jugendlichen, bei denen tatsächlich eine profunde und zeitlich überdauernde Geschlechtsidentitätstransposition im Sinne einer Transsexualität vorliegt.“",
+              "source": null
+            },
+            {
+              "text": "„Es gibt eine kleine Subgruppe, für die ist die Transition die richtige Option.“",
+              "source": null
+            },
+            {
+              "text": "„Doch nur bei einem kleinen Teil der Minderjährigen, die sich als ‚trans‘ outen, liege eine transsexuelle Entwicklung vor.“",
+              "source": null
+            }
+          ],
+          "children": []
+        },
+        {
+          "id": "b7b27d19-5d77-468e-926d-aa22e86e0b52",
+          "name": "Eltern sind gegen die Transition ihrer Kinder",
+          "kind": "device",
+          "rule": "Immer dann codieren, wenn Eltern als gegen die Transition bzw. gegen eine Änderung des Geschlechtseintrags ihres Kindes eingestellt dargestellt werden.",
+          "examples": [
+            {
+              "text": "„Menschen sollen ihre Geschlechtsidentität selbst aussuchen können, nötigenfalls auch Minderjährige gegen den Willen ihrer Eltern.“",
+              "source": null
+            },
+            {
+              "text": "„Das wird auch zu Zerwürfnissen in Familien führen, weil mancher Teenager das dann gegen den Willen seiner Eltern durchsetzt.“",
+              "source": null
+            }
+          ],
+          "children": []
+        },
+        {
+          "id": "4ce4064d-7f6b-4fba-8fbc-7465fbed0d2a",
+          "name": "Transitionen bedrohen oder belasten Familien",
+          "kind": "device",
+          "rule": "Immer dann codieren, wenn Transitionen bzw. geschlechtliche Selbstbestimmung von Kindern als Ursache für Konflikte, Zerwürfnisse oder andere Belastungen innerhalb von Familien dargestellt werden.",
+          "examples": [
+            {
+              "text": "„Das wird auch zu Zerwürfnissen in Familien führen, weil mancher Teenager das dann gegen den Willen seiner Eltern durchsetzt.“",
+              "source": null
+            }
+          ],
+          "children": []
+        },
+        {
+          "id": "2c02f6ea-2d10-4f30-a54a-8aa8accb2b8c",
+          "name": "Die Genderbewegung unterdrückt Kritik und Bedenken",
+          "kind": "device",
+          "rule": "Immer dann codieren, wenn die Gender-/Trans-/Queer-Bewegung bzw. ihre Vertreter als Akteure dargestellt werden, die Kritik, Zweifel oder abweichende Positionen unterdrücken, delegitimieren oder zum Schweigen bringen.",
+          "examples": [
+            {
+              "text": "„[...] die radikale Trans-Gemeinschaft, die jeden vorsichtigen Einwand als ‚transphob‘ geißelt.“",
+              "source": null
+            },
+            {
+              "text": "„Bisher hat der aggressive Zweig der Translobby bisher zuverlässig alle Kritik von Medizinern und Eltern mit Transphobie-Vorwürfen zum Verstummen gebracht.“",
+              "source": null
+            }
+          ],
+          "children": []
+        }
+      ]
+    },
+    {
+      "id": "128fef0b-9504-4f91-b711-72da0fffd629",
+      "name": "Lösungsvorschläge",
+      "kind": "device",
+      "note": "Ein Lösungsvorschlag wird codiert, wenn im Text **eine konkrete oder implizite Maßnahme vorgeschlagen oder gefordert wird, durch die das zuvor beschriebene Problem verhindert, reduziert oder gelöst werden soll**.",
+      "examples": [],
+      "children": [
+        {
+          "id": "469eac7c-118a-4a59-a76b-56871c488ee0",
+          "name": "Weniger Konfrontation von Kindern mit Geschlechtsidentität",
+          "kind": "device",
+          "rule": "Immer dann codieren, wenn gefordert oder vorgeschlagen wird, Kinder möglichst wenig mit Themen der Geschlechtsidentität, Transgeschlechtlichkeit oder entsprechenden Inhalten zu konfrontieren.",
+          "examples": [],
+          "children": []
+        },
+        {
+          "id": "19752b04-4681-4bcf-b4b1-a90014012688",
+          "name": "Ausschluss von Kindern aus den Neuregelungen des SBGG",
+          "kind": "device",
+          "rule": "Immer dann codieren, wenn gefordert wird, Minderjährige vollständig oder teilweise von den Regelungen des SBGG auszunehmen.\n\nDazu gehören insbesondere Forderungen nach gerichtlicher Kontrolle, Gutachten oder besonderen Voraussetzungen für Minderjährige.",
+          "examples": [
+            {
+              "text": "„Für die Entgegennahme der Erklärung sollten weiterhin Gerichte zuständig sein, die in Fällen offensichtlichen Missbrauchs eine Eintragung auch ablehnen können. Bei Kindern und Jugendlichen sollte zu deren Schutz die Verpflichtung zur Beibringung zweier Gutachten beibehalten werden.“",
+              "source": null
+            }
+          ],
+          "children": []
+        },
+        {
+          "id": "8f7bfe05-ee57-4186-9571-20c506f878c2",
+          "name": "Keine selbstständige Bestimmung des Geschlechtseintrags durch Kinder",
+          "kind": "device",
+          "rule": "Immer dann codieren, wenn gefordert wird, dass Kinder oder Jugendliche ihren Geschlechtseintrag nicht allein aufgrund einer eigenen Erklärung ändern können.\n\nDazu zählen insbesondere Forderungen nach:\n\n- Zustimmung der Eltern,\n- Zustimmung eines Familiengerichts,\n- verpflichtenden Gesprächen,\n- Gutachten,\n- anderen fachlichen Indikationen oder Voraussetzungen.",
+          "examples": [
+            {
+              "text": "„Im Rahmen der Anhörung wurden von Experten vor allem bei Minderjährigen ein verpflichtendes Gespräch über die persönlichen Motive für den Geschlechtswechsel sowie eine fachliche Begutachtung dringend empfohlen.“",
+              "source": null
+            },
+            {
+              "text": "„Die Ersetzung der Zustimmung der Eltern durch ein Familiengericht kommt für uns nicht in Betracht.“",
+              "source": null
+            }
+          ],
+          "children": []
+        },
+        {
+          "id": "78d17c60-5637-4fac-86da-95583726ee04",
+          "name": "Kein Zugang zu geschlechtsangleichenden Maßnahmen für Kinder",
+          "kind": "device",
+          "rule": "Immer dann codieren, wenn gefordert wird, dass Kinder bzw. Minderjährige keinen oder nur eingeschränkten Zugang zu Pubertätsblockern, Hormonen oder operativen geschlechtsangleichenden Maßnahmen erhalten.",
+          "examples": [
+            {
+              "text": "„Nur kämen wir nie auf die abstruse Idee, Appetitzügler zu geben.“",
+              "source": null
+            },
+            {
+              "text": "„Sie meinen wie Pubertätsblocker? Genau.“",
+              "source": null
+            }
+          ],
+          "children": []
+        }
+      ]
+    },
+    {
+      "id": "da1a2d69-8601-4d02-8a17-a0b71a1b19c9",
+      "name": "Weitere Frame-Elemente",
+      "kind": "element",
+      "note": "Diese Kategorien werden unabhängig davon codiert, welchem Frame-Device die jeweilige Textstelle zugeordnet wird. Sie dienen dazu, **wiederkehrende sprachliche, begriffliche und argumentative Darstellungsmuster** zu erfassen.\n\nIm Gegensatz zu den Frame-Devices können diese Frame-Elemente **auch anhand einzelner Wörter oder sehr kurzer Textstellen codiert werden**. Ein vollständiger Satz oder eine eigenständige argumentative Aussage ist nicht erforderlich.",
+      "rule": "Ein einzelnes Wort oder ein kurzer Ausdruck wird codiert, wenn es eindeutig das entsprechende Frame-Element bezeichnet oder sprachlich realisiert. Der unmittelbare Kontext ist nur dann einzubeziehen, wenn nicht eindeutig erkennbar ist, ob das Wort im relevanten thematischen Zusammenhang verwendet wird.\n\nBeispielsweise kann das einzelne Wort **„Translobby“** als Frame-Element „Translobby“ codiert werden. Ebenso können **„Transideologie“**, **„Transaktivisten“** oder **„Regenbogen“** als einzelne Wörter codiert werden, sofern aus dem Kontext eindeutig hervorgeht, dass sie sich auf den untersuchten Gegenstandsbereich beziehen.\n\nBei mehrdeutigen Begriffen ist der Kontext zu berücksichtigen. Beispielsweise wird **„Regenbogen“** nur dann codiert, wenn es einen Bezug zu LGBTI+, Gender, Transgeschlechtlichkeit oder Queerness aufweist. Ein „Regenbogen“ im Zusammenhang mit Wetter oder Natur wird nicht codiert.\n\nDie Kategorie erfasst dabei zunächst **das Vorkommen und die sprachliche Verwendung des Frame-Elements**. Eine negative oder positive Bewertung muss für die Codierung nicht zusätzlich vorhanden sein.",
+      "examples": [],
+      "children": [
+        {
+          "id": "f44d720e-e5bc-4dc4-a440-42b0bc315d12",
+          "name": "Biologische Mädchen",
+          "kind": "element",
+          "rule": "Immer dann codieren, wenn im Zusammenhang mit Transkindern oder Transjugendlichen ausdrücklich biologische Mädchen bzw. weibliche Jugendliche als besonders betroffene Gruppe dargestellt werden.\n\nAuch einzelne Begriffe wie **„Mädchen“**, **„weibliche Jugendliche“** oder vergleichbare Bezeichnungen können codiert werden, wenn aus dem unmittelbaren Kontext eindeutig hervorgeht, dass damit Transkinder bzw. Transjugendliche gemeint sind.\n\nNicht codieren, wenn lediglich allgemein von Mädchen gesprochen wird, ohne dass ein Zusammenhang mit Transgeschlechtlichkeit bzw. Transition besteht.",
+          "examples": [
+            {
+              "text": "„Mit ihren Selbstdiagnosen und voller Haß auf ihren weiblichen Körper stürmen Mädchen neuerdings in allen westlichen Industrieländern die Kliniken.“",
+              "source": null
+            },
+            {
+              "text": "„Bell gehört zu der tragischen Gruppe der sogenannten Detransitioner: Mädchen, die ihre Geschlechtsumwandlung bereuen und versuchen, wieder als Frauen zu leben.“",
+              "source": null
+            }
+          ],
+          "children": []
+        },
+        {
+          "id": "ff84552a-7080-47ae-ac4e-21793a8a2f6d",
+          "name": "Sucht-Rhetorik im Zusammenhang mit Transkindern",
+          "kind": "element",
+          "rule": "Immer dann codieren, wenn einzelne Wörter, kurze Ausdrücke oder längere Textstellen Transsein, Transition oder Transaktivismus sprachlich mit Sucht, Rausch, Verblendung, Fixierung, Ansteckung, Kult oder ähnlichen Konzepten verbinden.\n\nAuch einzelne Wörter wie **„Rausch“**, **„verblendet“**, **„fixiert“**, **„Ansteckung“** oder **„Kult“** können codiert werden, wenn sie im relevanten Zusammenhang verwendet werden.",
+          "examples": [
+            {
+              "text": "„Noch im **Rausch** der plötzlichen Selbsterkenntnis [...]“",
+              "source": null
+            },
+            {
+              "text": "„Ihre Kinder seien urplötzlich wie **verblendet** und **fixiert** auf die Transition [...]“",
+              "source": null
+            },
+            {
+              "text": "„Es ist ein **Kult**, der die Mädchen erfaßt und in seinen Bann zieht.“",
+              "source": null
+            },
+            {
+              "text": "„Um diese soziale **Ansteckung** geht es [...]“",
+              "source": null
+            }
+          ],
+          "children": []
+        },
+        {
+          "id": "00ad974f-b678-419d-8355-b613c38e94f2",
+          "name": "Kriegs- bzw. Kampfrhetorik",
+          "kind": "element",
+          "rule": "Immer dann codieren, wenn einzelne Wörter, kurze Ausdrücke oder längere Textstellen die Auseinandersetzung um Transgeschlechtlichkeit oder Genderpolitik sprachlich als Kampf, Krieg, Angriff, Verteidigung oder vergleichbaren Konflikt darstellen.\n\nAuch einzelne Wörter wie **„Angriff“**, **„Kampf“**, **„Attacke“**, **„Verteidigung“** oder **„Krieg“** können codiert werden, wenn sie im entsprechenden thematischen Zusammenhang verwendet werden.",
+          "examples": [
+            {
+              "text": "„[...] weil sie massiven **Angriffen** ausgesetzt waren.“",
+              "source": null
+            },
+            {
+              "text": "„**Angriffe** aus dem linken Juste milieu auf Schwarzers Thesen“",
+              "source": null
+            },
+            {
+              "text": "„[...] im **Kampf** um ‚Geschlechtergerechtigkeit‘ [...]“",
+              "source": null
+            }
+          ],
+          "children": []
+        },
+        {
+          "id": "0772d5f9-ed08-476c-a0bb-872ab49faa9b",
+          "name": "Geschlechtsidentität als Sprechakt",
+          "kind": "element",
+          "rule": "Immer dann codieren, wenn einzelne Wörter, kurze Ausdrücke oder längere Textstellen die Erklärung einer Person, trans zu sein bzw. eine bestimmte Geschlechtsidentität zu besitzen, als „Sprechakt“ oder als sprachliche Handlung darstellen.\n\nAuch der einzelne Ausdruck **„Sprechakt“** kann codiert werden, wenn er sich im relevanten Zusammenhang auf die Erklärung einer Geschlechtsidentität bezieht.",
+          "examples": [
+            {
+              "text": "„Dem **‚Sprechakt‘** von Teenagern folgt meist die Transition [...]“",
+              "source": null
+            },
+            {
+              "text": "„Mit dem **Sprechakt** ‚Ich bin trans‘ [...]“",
+              "source": null
+            }
+          ],
+          "children": []
+        },
+        {
+          "id": "2433c881-b4ab-492f-83a4-a7c0d07dc835",
+          "name": "Ablehnung der Transidentität durch Missgendering, Deadnaming oder andere sprachliche Zurückweisung",
+          "kind": "element",
+          "rule": "Immer dann codieren, wenn einzelne Wörter, Namen, Pronomen oder längere Textstellen die selbst angegebene Geschlechtsidentität von Transmenschen sprachlich oder ausdrücklich zurückweisen.\n\nAuch **einzelne Namen oder Personenbezeichnungen** können codiert werden, wenn sie im jeweiligen Kontext als Deadnaming, Misgendering oder explizite Zurückweisung der Transidentität verwendet werden.\n\nDazu gehören beispielsweise:\n\n- Verwendung eines früheren Namens (Deadnaming),\n- Verwendung nicht gewünschter Pronomen (Misgendering),\n- Bezeichnung anhand des bei Geburt zugewiesenen Geschlechts,\n- explizite Zurückweisung der behaupteten Geschlechtsidentität.",
+          "examples": [
+            {
+              "text": "„Biologisch und juristisch ein **Mann** namens **Markus Ganserer** [...]“",
+              "source": null
+            },
+            {
+              "text": "„[...] den grünen Kollegen **Markus Ganserer** als das, was er ist: ein **Mann**.“",
+              "source": null
+            }
+          ],
+          "children": []
+        },
+        {
+          "id": "cbb0109f-df77-48e1-999e-eeffdc65f26b",
+          "name": "Transaktivisten",
+          "kind": "element",
+          "rule": "Immer dann codieren, wenn ausdrücklich von Transaktivisten oder vergleichbaren Aktivisten gesprochen wird.\n\n**Auch einzelne Wörter oder kurze Ausdrücke können direkt codiert werden**, sofern sie eindeutig einen entsprechenden Akteur bezeichnen.\n\nDie Kategorie erfasst zunächst die **Thematisierung dieser Akteure** und nicht automatisch eine negative Bewertung.",
+          "examples": [
+            {
+              "text": "„Allein den **Transaktivisten** ist die Einsicht verwehrt [...]“",
+              "source": null
+            },
+            {
+              "text": "„Die **Transaktivisten-Szene** sagt [...]“",
+              "source": null
+            },
+            {
+              "text": "„[...] das aggressive Gebaren einiger **Transaktivisten** [...]“",
+              "source": null
+            }
+          ],
+          "children": []
+        },
+        {
+          "id": "8bc5f89f-b3ba-4f33-baad-654262fae6ef",
+          "name": "Transideologie",
+          "kind": "element",
+          "rule": "Immer dann codieren, wenn ausdrücklich von einer LGBTI+-, Gender-, Trans- oder Queer-Ideologie gesprochen wird oder entsprechende politische bzw. gesellschaftliche Vorstellungen ausdrücklich als „Ideologie“ bezeichnet werden.\n\nAuch **einzelne Wörter oder kurze Begriffe** wie „Transideologie“, „Genderideologie“, „Regenbogen-Ideologie“ oder „Ideologie“ können codiert werden, wenn aus dem Kontext eindeutig hervorgeht, dass damit die entsprechende Ideologie bezeichnet wird.",
+          "examples": [
+            {
+              "text": "„[...] vom ideologisch motivierten **Geschlechtsrevisionismus** [...]“",
+              "source": null
+            },
+            {
+              "text": "„[...] in denen sich die **Regenbogen-Ideologie** längst etabliert hat.“",
+              "source": null
+            },
+            {
+              "text": "„Auch in Europa sind die Auswirkungen der **Ideologie** aus Übersee bereits spürbar.“",
+              "source": null
+            }
+          ],
+          "children": []
+        },
+        {
+          "id": "58866aad-65c5-4b87-a761-68558e1db5a6",
+          "name": "Translobby",
+          "kind": "element",
+          "rule": "Immer dann codieren, wenn ausdrücklich von einer LGBTI+-, Gender-, Trans- oder Queer-Lobby gesprochen wird.\n\n**Auch einzelne Wörter oder kurze Ausdrücke können direkt codiert werden**, beispielsweise „Translobby“, „Trans-Lobby“ oder „Gender-Lobby“.",
+          "examples": [
+            {
+              "text": "„Die **Trans-Lobby** ist die neue Hausmacht im Regenbogen-Deutschland.“",
+              "source": null
+            },
+            {
+              "text": "„[...] die Orwellsche Agenda der **Trans-Lobby** [...]“",
+              "source": null
+            }
+          ],
+          "children": []
+        },
+        {
+          "id": "c39c3ad5-3c1d-4122-9dd6-7b8b896a9773",
+          "name": "Regenbogen",
+          "kind": "element",
+          "examples": [
+            {
+              "text": "„Die Trans-Lobby ist die neue Hausmacht im **Regenbogen-Deutschland**.“",
+              "source": null
+            },
+            {
+              "text": "„Der **Regenbogen-Chef** jedoch verhöhnte die Mutter auf Instagram [...]“",
+              "source": null
+            }
+          ],
+          "children": []
+        }
+      ]
+    }
+  ]
+}

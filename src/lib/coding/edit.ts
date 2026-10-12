@@ -1,0 +1,72 @@
+import type { CodeEntry } from "./types";
+
+/** Cumulative character offsets of each line's first character (line 0 = 0). */
+export function lineStarts(text: string): number[] {
+  const starts = [0];
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === "\n") starts.push(i + 1);
+  }
+  return starts;
+}
+
+/** 0-based line containing the character position `pos` (must be < text.length). */
+export function lineAt(starts: number[], pos: number): number {
+  let lo = 0;
+  let hi = starts.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (starts[mid] <= pos) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo;
+}
+
+/** Deterministic document id for a coding entry, stable across re-imports. */
+export function entryId(source: string, entry: CodeEntry): string {
+  if (entry.uid !== undefined) return entry.uid;
+  const key = entry.device ?? entry.code ?? "";
+  const end = entry.endLine !== undefined ? `#${entry.endLine}` : "";
+  return `${source}|${entry.line}${end}|${entry.range[0]}-${entry.range[1]}|${key}`;
+}
+
+/**
+ * Span (line/endLine/range/excerpt) for exclusive global offsets [from, to),
+ * derived from `starts`/`text`. Trims a trailing newline. This is the pure
+ * position half of {@link entryFromOffsets}, reusable to re-anchor an existing
+ * entry's identity onto edited text without losing device/code/note.
+ */
+export function offsetsSpan(
+  starts: number[],
+  text: string,
+  from: number,
+  to: number,
+): Pick<CodeEntry, "line" | "endLine" | "range" | "excerpt"> {
+  let end = to;
+  while (end > from + 1 && text[end - 1] === "\n") end--;
+  const line = lineAt(starts, from);
+  const endLine = lineAt(starts, end - 1);
+  const base = {
+    line: line + 1,
+    range: [from - starts[line], end - starts[endLine]] as [number, number],
+    excerpt: text.slice(from, end),
+  };
+  return endLine === line ? base : { ...base, endLine: endLine + 1 };
+}
+
+/**
+ * Convert exclusive global character offsets [from, to) into a coding entry
+ * spanning the source lines between them; `excerpt` is the verbatim span.
+ */
+export function entryFromOffsets(
+  source: string,
+  starts: number[],
+  text: string,
+  from: number,
+  to: number,
+  device: string,
+  uid?: string,
+): CodeEntry {
+  const entry: CodeEntry = { device, ...offsetsSpan(starts, text, from, to) };
+  if (uid !== undefined) entry.uid = uid;
+  return entry;
+}
