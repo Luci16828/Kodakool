@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import ColorProvider from "./ColorProvider.svelte";
 import ArticlePage from "../routes/text/[folder]/[name]/+page.svelte";
-import { getArticle, listArticles, listFolders, readCodes, saveLocalCatalog, savePdfData } from "$lib/client/coding-db";
+import { getArticle, listArticles, readCodes, saveLocalCatalog, savePdfData } from "$lib/client/coding-db";
 import { extractPdfDoc } from "$lib/coding/pdf";
 import { buildPdf } from "$lib/coding/pdf-sample";
 import type { CodeEntry } from "$lib/coding/types";
@@ -129,20 +129,6 @@ describe("coding page edge cases", () => {
     await expect.element(page.getByRole("button", { name: `${NAME}.txt`, exact: true })).toBeInTheDocument();
     expect(await getArticle(FOLDER, "abgebrochen")).toBeNull();
     expect(navigated).toEqual([]);
-  });
-
-  it("creates folders past the declared 200-char limit (maxLength is not enforced)", async () => {
-    await seedArticle({ project: FOLDER, name: NAME, text: TEXT });
-
-    renderArticle();
-    await ready();
-
-    const long = "f".repeat(250);
-    await page.getByRole("button", { name: "new folder" }).click();
-    await page.getByRole("textbox", { name: "new folder name" }).fill(long);
-    await userEvent.keyboard("{Enter}");
-
-    await expect.poll(async () => (await listFolders()).includes(long)).toBe(true);
   });
 
   it("refuses an upload whose name already exists in the folder", async () => {

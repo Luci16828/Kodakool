@@ -16,6 +16,7 @@
   import ConfirmDialog from "$lib/coding/ConfirmDialog.svelte";
   import { entryFromOffsets, entryId, lineStarts, offsetsSpan } from "$lib/coding/edit";
   import { buildCatalogView } from "$lib/coding/catalog-view";
+  import { docIcon, displayName } from "$lib/coding/display";
   import { parseCatalogFile } from "$lib/coding/import";
   import { mdExtensions } from "$lib/coding/code-md";
   import { toQdc } from "$lib/coding/qdc";
@@ -24,28 +25,25 @@
   import type { CodeEntry } from "$lib/coding/types";
   import {
     addVersion,
+    base64ToBytes,
     clearLocalCatalog,
     createArticle,
-    createFolder,
     deleteArticle,
-    deleteFolder,
     getArticle,
+    getArticleById,
     getLocalCatalog,
     getPdfData,
     removeEntry,
     renameArticle,
     saveArticle,
     saveLocalCatalog,
-    saveNote,
-    savePdfData,
     watchArticle,
     watchArticles,
-    watchFolders,
     type ArticleData,
-    type ArticleKind,
     type ArticleSummary,
     type ArticleVersion,
   } from "$lib/client/coding-db";
+  import { uploadArticleFile, uploadArticleFolder } from "$lib/client/upload";
   import { codingMarks, smartSelect, syncCodingMarks, type CodingMarkSpec } from "$lib/coding/code-mark";
 
   const { data }: { data: { folder: string; name: string } } = $props();
@@ -116,21 +114,6 @@
   /** .md documents (extension kept in the name) get markdown + frontmatter highlighting */
   const isMd = $derived(/\.(md|markdown)$/i.test(data.name));
 
-  /** file-tree icon per article: PDFs get the news-page glyph, markdown and
-      plain text their own document glyphs (names keep the .md/.markdown suffix) */
-  function docIcon(a: ArticleSummary): string {
-    if (a.kind === "pdf") return "newsmode";
-    return /\.(md|markdown)$/i.test(a.name) ? "markdown_document" : "article";
-  }
-
-  /** name with the file ending for its kind — uploads strip `.txt`/`.pdf` from
-      the stored name, the UI shows them again (markdown already carries its own) */
-  function displayName(name: string, kind: ArticleKind): string {
-    if (kind === "pdf") return /\.pdf$/i.test(name) ? name : `${name}.pdf`;
-    if (/\.(md|markdown)$/i.test(name)) return name;
-    return /\.txt$/i.test(name) ? name : `${name}.txt`;
-  }
-
   /** title keeps the raw name until the article (and with it the kind) is known */
   const titleName = $derived(article ? displayName(data.name, article.kind ?? "text") : data.name);
   function setMode(m: "code" | "edit"): void {
@@ -171,8 +154,20 @@
   /** inline rename of the document title */
   let renaming = $state(false);
   let renameDraft = $state("");
+  /** caret placement for the rename input: end of the name, full select on default names */
+  function renameCaret(node: HTMLInputElement): void {
+    node.focus();
+    const len = node.value.length;
+    if (/^Untitled \d+(?:\.md)?$/i.test(node.value)) node.setSelectionRange(0, len);
+    else node.setSelectionRange(len, len);
+  }
   /** versions popover open (Bits Popover) */
   let versionsOpen = $state(false);
+  /** download picker + markdown cheatsheet popovers (Bits Popover) */
+  let dlOpen = $state(false);
+  let mdOpen = $state(false);
+  /** article ids picked in the download picker */
+  const dlSel = new SvelteSet<string>();
   /** local frame-device catalog for this folder + edit draft */
   let localCatalog = $state<Instructions | null>(null);
   let editCat = $state(false);
@@ -185,29 +180,19 @@
   let treeOpen = $state(true);
   /** right-side frame-devices sidebar (Bits Collapsible) */
   let catOpen = $state(true);
-  /** all local documents, for the sidebar tree */
+  /** all local documents; the sidebar shows only this project's slice */
   let docs = $state<ArticleSummary[]>([]);
   let docsBusy = $state(false);
-  /** locally created folders — an empty folder can exist too (RxDB folders collection) */
-  let folders = $state<string[]>([]);
-  /** inline new-folder input (false = hidden) */
-  let newFolder = $state(false);
-  let newFolderDraft = $state("");
   /** shared delete confirmation: pending action + open flag (ConfirmDialog) */
   let confirmAction = $state<{ title: string; detail: string; run: () => void } | null>(null);
   let confirmOpen = $state(false);
 
-  const docGroups = $derived.by(() => {
-    const groups: [string, ArticleSummary[]][] = [];
-    for (const a of [...docs].sort((x, y) => x.name.localeCompare(y.name))) {
-      const g = groups.find((e) => e[0] === a.project);
-      if (g) g[1].push(a);
-      else groups.push([a.project, [a]]);
-    }
-    // registered-but-empty folders still show as groups
-    for (const f of folders) if (!groups.some((e) => e[0] === f)) groups.push([f, []]);
-    return groups.sort((x, y) => x[0].localeCompare(y[0]));
-  });
+  /** documents of THIS project only — other projects stay on the project screen */
+  const myDocs = $derived.by(() =>
+    docs
+      .filter((a) => a.project === data.folder)
+      .sort((x, y) => x.name.localeCompare(y.name, undefined, { numeric: true })),
+  );
 
   async function newDoc(project: string): Promise<void> {
     docsBusy = true;
@@ -219,25 +204,6 @@
     }
   }
 
-  /** document-tree folders the user collapsed (local UI state) */
-  const collapsedDocs = new SvelteSet<string>();
-  function toggleGroup(project: string): void {
-    if (collapsedDocs.has(project)) collapsedDocs.delete(project);
-    else collapsedDocs.add(project);
-  }
-
-  async function addFolder(): Promise<void> {
-    const name = newFolderDraft.trim();
-    newFolder = false;
-    newFolderDraft = "";
-    if (!name) return;
-    try {
-      await createFolder(name);
-    } catch (e) {
-      // schema validation (e.g. a name over the 200-char limit) must surface in the UI
-      uploadMsg = String(e);
-    }
-  }
   /** open the shared ConfirmDialog for a destructive action */
   function askDelete(title: string, detail: string, run: () => void): void {
     confirmAction = { title, detail, run };
@@ -245,11 +211,9 @@
   }
   async function doDeleteDoc(a: ArticleSummary): Promise<void> {
     await deleteArticle(a.id);
-    if (a.project === data.folder && a.name === data.name) await goto(resolve("/"));
-  }
-  async function doDeleteFolder(project: string): Promise<void> {
-    await deleteFolder(project);
-    if (project === data.folder) await goto(resolve("/"));
+    // deleting the document we are looking at returns to its project
+    if (a.project === data.folder && a.name === data.name)
+      await goto(resolve("/project/[folder]", { folder: a.project }));
   }
 
   /** Melt FileUpload dropzone: picked/dropped .txt/.md/.pdf files become local articles */
@@ -260,49 +224,14 @@
     onAccept: (f) => void uploadFile(f),
   });
   async function uploadFile(f: File): Promise<void> {
-    const segs = (f.webkitRelativePath || f.name).split("/");
-    // uploads always target the ACTIVE folder (the dropzone label states it);
-    // a picked folder's own name is not used as target
-    const project = data.folder;
-    const isPdfFile = /\.pdf$/i.test(f.name);
-    // keep .md/.markdown in the name (it drives highlighting + download), drop .txt/.pdf
-    const name = segs[segs.length - 1].replace(/\.(txt|pdf)$/i, "").trim();
-    if (!name) return;
-    if (await getArticle(project, name)) {
-      uploadMsg = `"${name}" already exists`;
-      return;
-    }
-    let text: string;
-    let pdfBytes: Uint8Array | null = null;
-    let pdfPages = 0;
-    if (isPdfFile) {
-      // client-side extraction (unpdf in the browser): the PDF never touches the server
-      uploadMsg = `extracting ${name}…`;
-      try {
-        const { extractPdfDoc } = await import("$lib/coding/pdf");
-        pdfBytes = new Uint8Array(await f.arrayBuffer());
-        const doc = await extractPdfDoc(pdfBytes);
-        text = doc.text;
-        pdfPages = doc.pages;
-      } catch (e) {
-        uploadMsg = `pdf: ${String(e)}`;
-        return;
-      }
-    } else {
-      text = await f.text();
-    }
-    const created = await createArticle(project, isPdfFile ? "pdf" : "text");
-    await saveArticle(created.id, text, []);
-    if (pdfBytes !== null) await savePdfData(created.id, pdfBytes, pdfPages);
-    await renameArticle(created.id, name);
-    uploadMsg = `uploaded ${name}`;
+    const r = await uploadArticleFile(data.folder, f, (m) => (uploadMsg = m));
+    uploadMsg = r.message;
   }
   /** folder picker (webkitdirectory): every .txt/.md/.pdf file inside becomes an article */
   async function uploadFolder(e: Event): Promise<void> {
     const input = e.target as HTMLInputElement;
-    const files = [...(input.files ?? [])].filter((f) => /\.(txt|md|markdown|pdf)$/i.test(f.name));
-    input.value = "";
-    for (const f of files) await uploadFile(f);
+    const messages = await uploadArticleFolder(data.folder, input);
+    uploadMsg = messages[messages.length - 1] ?? "";
   }
 
   const entryKeys = $derived(entries.map((e) => e.device ?? e.code ?? "").filter((k) => k !== ""));
@@ -709,6 +638,15 @@
     draft = plainClone(localCatalog);
     editCat = true;
   }
+  /** header add buttons: enter edit mode (starting an empty catalog when none exists)
+      and add a device — `new category` at top level, `new code` under the armed device */
+  function startAdd(parentId: string | null): void {
+    if (!editCat) {
+      draft = localCatalog === null ? { version: 1, title: data.folder, devices: [] } : plainClone(localCatalog);
+      editCat = true;
+    }
+    draftAdd(parentId);
+  }
   function cancelCat(): void {
     editCat = false;
     draft = null;
@@ -745,13 +683,43 @@
     URL.revokeObjectURL(a.href);
   }
 
-  /** current editor body (incl. unsaved edits) as .md or .txt */
-  function downloadDoc(): void {
-    // PDF documents have no CodeMirror view: the extracted text is the body
-    const text = view ? view.state.doc.toString() : docText;
-    if (text === "") return;
-    const filename = /\.(md|markdown)$/i.test(data.name) ? data.name : `${data.name}.txt`;
-    downloadText(filename, text, "text/plain");
+  /** download picker: toggle one document of this project */
+  function toggleDl(id: string): void {
+    if (dlSel.has(id)) dlSel.delete(id);
+    else dlSel.add(id);
+  }
+  /** "select all" / "select none" for the picker */
+  function toggleDlAll(): void {
+    const all = dlSel.size === myDocs.length && myDocs.length > 0;
+    dlSel.clear();
+    if (!all) for (const a of myDocs) dlSel.add(a.id);
+  }
+  /** download every picked document: PDFs as their original bytes, texts as .md/.txt
+      (the open document uses its live editor body, incl. unsaved edits) */
+  async function downloadSelected(): Promise<void> {
+    for (const a of myDocs) {
+      if (!dlSel.has(a.id)) continue;
+      if (a.kind === "pdf") {
+        const pdf = await getPdfData(a.id);
+        if (pdf !== null) {
+          // .slice() gives a fresh ArrayBuffer-backed view (BlobPart requires it)
+          const blob = new Blob([base64ToBytes(pdf.data).slice()], { type: "application/pdf" });
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = displayName(a.name, "pdf");
+          link.click();
+          URL.revokeObjectURL(url);
+          continue;
+        }
+      }
+      const text =
+        a.id === key ? (view ? view.state.doc.toString() : docText) : ((await getArticleById(a.id))?.text ?? "");
+      if (text === "") continue;
+      const filename = displayName(a.name, a.kind);
+      downloadText(filename, text, /\.(md|markdown)$/i.test(filename) ? "text/markdown" : "text/plain");
+    }
+    dlOpen = false;
   }
 
   // ----- frame-device catalog export / import (local override only) -----
@@ -1156,7 +1124,6 @@
       localCatalog = c;
     });
     const unsubDocs = watchArticles((list) => (docs = list));
-    const unsubFolders = watchFolders((names) => (folders = names));
     unsubscribe = watchArticle(data.folder, data.name, (a, es) => {
       if (a === null) {
         if (!initialLoaded) {
@@ -1187,7 +1154,6 @@
       }
       if (pending) void flushCommit();
       unsubDocs();
-      unsubFolders();
       unsubscribe?.();
       view?.destroy();
     };
@@ -1227,7 +1193,11 @@
   <main class="status">
     <h1>{data.name}</h1>
     <p>This article does not exist in local storage.</p>
-    <p><a href={resolve("/")}>← dashboard</a></p>
+    <p>
+      <a href={resolve("/project/[folder]", { folder: data.folder })}>← {data.folder}/</a>
+      ·
+      <a href={resolve("/")}>projects</a>
+    </p>
   </main>
 {:else}
   <main>
@@ -1236,9 +1206,13 @@
         <aside class="docs" class:closed={!treeOpen}>
           <Collapsible.Root class="treeroot" bind:open={treeOpen}>
             <div class="docshead">
-              <Collapsible.Trigger class="treebtn" aria-label="toggle document tree">
+              <Collapsible.Trigger
+                class={`treebtn ${treeOpen ? "" : "closed"}`}
+                aria-label="toggle document tree"
+                title={treeOpen ? "collapse document tree" : "expand document tree"}
+              >
                 <span class="material-symbols-rounded" aria-hidden="true">folder_open</span>
-                {#if treeOpen}Documents{/if}
+                {#if treeOpen}{data.folder}{/if}
               </Collapsible.Trigger>
               {#if treeOpen}
                 <button
@@ -1251,106 +1225,57 @@
                 >
                   <span class="material-symbols-rounded" aria-hidden="true">note_add</span>
                 </button>
-                <button
-                  type="button"
-                  class="newdoc"
-                  title="new folder"
-                  aria-label="new folder"
-                  onclick={() => (newFolder = true)}
-                >
-                  <span class="material-symbols-rounded" aria-hidden="true">create_new_folder</span>
-                </button>
               {/if}
             </div>
             <Collapsible.Content class="docsbody">
-              {#if newFolder}
-                <div class="nfrow">
-                  <input
-                    class="nfinput"
-                    aria-label="new folder name"
-                    bind:value={newFolderDraft}
-                    placeholder="folder name"
-                    spellcheck="false"
-                    onkeydown={(e) => {
-                      if (e.key === "Enter") void addFolder();
-                      else if (e.key === "Escape") {
-                        newFolder = false;
-                        newFolderDraft = "";
-                      }
-                    }}
-                  />
-                  <button type="button" class="nfgo" onclick={() => void addFolder()}>create</button>
-                </div>
-              {/if}
               <div class="uprow">
-                <div class="upload" {...fileUpload.dropzone}>
+                <div class="upload" {...fileUpload.dropzone} title="upload .txt/.md/.pdf files into {data.folder}/">
                   <span class="material-symbols-rounded" aria-hidden="true">upload</span>
-                  {fileUpload.isDragging ? `drop into ${data.folder}/` : `upload into ${data.folder}/ (.txt/.md/.pdf)`}
+                  {fileUpload.isDragging ? `drop → ${data.folder}/` : `file → ${data.folder}/`}
                 </div>
                 <label class="upfolder" title="upload a whole folder of .txt/.md/.pdf files into {data.folder}/">
-                  <span class="material-symbols-rounded" aria-hidden="true">upload</span>folder → {data.folder}/
+                  <span class="material-symbols-rounded" aria-hidden="true">upload</span>folder
                   <input type="file" webkitdirectory={true} onchange={(e) => void uploadFolder(e)} />
                 </label>
               </div>
               <input {...fileUpload.input} />
               {#if uploadMsg}<span class="upmsg">{uploadMsg}</span>{/if}
-              {#each docGroups as [project, items] (project)}
-                <div class="fgrow">
-                  <button
-                    type="button"
-                    class="fgroup"
-                    aria-expanded={!collapsedDocs.has(project)}
-                    onclick={() => toggleGroup(project)}
-                  >
-                    <span class="material-symbols-rounded" aria-hidden="true"
-                      >{collapsedDocs.has(project) ? "expand_more" : "expand_less"}</span
-                    >{project}/ <span class="fcodes">{items.length}</span></button
-                  >
-                  <button
-                    type="button"
-                    class="fdel"
-                    title="delete folder {project}"
-                    aria-label={`delete folder ${project}`}
-                    onclick={() =>
-                      askDelete(
-                        `Delete folder "${project}"?`,
-                        items.length > 0
-                          ? `This removes the folder and its ${items.length} document${items.length === 1 ? "" : "s"} (codes included).`
-                          : "This removes the empty folder.",
-                        () => void doDeleteFolder(project),
-                      )}
-                  >
-                    <span class="material-symbols-rounded" aria-hidden="true">delete</span>
-                  </button>
-                </div>
-                {#if !collapsedDocs.has(project) && items.length > 0}
-                  <ul>
-                    {#each items as a (a.id)}
-                      <li class:current={a.project === data.folder && a.name === data.name}>
-                        <a href={resolve("/text/[folder]/[name]", { folder: a.project, name: a.name })}>
-                          <span class="material-symbols-rounded docicon" aria-hidden="true">{docIcon(a)}</span>
-                          {displayName(a.name, a.kind)}
-                        </a>
-                        <span class="fcodes">{a.codes}</span>
-                        <button
-                          type="button"
-                          class="fdel"
-                          title="delete document"
-                          aria-label={`delete ${displayName(a.name, a.kind)}`}
-                          onclick={() =>
-                            askDelete(
-                              `Delete "${displayName(a.name, a.kind)}"?`,
-                              `This removes the document and its ${a.codes} code entr${a.codes === 1 ? "y" : "ies"}.`,
-                              () => void doDeleteDoc(a),
-                            )}
-                        >
-                          <span class="material-symbols-rounded" aria-hidden="true">delete</span>
-                        </button>
-                      </li>
-                    {/each}
-                  </ul>
-                {/if}
-              {/each}
+              <div class="fgrow">
+                <button
+                  type="button"
+                  class="fgroup sel"
+                  aria-pressed="true"
+                  title="selected upload target — uploads and new documents land in {data.folder}/"
+                >
+                  <span class="material-symbols-rounded" aria-hidden="true">folder</span>{data.folder}/
+                  <span class="fcodes">{myDocs.length}</span></button
+                >
+              </div>
+              <ul>
+                {#each myDocs as a (a.id)}
+                  <li class:current={a.name === data.name}>
+                    <a href={resolve("/text/[folder]/[name]", { folder: a.project, name: a.name })}>
+                      <span class="material-symbols-rounded docicon" aria-hidden="true">{docIcon(a)}</span>
+                      {displayName(a.name, a.kind)}
+                    </a>
+                    <span class="fcodes">{a.codes}</span>
+                    <button
+                      type="button"
+                      class="fdel"
+                      title="delete document"
+                      aria-label={`delete ${displayName(a.name, a.kind)}`}
+                      onclick={() =>
+                        askDelete(
+                          `Delete "${displayName(a.name, a.kind)}"?`,
+                          `This removes the document and its ${a.codes} code entr${a.codes === 1 ? "y" : "ies"}.`,
+                          () => void doDeleteDoc(a),
+                        )}
+                    >
+                      <span class="material-symbols-rounded" aria-hidden="true">delete</span>
+                    </button>
+                  </li>
+                {/each}
+              </ul>
             </Collapsible.Content>
           </Collapsible.Root>
         </aside>
@@ -1362,6 +1287,7 @@
                 aria-label="document name"
                 bind:value={renameDraft}
                 spellcheck="false"
+                use:renameCaret
                 onkeydown={(e) => {
                   if (e.key === "Enter") {
                     e.stopPropagation();
@@ -1379,6 +1305,14 @@
               </h1>
             {/if}
             <div class="bar">
+              <a
+                class="pill back"
+                href={resolve("/project/[folder]", { folder: data.folder })}
+                aria-label="back to project {data.folder}"
+                title="back to {data.folder}/"
+              >
+                <span class="material-symbols-rounded" aria-hidden="true">arrow_back</span>{data.folder}
+              </a>
               {#if mode === "code"}
                 {#if !isPdf}
                   <button type="button" class="modebtn" aria-label="edit text" onclick={() => setMode("edit")}>
@@ -1408,7 +1342,72 @@
                 >
                   <span class="material-symbols-rounded" aria-hidden="true">done</span>finish
                 </button>
-                <span class="hint">editing</span>
+                <span class="hint">editing mode</span>
+                {#if isMd}
+                  <Popover.Root bind:open={mdOpen}>
+                    <Popover.Trigger class="pill mdhelp" title="markdown syntax cheatsheet">
+                      <span class="material-symbols-rounded" aria-hidden="true">format_size</span>Markdown
+                    </Popover.Trigger>
+                    <Popover.Content class="cheatsheet" role="dialog" aria-label="markdown cheatsheet">
+                      <h3>Markdown cheatsheet</h3>
+                      <p class="cheatnote">
+                        This syntax only matters when the file is later converted to HTML or PDF (e.g. with pandoc) —
+                        plain reading ignores the markers.
+                      </p>
+                      <dl>
+                        <dt>YAML header — meta data at the very top</dt>
+                        <dd>
+                          <pre>---
+title: My document
+author: Me
+date: 2026-02-01
+tags: coding, example
+---</pre>
+                          Not shown as text: the converter reads it as document meta data (title, author, date on the HTML/PDF
+                          title).
+                        </dd>
+                        <dt>Headers</dt>
+                        <dd>
+                          <pre># Header 1
+## Header 2
+### Header 3
+#### Header 4
+##### Header 5
+###### Header 6</pre>
+                          →<code>&lt;h1&gt;</code>…<code>&lt;h6&gt;</code>: big bold title down to a small heading.
+                        </dd>
+                        <dt>Text</dt>
+                        <dd>
+                          <pre>*italic*  _italic_
+**strong**  __strong__
+***italic & strong***  ___i&s___
+~~strikethrough~~</pre>
+                          →<em>italic</em>, <strong>bold</strong>, both, <del>strikethrough</del>.
+                        </dd>
+                        <dt>Links</dt>
+                        <dd>
+                          <pre>&lt;https://my_link.com&gt;
+[MyLinkname](https://my_link.com)</pre>
+                          → clickable link, bare URL or with your own label.
+                        </dd>
+                        <dt>Lists</dt>
+                        <dd>
+                          <pre>* Item 1
+  * Subitem 1
+    * Subsubitem 1
+
+1. Item 1
+2. Item 2
+3. Item 21
+
+- [x] item done
+- [ ] item todo</pre>
+                          → bulleted list (indent = nesting), numbered list (number items in order), task list → ☑ / ☐.
+                        </dd>
+                      </dl>
+                    </Popover.Content>
+                  </Popover.Root>
+                {/if}
               {/if}
               <span class="spacer"></span>
               {#if isPdf}
@@ -1429,15 +1428,38 @@
                   </RadioGroup.Item>
                 </RadioGroup.Root>
               {/if}
-              <button
-                type="button"
-                class="pill"
-                aria-label="download document"
-                title="download document"
-                onclick={downloadDoc}
-              >
-                <span class="material-symbols-rounded" aria-hidden="true">download</span>
-              </button>
+              <Popover.Root bind:open={dlOpen}>
+                <Popover.Trigger class="pill" aria-label="download files" title="download project files">
+                  <span class="material-symbols-rounded" aria-hidden="true">download</span>
+                </Popover.Trigger>
+                <Popover.Content class="downloads" role="dialog" aria-label="download files">
+                  <div class="dlhead">
+                    <span>download from {data.folder}/</span>
+                    <button type="button" class="dlsel" onclick={toggleDlAll}>
+                      {dlSel.size === myDocs.length && myDocs.length > 0 ? "select none" : "select all"}
+                    </button>
+                  </div>
+                  <ul>
+                    {#each myDocs as a (a.id)}
+                      <li>
+                        <label>
+                          <input type="checkbox" checked={dlSel.has(a.id)} onchange={() => toggleDl(a.id)} />
+                          {displayName(a.name, a.kind)}
+                        </label>
+                      </li>
+                    {/each}
+                  </ul>
+                  <button
+                    type="button"
+                    class="dldl"
+                    disabled={dlSel.size === 0}
+                    onclick={() => void downloadSelected()}
+                  >
+                    <span class="material-symbols-rounded" aria-hidden="true">download</span>
+                    download {dlSel.size > 0 ? dlSel.size : ""}
+                  </button>
+                </Popover.Content>
+              </Popover.Root>
               <Dialog.Trigger class="pill">
                 <span class="material-symbols-rounded" aria-hidden="true">palette</span>colors
               </Dialog.Trigger>
@@ -1502,20 +1524,37 @@
         </div>
         <aside class="catalog" class:closed={!catOpen} data-pal={paletteTick}>
           <Collapsible.Root class="catroot" bind:open={catOpen}>
-            <Collapsible.Trigger class="catbtn" aria-label="toggle frame devices">
+            <Collapsible.Trigger class="catbtn" aria-label="toggle devices codes">
               <span class="material-symbols-rounded" aria-hidden="true">account_tree</span>
-              {#if catOpen}Devices{/if}
+              {#if catOpen}Devices codes{/if}
             </Collapsible.Trigger>
             <Collapsible.Content class="catbody">
               <div class="cathd">
-                <h2>
-                  Frame devices
+                <div class="cathead">
+                  <button
+                    type="button"
+                    class="cattool addcat"
+                    title="add a new code category (top-level device)"
+                    onclick={() => startAdd(null)}
+                  >
+                    <span class="material-symbols-rounded" aria-hidden="true">add</span>new category
+                  </button>
+                  <button
+                    type="button"
+                    class="cattool addcode"
+                    title={armed === null
+                      ? "add a new code (top-level; arm a device first to nest under it)"
+                      : "add a new code under the armed device"}
+                    onclick={() => startAdd(armed)}
+                  >
+                    <span class="material-symbols-rounded" aria-hidden="true">add</span>new code
+                  </button>
                   {#if !editCat && localCatalog !== null}
                     <button type="button" class="editcat" aria-label="edit devices" onclick={startEditCat}>
                       <span class="material-symbols-rounded" aria-hidden="true">edit</span>Edit
                     </button>
                   {/if}
-                </h2>
+                </div>
                 {#if !editCat && localCatalog !== null}
                   <div class="cattools">
                     <button type="button" class="cattool" onclick={exportCatJson} title="export frame devices as JSON">
@@ -1709,7 +1748,8 @@
     font: inherit;
     font-size: 1.3rem;
     font-weight: 700;
-    margin: 0;
+    margin: 0 0 0.45rem; /* keep the focus border clear of the bar's finish button */
+    width: min(100%, 26rem);
     padding: 0.1rem 0.4rem;
     background: var(--surface, white);
     color: var(--on-surface);
@@ -1764,15 +1804,6 @@
 
   aside {
     min-height: 0;
-
-    h2 {
-      margin: 0 0 0.4rem;
-      font-size: 0.7rem;
-      font-weight: 600;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: var(--on-surface-variant, #666);
-    }
   }
 
   /* frame-devices sidebar: fills the viewport, tree scrolls inside */
@@ -1840,6 +1871,13 @@
     border-right: 1px solid var(--outline, #ccc);
     padding-right: 0.75rem;
     height: 100%;
+
+    /* collapsed: the column shrinks to just the toggle button — no padding/border
+       eating space, so the editor content runs close to the edge */
+    &.closed {
+      padding-right: 0;
+      border-right: none;
+    }
   }
   /* Bits Collapsible.Root renders a wrapper div — it carries the column layout */
   :global(.treeroot) {
@@ -1869,6 +1907,11 @@
   :global(.treebtn:hover) {
     color: var(--primary, #6750a4);
     border-color: var(--primary, #6750a4);
+  }
+  /* collapsed: the icon fills the narrow column and sits centered in it */
+  :global(.treebtn.closed) {
+    width: 100%;
+    justify-content: center;
   }
   :global(.docsbody) {
     display: flex;
@@ -1940,6 +1983,13 @@
       color: var(--primary, #6750a4);
     }
 
+    /* the project header is the selected upload target — marked like a picked document */
+    &.sel {
+      background: var(--primary-container, #e8def8);
+      color: var(--on-primary-container, #21005d);
+      border-radius: 6px;
+    }
+
     .material-symbols-rounded {
       font-size: 1.05rem;
     }
@@ -1976,18 +2026,19 @@
   .uprow {
     display: flex;
     align-items: center;
-    gap: 0.4rem;
+    gap: 0.3rem;
     margin-top: 0.45rem;
   }
   .upload {
     flex: 1;
+    min-width: 0;
     display: flex;
     align-items: center;
-    gap: 0.4rem;
-    padding: 0.45rem 0.6rem;
+    gap: 0.3rem;
+    padding: 0.3rem 0.45rem;
     border: 1px dashed var(--outline, #888);
     border-radius: 8px;
-    font-size: 0.75rem;
+    font-size: 0.65rem;
     color: var(--on-surface-variant, #666);
     cursor: pointer;
 
@@ -2003,23 +2054,23 @@
     }
 
     .material-symbols-rounded {
-      font-size: 1.1rem;
+      font-size: 1rem;
     }
   }
   .upmsg {
-    font-size: 0.75rem;
+    font-size: 0.7rem;
     color: var(--on-surface-variant, #666);
   }
   .upfolder {
     flex: 0 0 auto;
     display: inline-flex;
     align-items: center;
-    gap: 0.4rem;
+    gap: 0.3rem;
     /* same box metrics as the .upload dropzone so the pair reads as siblings */
-    padding: 0.45rem 0.6rem;
+    padding: 0.3rem 0.45rem;
     border: 1px solid var(--outline, #888);
     border-radius: 8px;
-    font-size: 0.75rem;
+    font-size: 0.65rem;
     color: var(--on-surface-variant, #666);
     cursor: pointer;
 
@@ -2029,39 +2080,11 @@
     }
 
     .material-symbols-rounded {
-      font-size: 1.1rem;
+      font-size: 1rem;
     }
 
     input {
       display: none;
-    }
-  }
-  .nfrow {
-    display: flex;
-    gap: 0.3rem;
-    margin: 0.3rem 0 0.1rem;
-
-    .nfinput {
-      font: inherit;
-      font-size: 0.75rem;
-      flex: 1;
-      min-width: 0;
-      padding: 0.3rem 0.45rem;
-      border: 1px solid var(--outline, #888);
-      border-radius: 8px;
-      background: var(--surface, white);
-      color: var(--on-surface, #111);
-    }
-
-    .nfgo {
-      font: inherit;
-      font-size: 0.75rem;
-      padding: 0.3rem 0.7rem;
-      border: none;
-      border-radius: 8px;
-      background: var(--primary-container, #e8def8);
-      color: var(--on-primary-container, #21005d);
-      cursor: pointer;
     }
   }
   .docs ul {
@@ -2134,10 +2157,6 @@
     aside.catalog {
       height: auto;
       overflow: visible;
-
-      h2 {
-        position: static;
-      }
     }
 
     .docs {
@@ -2158,12 +2177,22 @@
     font-size: 0.8rem;
     margin-bottom: 0.5rem;
 
+    /* back to the project this document belongs to */
+    .back {
+      text-decoration: none;
+    }
+
     .hint {
       font-style: italic;
     }
 
     .msg {
       color: #0a6b2d;
+
+      /* the dark green is unreadable on the dark surface — use a light green there */
+      :root[data-theme="dark"] & {
+        color: #86d9a0;
+      }
 
       &.saved {
         opacity: 0.6;
@@ -2301,6 +2330,161 @@
     }
   }
 
+  /* devices-codes header row: add buttons left, Edit pushed to the right */
+  .cathead {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.3rem;
+
+    .editcat {
+      margin-left: auto;
+    }
+  }
+
+  /* download picker: pick this project's documents, select all, download */
+  :global(.downloads) {
+    z-index: 20;
+    min-width: 15rem;
+    max-height: 60vh;
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    padding: 0.5rem 0.6rem;
+    background: var(--surface, white);
+    border: 1px solid var(--outline, #888);
+    border-radius: 8px;
+    box-shadow: 0 6px 18px rgb(0 0 0 / 0.18);
+    font-size: 0.8rem;
+
+    .dlhead {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+      font-weight: 600;
+    }
+
+    .dlsel {
+      font: inherit;
+      font-size: 0.72rem;
+      padding: 0.05rem 0.55rem;
+      border-radius: 999px;
+      border: 1px solid var(--outline, #888);
+      background: var(--surface, white);
+      color: var(--on-surface-variant, #666);
+      cursor: pointer;
+    }
+
+    ul {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+    }
+
+    label {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      cursor: pointer;
+      padding: 0.1rem 0.2rem;
+      border-radius: 4px;
+
+      &:hover {
+        background: var(--surface-variant, #eee);
+      }
+    }
+
+    .dldl {
+      font: inherit;
+      font-size: 0.8rem;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      padding: 0.15rem 0.7rem;
+      border-radius: 999px;
+      border: 1px solid var(--primary, #6750a4);
+      background: var(--primary, #6750a4);
+      color: var(--on-primary, white);
+      cursor: pointer;
+      align-self: flex-start;
+
+      &:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+
+      .material-symbols-rounded {
+        font-size: 1rem;
+      }
+    }
+  }
+
+  /* markdown cheatsheet popover (edit mode of .md documents) */
+  :global(.cheatsheet) {
+    z-index: 20;
+    width: min(30rem, 90vw);
+    max-height: 70vh;
+    overflow: auto;
+    padding: 0.7rem 0.9rem;
+    background: var(--surface, white);
+    border: 1px solid var(--outline, #888);
+    border-radius: 8px;
+    box-shadow: 0 6px 18px rgb(0 0 0 / 0.18);
+    font-size: 0.78rem;
+
+    h3 {
+      margin: 0 0 0.3rem;
+      font-size: 0.9rem;
+    }
+
+    .cheatnote {
+      margin: 0 0 0.5rem;
+      font-style: italic;
+      color: var(--on-surface-variant, #666);
+    }
+
+    dl {
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    dt {
+      font-weight: 700;
+      color: var(--primary, #6750a4);
+    }
+
+    dd {
+      margin: 0.15rem 0 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+    }
+
+    pre {
+      margin: 0;
+      padding: 0.35rem 0.5rem;
+      background: var(--surface-variant, #eee);
+      border-radius: 6px;
+      font-family: var(--font-mono, monospace);
+      font-size: 0.72rem;
+      line-height: 1.45;
+      overflow-x: auto;
+    }
+
+    code {
+      font-family: var(--font-mono, monospace);
+      font-size: 0.95em;
+    }
+  }
+
   .cattools {
     display: flex;
     align-items: center;
@@ -2389,6 +2573,15 @@
 
   :global(.cm-editor.cm-focused) {
     outline: none;
+  }
+
+  /* CodeMirror draws the caret as a border on .cm-cursor — the default dark caret
+     is invisible on the dark surface, so follow the theme (white caret in dark mode) */
+  :global(.cm-editor .cm-cursor) {
+    border-left-color: var(--on-surface, #1c1b1f);
+  }
+  :root[data-theme="dark"] :global(.cm-editor .cm-cursor) {
+    border-left-color: #ffffff;
   }
 
   /* armed keeps the normal text cursor (the floating ctag already signals arming);

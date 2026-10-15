@@ -1,6 +1,5 @@
 <script lang="ts">
   import { resolve } from "$app/paths";
-  import { goto } from "$app/navigation";
   import { onMount } from "svelte";
   import { SvelteMap } from "svelte/reactivity";
   import { Dialog } from "bits-ui";
@@ -11,7 +10,6 @@
   import ConfirmDialog from "$lib/coding/ConfirmDialog.svelte";
   import { EXAMPLE_PROJECT } from "$lib/client/examples";
   import {
-    createArticle,
     createFolder,
     deleteFolder,
     exportDatabase,
@@ -111,19 +109,6 @@
       await createFolder(name);
       newProj = false;
       projName = "";
-    } catch (e) {
-      errMsg = String(e);
-    } finally {
-      busy = false;
-    }
-  }
-
-  async function newArticle(project: string) {
-    busy = true;
-    errMsg = "";
-    try {
-      const article = await createArticle(project);
-      await goto(resolve("/text/[folder]/[name]", { folder: article.project, name: article.name }));
     } catch (e) {
       errMsg = String(e);
     } finally {
@@ -236,7 +221,10 @@
         {@const stats = statsOf(items)}
         <section class="card">
           <h2>
-            {project}
+            <a class="open" href={resolve("/project/[folder]", { folder: project })}>
+              {project}
+              <span class="material-symbols-rounded" aria-hidden="true">chevron_right</span>
+            </a>
             {#if project === EXAMPLE_PROJECT}
               <span class="chip ex">example</span>
             {/if}
@@ -247,9 +235,6 @@
             {/if}
           </h2>
           <div class="prow">
-            <button type="button" class="go" onclick={() => void newArticle(project)} disabled={busy}>
-              <span class="material-symbols-rounded" aria-hidden="true">note_add</span>new document in {project}
-            </button>
             {#if instr}
               <button type="button" class="export" onclick={() => exportQdc(project, instr)}>
                 <span class="material-symbols-rounded" aria-hidden="true">file_download</span>export .qdc
@@ -267,22 +252,8 @@
               <span class="material-symbols-rounded" aria-hidden="true">delete</span>delete project
             </button>
           </div>
-          {#if items.length}
-            <ul>
-              {#each items as a (a.id)}
-                <li>
-                  <a href={resolve("/text/[folder]/[name]", { folder: a.project, name: a.name })}>
-                    <span class="name">{a.name}</span>
-                  </a>
-                  <span class="codes">{a.codes}</span>
-                  {#if a.versions}
-                    <span class="chip versions">{a.versions} v</span>
-                  {/if}
-                </li>
-              {/each}
-            </ul>
-          {:else}
-            <p class="empty">Empty project — add a document to start coding.</p>
+          {#if items.length === 0}
+            <p class="empty">Empty project — open it to add a document.</p>
           {/if}
         </section>
       {:else}
@@ -376,42 +347,44 @@
     color: #b3261e;
   }
   .card {
+    position: relative;
     margin-top: 1.25rem;
     padding: 0.75rem 0.9rem 0.9rem;
     border: 1px solid var(--outline, #888);
     border-radius: 12px;
   }
-  ul {
-    list-style: none;
-    padding: 0;
-    margin-top: 0.75rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-  }
-  li {
-    display: flex;
+  /* the whole card is the link into the project: the title link's overlay
+     covers the card, the action row sits above it so its buttons stay reachable */
+  .card .open {
+    display: inline-flex;
     align-items: baseline;
-    gap: 0.6rem;
-    flex-wrap: wrap;
-    padding: 0.35rem 0.5rem;
-    border-radius: 4px;
-  }
-  li:hover {
-    background: var(--surface-variant);
-  }
-  li a {
-    text-decoration: none;
+    gap: 0.3rem;
     color: inherit;
-    flex: 1;
+    text-decoration: none;
+  }
+  .card .open .material-symbols-rounded {
+    font-size: 1.1rem;
+    color: var(--on-surface-variant, #666);
+  }
+  .card .open:hover {
+    color: var(--primary, #6750a4);
+  }
+  .card .open:hover .material-symbols-rounded {
+    color: var(--primary, #6750a4);
+  }
+  .card .open::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 12px;
+  }
+  .card:hover {
+    border-color: var(--primary, #6750a4);
   }
   .nav {
     display: flex;
     align-items: center;
     gap: 0.5rem;
-  }
-  .name {
-    font-weight: 600;
   }
   h2 {
     font-size: 1rem;
@@ -423,6 +396,8 @@
     flex-wrap: wrap;
   }
   .prow {
+    position: relative;
+    z-index: 1;
     margin-top: 0.6rem;
     display: flex;
     align-items: center;
@@ -475,12 +450,6 @@
     margin: 0.4rem 0 0;
     font-size: 0.8rem;
     color: var(--on-surface-variant);
-  }
-  .codes {
-    color: var(--on-surface-variant);
-    font-variant-numeric: tabular-nums;
-    min-width: 2rem;
-    text-align: right;
   }
   .empty {
     margin-top: 0.75rem;

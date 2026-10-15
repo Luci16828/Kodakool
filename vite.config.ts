@@ -47,6 +47,9 @@ export default defineConfig({
             // BROWSER=firefox pnpm test → run the client suite in Firefox
             instances: [{ browser: (process.env.BROWSER ?? "chromium") as "chromium" | "firefox", headless: true }],
           },
+          // every client test file shares one Dexie/RxDB store in parallel:
+          // the default 1s `expect.poll` timeout is too tight under that load
+          expect: { requireAssertions: true, poll: { timeout: 5000 } },
           include: ["src/**/*.svelte.{test,spec}.{js,ts}"],
           exclude: ["src/lib/server/**"],
         },

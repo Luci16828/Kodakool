@@ -1,18 +1,10 @@
 import { page } from "vitest/browser";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { render } from "vitest-browser-svelte";
 import ColorProvider from "./ColorProvider.svelte";
 import Dashboard from "../routes/+page.svelte";
-import { exportDatabase, getArticle, listArticles, saveLocalCatalog } from "$lib/client/coding-db";
+import { exportDatabase, getArticle, listArticles, listFolders, saveLocalCatalog } from "$lib/client/coding-db";
 import { resetArticles, seedArticle, testInstructions } from "./fixtures";
-
-const navigated = vi.hoisted(() => [] as string[]);
-vi.mock("$app/navigation", () => ({
-  goto: (url: string) => {
-    navigated.push(url);
-    return Promise.resolve();
-  },
-}));
 
 function renderDashboard() {
   return render(Dashboard, {}, { wrapper: ColorProvider });
@@ -21,12 +13,11 @@ function renderDashboard() {
 const chip = (text: string) => page.getByText(text, { exact: false }).first();
 
 beforeEach(async () => {
-  navigated.length = 0;
   await resetArticles();
 });
 
 describe("project screen", () => {
-  it("lists projects with their documents and code counts", async () => {
+  it("lists projects with their document, code and version counts", async () => {
     await seedArticle({
       project: "test",
       name: "spd 1",
@@ -47,9 +38,8 @@ describe("project screen", () => {
     await expect.element(chip("1 versions")).toBeInTheDocument();
 
     await expect.element(page.getByRole("heading", { level: 2 }).first()).toHaveTextContent("test");
-    await expect.element(page.getByRole("link", { name: /spd 1/ })).toBeInTheDocument();
-    await expect.element(page.getByRole("link", { name: /spd 2/ })).toBeInTheDocument();
-    await expect.element(page.getByText("2", { exact: true }).first()).toBeInTheDocument();
+    await expect.element(page.getByText("2 documents", { exact: true }).first()).toBeInTheDocument();
+    await expect.element(page.getByText("2 codes", { exact: true }).first()).toBeInTheDocument();
   });
 
   it("shows the empty state while there are no projects", async () => {
@@ -58,14 +48,27 @@ describe("project screen", () => {
     await expect.element(page.getByText("No projects yet")).toBeInTheDocument();
   });
 
-  it("links each document to its coding page", async () => {
+  it("links each project card to its project page", async () => {
     await seedArticle({ project: "test", name: "spd 1", text: "Text" });
 
     renderDashboard();
 
-    await expect.element(page.getByRole("link", { name: /spd 1/ })).toBeInTheDocument();
-    const link = await page.getByRole("link", { name: /spd 1/ }).element();
-    expect(link.getAttribute("href")).toBe("/text/test/spd 1");
+    await expect.element(page.getByRole("link", { name: "test", exact: true })).toBeInTheDocument();
+    const link = await page.getByRole("link", { name: "test", exact: true }).element();
+    expect(link.getAttribute("href")).toBe("/project/test");
+  });
+
+  it("enters a project without listing its documents on the card", async () => {
+    await seedArticle({ project: "test", name: "spd 1", text: "Text" });
+    await seedArticle({ project: "test", name: "spd 2", text: "Text" });
+
+    renderDashboard();
+
+    // the card is the way in: no document rows, no per-project document creation
+    await expect.element(page.getByRole("link", { name: "test", exact: true })).toBeInTheDocument();
+    expect(document.querySelectorAll(".card li")).toHaveLength(0);
+    expect(document.querySelectorAll(".card .go")).toHaveLength(0);
+    expect(document.querySelectorAll(".card")).toHaveLength(1);
   });
 
   it("offers a .qdc export only for projects with a frame-device catalog", async () => {
@@ -79,19 +82,6 @@ describe("project screen", () => {
     await expect.poll(() => document.querySelectorAll(".export").length).toBe(1);
   });
 
-  it("creates a new document in the project and opens it", async () => {
-    await seedArticle({ project: "test", name: "spd 1", text: "Text" });
-
-    renderDashboard();
-
-    await page.getByRole("button", { name: "new document in test" }).click();
-
-    await expect.element(page.getByRole("link", { name: "Untitled 1" })).toBeInTheDocument();
-    expect(navigated).toEqual(["/text/test/Untitled 1"]);
-    expect((await listArticles()).map((a) => a.project)).toEqual(["test", "test"]);
-    expect((await getArticle("test", "Untitled 1"))?.name).toBe("Untitled 1");
-  });
-
   it("creates a project through the new-project input", async () => {
     renderDashboard();
 
@@ -103,6 +93,19 @@ describe("project screen", () => {
 
     await expect.element(page.getByRole("heading", { level: 2 }).first()).toHaveTextContent("research");
     await expect.element(page.getByText("Empty project")).toBeInTheDocument();
+  });
+
+  it("creates projects past the declared 200-char limit (maxLength is not enforced)", async () => {
+    renderDashboard();
+
+    const long = "f".repeat(250);
+    await page.getByRole("button", { name: "new project" }).click();
+    const input = (await page.getByLabelText("new project name").element()) as HTMLInputElement;
+    input.value = long;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    await page.getByRole("button", { name: "create" }).click();
+
+    await expect.poll(async () => (await listFolders()).includes(long)).toBe(true);
   });
 
   it("deletes a project with its documents through the timed confirm dialog", async () => {
@@ -156,17 +159,5 @@ describe("project screen", () => {
       .poll(() => document.querySelector(".dbmsg")?.textContent ?? "")
       .toMatch(/import failed: not a luci-bachelor database export/);
     expect((await listArticles()).length).toBe(0);
-  });
-
-  it("names new documents past an existing Untitled N without collision", async () => {
-    await seedArticle({ project: "test", name: "Untitled 2", text: "x" });
-
-    renderDashboard();
-
-    await page.getByRole("button", { name: "new document in test" }).click();
-
-    // max existing "Untitled 2" → the next free name is "Untitled 3"
-    await expect.poll(async () => (await getArticle("test", "Untitled 3"))?.name).toBe("Untitled 3");
-    expect(await getArticle("test", "Untitled 1")).toBeNull();
   });
 });

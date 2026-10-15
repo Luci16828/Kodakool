@@ -52,9 +52,9 @@ const home = await page.goto(`${url}/`);
 const homeText = await page.textContent("body");
 console.log("home status:", home.status(), "| dashboard rendered:", /Projects/.test(homeText));
 
-// example project seeds on first visit
+// example project seeds on first visit (the dashboard shows it as a project card)
 const seeded = await page
-  .waitForSelector("text=Junge Freiheit 22", { timeout: 20000 })
+  .waitForSelector('a[href*="/project/example"]', { timeout: 20000 })
   .then(() => true)
   .catch(() => false);
 console.log("example project seeded:", seeded);
@@ -83,12 +83,44 @@ console.log(
 // 3. client-side navigation inside the app (base-aware resolve() links)
 const links = await page.$$eval("a", (as) => as.map((a) => a.getAttribute("href")));
 console.log("links on coding page:", links.slice(0, 4));
+const backLink = await page.getAttribute('a[aria-label^="back to project"]', "href");
+console.log("coding page back link:", backLink);
+
+// 4. project page deep link: also served by 404.html, lists only its own documents
+const proj = await page.goto(`${url}/project/example`);
+const listed = await page
+  .waitForSelector(".docs a", { timeout: 20000 })
+  .then(() => true)
+  .catch(() => false);
+console.log("project page status:", proj.status(), "| documents listed:", listed);
+console.log("project page back link:", await page.getAttribute(".crumb a", "href"));
+
+// 5. the dashboard card is the way into a project
+await page.goto(`${url}/`);
+await page.waitForSelector(".card .open", { timeout: 20000 }).catch(() => {});
+console.log("dashboard card link:", await page.getAttribute(".card .open", "href"));
+await page.click(".card .open");
+await page.waitForLoadState("networkidle");
+console.log(
+  "after card nav:",
+  new URL(page.url()).pathname,
+  "| under base:",
+  new URL(page.url()).pathname.startsWith(`${BASE}/`),
+);
+
+// 6. a document row on the project page opens its coding page
 const docLink = page.locator('a[href*="Junge"]').first();
 await docLink.click();
 await page.waitForLoadState("networkidle");
+const navEditor = await page
+  .waitForSelector(".cm-content", { timeout: 20000 })
+  .then(() => true)
+  .catch(() => false);
 console.log(
-  "after nav:",
+  "after doc nav:",
   new URL(page.url()).pathname,
+  "| editor mounted:",
+  navEditor,
   "| under base:",
   new URL(page.url()).pathname.startsWith(`${BASE}/`),
 );

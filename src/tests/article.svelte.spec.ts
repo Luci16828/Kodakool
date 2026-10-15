@@ -52,6 +52,24 @@ const hatchedMarks = () =>
   ).length;
 const chips = () => [...document.querySelectorAll(".cm-tag")].map((el) => el.textContent ?? "");
 
+/**
+ * Place the caret at the end of the body by clicking right of the line's text
+ * (CodeMirror clamps a click past the last glyph to the line end).
+ * Typing `{End}` after a click is flaky under load: the keypress can reach the
+ * editor before its click-driven selection/focus settles, and the text lands at 0.
+ */
+async function caretAtEnd(): Promise<void> {
+  const content = document.querySelector(".cm-content") as HTMLElement;
+  const line = document.querySelector(".cm-line") as HTMLElement;
+  const c = content.getBoundingClientRect();
+  const l = line.getBoundingClientRect();
+  // stay INSIDE the content box (a point past its edge hits the parent <main>
+  // and Playwright reports "intercepts pointer events")
+  await editor().click({
+    position: { x: Math.max(0, Math.round(l.right - c.left) - 4), y: Math.round(l.top - c.top + l.height / 2) },
+  });
+}
+
 /** editor body without the floating code-label widgets */
 function editorText(): string {
   const clone = (document.querySelector(".cm-content") as HTMLElement).cloneNode(true) as HTMLElement;
@@ -199,7 +217,7 @@ describe("article coding page", () => {
     await expect.poll(editorText).toBe(TEXT);
 
     await page.getByRole("button", { name: "edit text" }).click();
-    await expect.element(page.getByText("editing", { exact: true })).toBeInTheDocument();
+    await expect.element(page.getByText("editing mode", { exact: true })).toBeInTheDocument();
     await editor().click({ position: { x: 5, y: 30 } });
     await userEvent.keyboard("X");
     await expect.poll(editorText).toMatch(/X/);
@@ -267,8 +285,8 @@ describe("article coding page", () => {
     await ready();
 
     await page.getByRole("button", { name: "edit text" }).click();
-    await editor().click({ position: { x: 5, y: 30 } });
-    await userEvent.keyboard("{End}!");
+    await caretAtEnd();
+    await userEvent.keyboard("!");
 
     await expect.element(page.getByRole("button", { name: "save" })).toBeInTheDocument();
     await expect.poll(editorText).toMatch(/Text\.!$/);
@@ -334,6 +352,32 @@ describe("article coding page", () => {
     expect(navigated).toEqual(["/text/test/spd 2"]);
   });
 
+  it("places the rename caret at the end of a regular name", async () => {
+    await seedArticle({ project: FOLDER, name: NAME, text: TEXT });
+
+    renderArticle();
+    await ready();
+
+    await page.getByRole("button", { name: `${NAME}.txt`, exact: true }).click();
+    await expect.element(page.getByRole("textbox", { name: "document name" })).toBeInTheDocument();
+    const input = document.querySelector(".rename") as HTMLInputElement;
+    expect(document.activeElement).toBe(input);
+    expect([input.selectionStart, input.selectionEnd]).toEqual([NAME.length, NAME.length]);
+  });
+
+  it("selects a default Untitled name fully in the rename input", async () => {
+    await seedArticle({ project: FOLDER, name: "Untitled 3.md", text: "x" });
+
+    renderArticle("Untitled 3.md");
+    await ready();
+
+    await page.getByRole("button", { name: "Untitled 3.md", exact: true }).click();
+    await expect.element(page.getByRole("textbox", { name: "document name" })).toBeInTheDocument();
+    const input = document.querySelector(".rename") as HTMLInputElement;
+    // typing replaces the whole default name
+    expect([input.selectionStart, input.selectionEnd]).toEqual([0, "Untitled 3.md".length]);
+  });
+
   it("edits the frame-device catalog locally: rename, tag override, drag reorder", async () => {
     await seedArticle({ project: FOLDER, name: NAME, text: TEXT, entries: [quoteEntry] });
 
@@ -389,6 +433,37 @@ describe("article coding page", () => {
       .toEqual(["Rahmen", "Extra"]);
   });
 
+  it("starts catalog editing from the header add buttons", async () => {
+    await seedArticle({ project: FOLDER, name: NAME, text: TEXT });
+
+    renderArticle();
+    await ready();
+
+    // "new category" enters edit mode with a fresh top-level device
+    await page.getByRole("button", { name: "new category" }).click();
+    await expect.element(page.getByRole("button", { name: "save catalog" })).toBeInTheDocument();
+    await page.getByRole("button", { name: "save catalog" }).click();
+    await expect
+      .poll(async () => (await getLocalCatalog(FOLDER))?.devices.map((d) => d.name))
+      .toEqual(["Rahmen", "Kommentar", "New device"]);
+  });
+
+  it("shows the markdown cheatsheet in edit mode of .md documents only", async () => {
+    await seedArticle({ project: FOLDER, name: "doc.md", text: "# hi" });
+
+    renderArticle("doc.md");
+    await ready();
+
+    // coding mode: no cheatsheet button
+    expect(document.querySelector(".mdhelp")).toBe(null);
+    await page.getByRole("button", { name: "edit text" }).click();
+    const btn = page.getByRole("button", { name: "Markdown" });
+    await expect.element(btn).toBeInTheDocument();
+    await btn.click();
+    await expect.element(page.getByRole("dialog", { name: "markdown cheatsheet" })).toBeInTheDocument();
+    await expect.element(page.getByText("YAML header", { exact: false })).toBeInTheDocument();
+  });
+
   it("shows a collapsible document tree with the current document marked", async () => {
     await seedArticle({ project: FOLDER, name: NAME, text: TEXT });
     await seedArticle({ project: FOLDER, name: "other doc", text: "x" });
@@ -423,7 +498,7 @@ describe("article coding page", () => {
     expect(iconFor("scan")).toBe("newsmode");
   });
 
-  it("collapses and expands document folders", async () => {
+  it("marks the project header as the selected upload target (no project collapse)", async () => {
     await seedArticle({ project: FOLDER, name: NAME, text: TEXT });
 
     renderArticle();
@@ -431,33 +506,54 @@ describe("article coding page", () => {
 
     const group = page.getByRole("button", { name: /test\// });
     await expect.element(group).toBeInTheDocument();
-    await group.click();
-    await expect.element(page.getByRole("link", { name: `${NAME}.txt` })).not.toBeInTheDocument();
+    await expect.element(group).toHaveAttribute("aria-pressed", "true");
+    // the document list is not collapsible: clicking the header keeps it visible
     await group.click();
     await expect.element(page.getByRole("link", { name: `${NAME}.txt` })).toBeInTheDocument();
   });
 
-  it("creates and deletes local folders (confirm waits for the countdown)", async () => {
+  it("lists only the current project's documents in the tree", async () => {
+    await seedArticle({ project: FOLDER, name: NAME, text: TEXT });
+    await seedArticle({ project: "other", name: "foreign doc", text: "x" });
+    await seedArticle({ project: "second", name: "foreign note", text: "x" });
+
+    renderArticle();
+    await ready();
+
+    await expect.element(page.getByRole("link", { name: `${NAME}.txt` })).toBeInTheDocument();
+    await expect.element(page.getByRole("link", { name: "foreign doc.txt" })).not.toBeInTheDocument();
+    await expect.element(page.getByRole("link", { name: "foreign note.txt" })).not.toBeInTheDocument();
+    // one project header only, counting this project's documents
+    expect(document.querySelectorAll(".fgroup")).toHaveLength(1);
+    await expect.element(page.getByRole("button", { name: /test\/ 1/ })).toBeInTheDocument();
+  });
+
+  it("links back to the project page from the coding bar", async () => {
     await seedArticle({ project: FOLDER, name: NAME, text: TEXT });
 
     renderArticle();
     await ready();
 
-    await page.getByRole("button", { name: "new folder" }).click();
-    await page.getByRole("textbox", { name: "new folder name" }).fill("archive");
-    await page.getByRole("button", { name: "create" }).click();
+    const back = await page.getByRole("link", { name: "back to project test" }).element();
+    expect(back.getAttribute("href")).toBe("/project/test");
+  });
 
-    // registered-but-empty folders show up in the tree too
-    await expect.element(page.getByRole("button", { name: /archive\// })).toBeInTheDocument();
+  it("returns to the project page when the open document is deleted", async () => {
+    await seedArticle({ project: FOLDER, name: NAME, text: TEXT });
+    await seedArticle({ project: FOLDER, name: "other doc", text: "x" });
 
-    await page.getByRole("button", { name: "delete folder archive" }).click();
-    await expect.element(page.getByRole("dialog", { name: 'Delete folder "archive"?' })).toBeInTheDocument();
+    renderArticle();
+    await ready();
+
+    await page.getByRole("button", { name: `delete ${NAME}.txt` }).click();
+    await expect.element(page.getByRole("dialog", { name: `Delete "${NAME}.txt"?` })).toBeInTheDocument();
     await expect
       .poll(() => (document.querySelector(".cfconfirm") as HTMLButtonElement | null)?.disabled, { timeout: 6000 })
       .toBe(false);
     await page.getByRole("button", { name: "confirm" }).click();
 
-    await expect.element(page.getByRole("button", { name: /archive\// })).not.toBeInTheDocument();
+    await expect.poll(async () => await getArticle(FOLDER, NAME)).toBeNull();
+    expect(navigated).toEqual(["/project/test"]);
   });
 
   it("deletes a document from the tree after the confirmation countdown", async () => {
@@ -478,18 +574,18 @@ describe("article coding page", () => {
     expect(await getArticle(FOLDER, "other doc")).toBeNull();
   });
 
-  it("collapses the frame-devices aside", async () => {
+  it("collapses the devices-codes aside", async () => {
     await seedArticle({ project: FOLDER, name: NAME, text: TEXT });
 
     renderArticle();
     await ready();
 
-    const heading = page.getByRole("heading", { name: "Frame devices" });
-    await expect.element(heading).toBeInTheDocument();
-    await page.getByRole("button", { name: "toggle frame devices" }).click();
-    await expect.element(heading).not.toBeInTheDocument();
-    await page.getByRole("button", { name: "toggle frame devices" }).click();
-    await expect.element(heading).toBeInTheDocument();
+    const addBtn = page.getByRole("button", { name: "new category" });
+    await expect.element(addBtn).toBeInTheDocument();
+    await page.getByRole("button", { name: "toggle devices codes" }).click();
+    await expect.element(addBtn).not.toBeInTheDocument();
+    await page.getByRole("button", { name: "toggle devices codes" }).click();
+    await expect.element(addBtn).toBeInTheDocument();
   });
 
   it("uploads text files from the sidebar dropzone into the tree", async () => {
@@ -785,17 +881,25 @@ describe("article coding page", () => {
     expect(await getPdfData(art?.id ?? "")).toBeTruthy();
   });
 
-  it("offers document download and catalog export/import controls", async () => {
+  it("offers a download picker and catalog export/import controls", async () => {
     await seedArticle({ project: FOLDER, name: NAME, text: TEXT });
 
     renderArticle();
     await ready();
 
-    await expect.element(page.getByRole("button", { name: "download document" })).toBeInTheDocument();
+    await expect.element(page.getByRole("button", { name: "download files" })).toBeInTheDocument();
     await expect.element(page.getByRole("button", { name: "json", exact: true })).toBeInTheDocument();
     await expect.element(page.getByRole("button", { name: ".qdc" })).toBeInTheDocument();
     await expect.element(page.getByRole("button", { name: "import", exact: true })).toBeInTheDocument();
     expect(document.querySelector(".upfolder")).toBeTruthy();
+
+    // the picker lists this project's documents with a select-all toggle
+    await page.getByRole("button", { name: "download files" }).click();
+    await expect.element(page.getByRole("dialog", { name: "download files" })).toBeInTheDocument();
+    await expect.element(page.getByRole("button", { name: "select all" })).toBeInTheDocument();
+    await expect.element(page.getByRole("button", { name: "download", exact: true })).toBeDisabled();
+    await page.getByRole("button", { name: "select all" }).click();
+    await expect.element(page.getByRole("button", { name: "download 1", exact: true })).toBeEnabled();
   });
 
   it("highlights markdown and YAML frontmatter in .md documents", async () => {

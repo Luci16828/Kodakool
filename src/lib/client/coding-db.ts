@@ -273,18 +273,22 @@ function toEntry(doc: RxDoc<CodeDocData> | CodeDocData): CodeEntry {
 
 // ----- articles -----
 
-/** Next free `Untitled N` base name inside a project (max existing N + 1). */
+/**
+ * Next free `Untitled N.md` name inside a project (max existing N + 1).
+ * New documents are markdown by default, so the generated name carries `.md`
+ * (it drives highlighting, the cheatsheet button and the download ending).
+ */
 export async function nextUntitledName(project: string): Promise<string> {
   const { articles } = await getDb();
   const docs = await articles.find({ selector: { project } }).exec();
   let max = 0;
   for (const d of docs) {
-    const m = /^Untitled (\d+)$/.exec(d.name);
+    const m = /^Untitled (\d+)(?:\.md)?$/.exec(d.name);
     if (m) max = Math.max(max, Number(m[1]));
   }
   let n = max + 1;
-  while (docs.some((d) => d.name === `Untitled ${n}`)) n++;
-  return `Untitled ${n}`;
+  while (docs.some((d) => d.name === `Untitled ${n}.md`)) n++;
+  return `Untitled ${n}.md`;
 }
 
 export async function createArticle(
