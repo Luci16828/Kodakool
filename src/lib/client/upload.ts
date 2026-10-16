@@ -1,4 +1,4 @@
-import { createArticle, getArticle, renameArticle, saveArticle, savePdfData } from "./coding-db";
+import { createArticle, deleteArticle, getArticle, renameArticle, saveArticle, savePdfData } from "./coding-db";
 
 /**
  * File → article uploads, shared by the project page and the coding page
@@ -50,9 +50,16 @@ export async function uploadArticleFile(
   }
 
   const created = await createArticle(project, isPdfFile ? "pdf" : "text");
-  await saveArticle(created.id, text, []);
-  if (pdfBytes !== null) await savePdfData(created.id, pdfBytes, pdfPages);
-  await renameArticle(created.id, name);
+  try {
+    await saveArticle(created.id, text, []);
+    if (pdfBytes !== null) await savePdfData(created.id, pdfBytes, pdfPages);
+    await renameArticle(created.id, name);
+  } catch {
+    // a concurrent upload won the name (renameArticle keeps (project, name) unique):
+    // remove the scratch article so the store stays clean
+    await deleteArticle(created.id);
+    return { ok: false, message: `"${name}" already exists` };
+  }
   return { ok: true, message: `uploaded ${name}` };
 }
 

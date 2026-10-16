@@ -1,6 +1,6 @@
 import { entryId } from "$lib/coding/edit";
 import { instructionsSchema, uniqueIds, type Instructions } from "$lib/coding/instructions";
-import type { CodeEntry } from "$lib/coding/types";
+import { codeEntrySchema, type CodeEntry } from "$lib/coding/types";
 
 /**
  * Local-first store. The browser RxDB/Dexie database is the single source of
@@ -220,6 +220,8 @@ interface Db {
 }
 
 let dbPromise: Promise<Db> | null = null;
+/** addRxPlugin throws when the same plugin is added twice — only add it on the first open attempt */
+let pluginsAdded = false;
 
 export function getDb(): Promise<Db> {
   dbPromise ??= (async () => {
@@ -227,7 +229,10 @@ export function getDb(): Promise<Db> {
     const { getRxStorageDexie } = await import("rxdb/plugins/storage-dexie");
     // required since the articles schema was bumped to version 1 (kind field)
     const { RxDBMigrationSchemaPlugin } = await import("rxdb/plugins/migration-schema");
-    addRxPlugin(RxDBMigrationSchemaPlugin);
+    if (!pluginsAdded) {
+      addRxPlugin(RxDBMigrationSchemaPlugin);
+      pluginsAdded = true;
+    }
     const db = await createRxDatabase({ name: "luci-coding", storage: getRxStorageDexie() });
     await db.addCollections({
       articles: {
@@ -240,12 +245,66 @@ export function getDb(): Promise<Db> {
       pdfs: { schema: structuredClone(PDF_SCHEMA) },
       folders: { schema: structuredClone(FOLDER_SCHEMA) },
     });
-    return db as unknown as Db;
-  })();
+    const typed = db as unknown as Db;
+    // repair crash residue (orphan codes/pdfs, half-normalized articles) once per page load
+    await sweep(typed).catch(() => undefined);
+    return typed;
+  })().catch((e: unknown) => {
+    // a failed open must NOT be memoized: the next getDb() retries (e.g. a transient
+    // IndexedDB block in private mode); a poisoned promise would break the app until reload
+    dbPromise = null;
+    throw e;
+  });
   return dbPromise;
 }
 
+/** Cap on the version history per article (every snapshot stores the full text). */
+export const MAX_VERSIONS = 200;
+
+/**
+ * Repair the store after a crash mid-write: code/PDF documents whose article is gone
+ * are removed, and articles missing `versions`/`kind` are normalized so every reader
+ * can rely on them. Runs automatically on every database open.
+ */
+async function sweep(db: Db): Promise<{ codes: number; pdfs: number }> {
+  const articleIds = new Set((await db.articles.find().exec()).map((d) => d.id));
+  let codes = 0;
+  let pdfs = 0;
+  for (const c of await db.codes.find().exec()) {
+    // orphan, or an entry that fails the write-boundary contract (range arity, uuid
+    // device, endLine >= line) — the JSON schema validator enforces neither
+    if (articleIds.has(c.articleId) && codeEntrySchema.safeParse(toEntry(c)).success) continue;
+    await c.remove().catch(skipConflict);
+    codes++;
+  }
+  for (const p of await db.pdfs.find().exec()) {
+    if (articleIds.has(p.id)) continue;
+    await p.remove().catch(skipConflict);
+    pdfs++;
+  }
+  for (const a of await db.articles.find().exec()) {
+    const patch: Record<string, unknown> = {};
+    if (!Array.isArray(a.versions)) patch.versions = [];
+    else {
+      // drop snapshots a hostile import stored: reverting to one would poison the
+      // live entries and make every later save throw
+      const clean = a.versions.filter(versionOk);
+      if (clean.length !== a.versions.length) patch.versions = clean;
+    }
+    if (a.kind !== "text" && a.kind !== "pdf") patch.kind = "text";
+    if (Object.keys(patch).length > 0) await a.patch(patch).catch(skipConflict);
+  }
+  return { codes, pdfs };
+}
+
+export async function integritySweep(): Promise<{ codes: number; pdfs: number }> {
+  return sweep(await getDb());
+}
+
 function toCodeDoc(articleId: string, entry: CodeEntry): CodeDocData {
+  // the JSON schema validator does NOT enforce range arity / excerpt length, so
+  // validate at the write boundary: a malformed entry throws before anything is stored
+  codeEntrySchema.parse(entry);
   const doc: CodeDocData = {
     id: entryId(articleId, entry),
     articleId,
@@ -284,7 +343,9 @@ export async function nextUntitledName(project: string): Promise<string> {
   let max = 0;
   for (const d of docs) {
     const m = /^Untitled (\d+)(?:\.md)?$/.exec(d.name);
-    if (m) max = Math.max(max, Number(m[1]));
+    // cap guards against a hand-named `Untitled 99999999999999999999.md` overflowing
+    // Number and producing scientific-notation names like `Untitled 1e+21.md`
+    if (m) max = Math.max(max, Math.min(Number(m[1]), 1_000_000));
   }
   let n = max + 1;
   while (docs.some((d) => d.name === `Untitled ${n}.md`)) n++;
@@ -310,7 +371,28 @@ export async function createArticle(
     versions: [],
   };
   await articles.insert(article);
-  return { id, project: cleanProject, name: article.name, kind, updatedAt: now, codes: 0, versions: 0 };
+  // concurrent creators can compute the same `Untitled N` name: losers rename
+  // themselves so (project, name) — the app's addressing key — stays unique
+  const name = await resolveArticleName(id, cleanProject, article.name);
+  return { id, project: cleanProject, name, kind, updatedAt: now, codes: 0, versions: 0 };
+}
+
+async function resolveArticleName(id: string, project: string, name: string): Promise<string> {
+  const { articles } = await getDb();
+  for (let i = 0; i < 4; i++) {
+    const same = await articles.find({ selector: { project, name } }).exec();
+    if (same.length <= 1) return name;
+    const next = await nextUntitledName(project);
+    const doc = await articles.findOne(id).exec();
+    if (!doc) return name;
+    await doc.patch({ name: next }).catch(skipConflict);
+    name = next;
+  }
+  // last resort: a uuid-suffixed name is unique by construction
+  const unique = `${name} (${id.slice(0, 8)})`;
+  const doc = await articles.findOne(id).exec();
+  if (doc) await doc.patch({ name: unique }).catch(skipConflict);
+  return unique;
 }
 
 export async function getArticle(project: string, name: string): Promise<ArticleData | null> {
@@ -341,7 +423,8 @@ function toSummary(a: ArticleData, codes: number): ArticleSummary {
     kind: a.kind ?? "text",
     updatedAt: a.updatedAt,
     codes,
-    versions: a.versions.length,
+    // a store written by an older app version may lack versions — never crash on it
+    versions: a.versions?.length ?? 0,
   };
 }
 
@@ -432,17 +515,33 @@ export function skipConflict(e: unknown): void {
 export async function saveArticle(id: string, text: string, entries: CodeEntry[]): Promise<void> {
   const { articles, codes } = await getDb();
   const doc = await articles.findOne(id).exec();
-  if (!doc) return;
-  await codes
-    .find({ selector: { articleId: id } })
-    .exec()
-    .then((docs) => Promise.all(docs.map((d) => d.remove().catch(skipConflict))));
+  if (!doc) {
+    // the article is gone (concurrent delete): sweep codes a racing commit leaked for it
+    await sweepCodesOf(codes, id);
+    return;
+  }
+  const docs = entries.map((e) => toCodeDoc(id, e));
+  const keep = new Set(docs.map((d) => d.id));
+  // write the new codes FIRST: a crash mid-save can leave old + new codes side by side
+  // (self-healed by the next commit), it can never leave the document entry-less.
+  // An invalid entry throws here, before anything existing is touched.
+  if (docs.length > 0) await codes.bulkUpsert(docs);
+  for (const d of await codes.find({ selector: { articleId: id } }).exec()) {
+    if (!keep.has(d.id)) await d.remove().catch(skipConflict);
+  }
   // upsert (not insert): a concurrent commit flush must not CONFLICT on re-added ids
-  if (entries.length > 0) await codes.bulkUpsert(entries.map((e) => toCodeDoc(id, e)));
   await doc.patch({ text, updatedAt: Date.now() }).catch(skipConflict);
+  // if the article was deleted concurrently, the codes upserted above are now orphans
+  if (!(await articles.findOne(id).exec())) await sweepCodesOf(codes, id);
 }
 
-/** Snapshot the article's current text + entries as a new version. */
+async function sweepCodesOf(codes: Collection<CodeDocData>, articleId: string): Promise<void> {
+  for (const d of await codes.find({ selector: { articleId } }).exec()) {
+    await d.remove().catch(skipConflict);
+  }
+}
+
+/** Snapshot the article's current text + entries as a new version (oldest dropped past MAX_VERSIONS). */
 export async function addVersion(id: string, label?: string): Promise<void> {
   const { articles, codes } = await getDb();
   const doc = await articles.findOne(id).exec();
@@ -455,13 +554,25 @@ export async function addVersion(id: string, label?: string): Promise<void> {
     text: article.text,
     codes: entries,
   };
-  await doc.patch({ versions: [...article.versions, version] });
+  // every version stores the full text: cap the history so one article cannot
+  // grow the store without bound through repeated snapshots
+  const versions = [...(article.versions ?? []), version];
+  await doc.patch({ versions: versions.slice(-MAX_VERSIONS) });
 }
 
 export async function renameArticle(id: string, name: string): Promise<void> {
   const { articles } = await getDb();
   const doc = await articles.findOne(id).exec();
-  if (doc) await doc.patch({ name, updatedAt: Date.now() });
+  if (!doc) return;
+  const old = doc.name;
+  await doc.patch({ name, updatedAt: Date.now() });
+  // concurrent renames to the same target: the loser reverts, keeping (project, name) unique
+  const same = await articles.find({ selector: { project: doc.project, name } }).exec();
+  if (same.length > 1) {
+    const fresh = await articles.findOne(id).exec();
+    if (fresh) await fresh.patch({ name: old }).catch(skipConflict);
+    throw new Error(`"${name}" already exists`);
+  }
 }
 
 /** Remove an article together with its code entries and stored PDF bytes. */
@@ -469,10 +580,15 @@ export async function deleteArticle(id: string): Promise<void> {
   const { articles, codes, pdfs } = await getDb();
   const doc = await articles.findOne(id).exec();
   if (!doc) return;
-  for (const c of await codes.find({ selector: { articleId: id } }).exec()) await c.remove();
+  // article FIRST: the visible document disappears in one atomic write; a crash after
+  // this point leaves only invisible orphan codes/pdfs, which the startup sweep repairs.
+  // (Deleting the codes first could crash into a document that shows zero entries.)
+  await doc.remove().catch(skipConflict);
+  for (const c of await codes.find({ selector: { articleId: id } }).exec()) {
+    await c.remove().catch(skipConflict);
+  }
   const pdf = await pdfs.findOne(id).exec();
-  if (pdf) await pdf.remove();
-  await doc.remove();
+  if (pdf) await pdf.remove().catch(skipConflict);
 }
 
 // ----- local folders -----
@@ -497,21 +613,29 @@ export function watchFolders(next: (names: string[]) => void): () => void {
   };
 }
 
-/** Register a folder so it shows in the tree even while it holds no document. */
+/** Register a folder so it shows in the tree even while it holds no document (idempotent). */
 export async function createFolder(name: string): Promise<void> {
   const clean = name.trim();
   if (!clean) return;
   const { folders } = await getDb();
   if (await folders.findOne(clean).exec()) return;
-  await folders.insert({ name: clean, createdAt: Date.now() });
+  try {
+    await folders.insert({ name: clean, createdAt: Date.now() });
+  } catch (e) {
+    // a concurrent creator won the primary key: the folder exists now — idempotent no-op
+    skipConflict(e);
+  }
 }
 
 /** Remove a local folder together with every article (codes + PDFs) inside it. */
 export async function deleteFolder(name: string): Promise<void> {
   const { articles, folders } = await getDb();
-  for (const a of await articles.find({ selector: { project: name } }).exec()) await deleteArticle(a.id);
+  // folder doc FIRST: a crash mid-cascade leaves articles whose project has no folder
+  // doc — the project screen shows those (folders + article projects are unioned), so
+  // the user can simply delete the project again; nothing becomes invisible.
   const folder = await folders.findOne(name).exec();
-  if (folder) await folder.remove();
+  if (folder) await folder.remove().catch(skipConflict);
+  for (const a of await articles.find({ selector: { project: name } }).exec()) await deleteArticle(a.id);
 }
 
 // ----- local frame-device catalogs -----
@@ -575,7 +699,8 @@ export async function addEntry(articleId: string, entry: CodeEntry): Promise<voi
 export async function removeEntry(articleId: string, entry: CodeEntry): Promise<void> {
   const { codes } = await getDb();
   const doc = await codes.findOne(entryId(articleId, entry)).exec();
-  if (doc) await doc.remove();
+  // CONFLICT here means a racing delete/save already removed it — the entry is gone either way
+  if (doc) await doc.remove().catch(skipConflict);
 }
 
 export async function saveNote(articleId: string, entry: CodeEntry, note: string): Promise<void> {
@@ -649,42 +774,106 @@ export async function exportDatabase(): Promise<DatabaseExport> {
   return out;
 }
 
-/** Merge a `DatabaseExport` back in (upsert by id; nothing is deleted). */
+/** Merge a `DatabaseExport` back in (upsert by id; nothing is deleted).
+ * The whole blob is validated BEFORE anything is written, so a broken file can never
+ * leave a half-imported database; codes/PDFs whose article is missing are dropped
+ * (orphans would inflate exports and resurrect as entries when an id reappears). */
 export async function importDatabase(
   blob: unknown,
 ): Promise<{ articles: number; codes: number; catalogs: number; pdfs: number; folders: number }> {
   const data = blob as Partial<DatabaseExport>;
   if (data?.kind !== "luci-bachelor-db" || !Array.isArray(data.articles))
     throw new Error("not a luci-bachelor database export");
+  const rawCodes = data.codes ?? [];
+  const rawPdfs = data.pdfs ?? [];
+  const rawFolders = data.folders ?? [];
+  const rawCats = data.catalogs ?? [];
+  if (!Array.isArray(rawCodes)) throw new Error("import: codes must be an array");
+  if (!Array.isArray(rawPdfs)) throw new Error("import: pdfs must be an array");
+  if (!Array.isArray(rawFolders)) throw new Error("import: folders must be an array");
+  if (!Array.isArray(rawCats)) throw new Error("import: catalogs must be an array");
+
+  const arts: ArticleData[] = [];
+  for (const a of data.articles) {
+    const x = a as (Partial<ArticleData> & { _rev?: string }) | null;
+    if (
+      !x ||
+      typeof x.id !== "string" ||
+      typeof x.project !== "string" ||
+      typeof x.name !== "string" ||
+      typeof x.text !== "string"
+    )
+      throw new Error("import: invalid article");
+    if (x.kind !== undefined && x.kind !== "text" && x.kind !== "pdf") throw new Error("import: invalid article kind");
+    if (x.versions !== undefined && (!Array.isArray(x.versions) || !x.versions.every(versionOk)))
+      throw new Error("import: invalid article version");
+    arts.push({
+      id: x.id,
+      project: x.project,
+      name: x.name,
+      text: x.text,
+      kind: x.kind ?? "text",
+      createdAt: num(x.createdAt, Date.now()),
+      updatedAt: num(x.updatedAt, Date.now()),
+      versions: x.versions ?? [],
+    });
+  }
+  for (const c of rawCodes) {
+    const x = c as (Partial<CodeDocData> & { _rev?: string }) | null;
+    // codeEntrySchema is the exact write-boundary contract (uuid device/uid, range
+    // arity, endLine >= line): accepting anything looser here would poison the
+    // article, because every later saveArticle re-validates its codes and would throw
+    if (!x || typeof x.id !== "string" || typeof x.articleId !== "string" || !codeEntrySchema.safeParse(x).success)
+      throw new Error("import: invalid code entry");
+  }
+  for (const p of rawPdfs) {
+    const x = p as (Partial<PdfDocData> & { _rev?: string }) | null;
+    if (!x || typeof x.id !== "string" || typeof x.data !== "string") throw new Error("import: invalid pdf entry");
+  }
+  for (const f of rawFolders) {
+    const x = f as (Partial<FolderDocData> & { _rev?: string }) | null;
+    if (!x || typeof x.name !== "string") throw new Error("import: invalid folder entry");
+  }
+
   const { articles, codes } = await getDb();
   // exported docs carry their old _rev — strip it so the upsert re-commits cleanly
   const strip = <T>(d: T & { _rev?: string }): T => {
     const { _rev: _ignored, ...rest } = d;
     return rest as T;
   };
-  const arts = data.articles
-    .filter((a) => a && typeof a.id === "string" && typeof a.project === "string")
-    .map((a) => strip(a));
-  const cds = (data.codes ?? [])
-    .filter((c) => c && typeof c.id === "string" && typeof c.articleId === "string")
-    .map((c) => strip(c));
-  const pdfs = (data.pdfs ?? [])
-    .filter((p) => p && typeof p.id === "string" && typeof p.data === "string")
-    .map((p) => strip(p));
+  // a code/PDF needs a parent article — from this blob or already in the store
+  const known = new Set(arts.map((a) => a.id));
+  for (const d of await articles.find().exec()) known.add(d.id);
+  const cds = (rawCodes as CodeDocData[]).filter((c) => known.has(c.articleId)).map((c) => strip(c));
+  const pdfs = (rawPdfs as PdfDocData[]).filter((p) => known.has(p.id)).map((p) => strip(p));
   // v2 exports have no folders array
-  const folders = (data.folders ?? []).filter((f) => f && typeof f.name === "string").map((f) => strip(f));
+  const folders = (rawFolders as FolderDocData[]).map((f) => strip(f));
+
   if (arts.length > 0) await articles.bulkUpsert(arts);
   if (cds.length > 0) await codes.bulkUpsert(cds);
   if (pdfs.length > 0) await (await getDb()).pdfs.bulkUpsert(pdfs);
   if (folders.length > 0) await (await getDb()).folders.bulkUpsert(folders);
   let catCount = 0;
-  for (const c of data.catalogs ?? []) {
+  for (const c of rawCats) {
     try {
-      await saveLocalCatalog(c.folder, c.instructions);
+      const x = c as { folder?: unknown; instructions?: unknown };
+      if (typeof x?.folder !== "string") continue;
+      await saveLocalCatalog(x.folder, x.instructions as Instructions);
       catCount++;
     } catch {
       // skip invalid catalogs
     }
   }
   return { articles: arts.length, codes: cds.length, catalogs: catCount, pdfs: pdfs.length, folders: folders.length };
+}
+
+function num(v: unknown, fallback: number): number {
+  return typeof v === "number" && Number.isFinite(v) ? v : fallback;
+}
+
+function versionOk(v: unknown): boolean {
+  const x = v as { savedAt?: unknown; label?: unknown; text?: unknown; codes?: unknown };
+  if (!x || typeof x.savedAt !== "number" || typeof x.text !== "string" || !Array.isArray(x.codes)) return false;
+  if (x.label !== undefined && typeof x.label !== "string") return false;
+  return x.codes.every((c) => codeEntrySchema.safeParse(c).success);
 }
