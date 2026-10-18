@@ -289,8 +289,8 @@ describe("article coding page", () => {
     await userEvent.keyboard("X");
     await expect.poll(editorText).toBe(TEXT);
 
-    await page.getByRole("button", { name: "edit text" }).click();
-    await expect.element(page.getByText("editing mode", { exact: true })).toBeInTheDocument();
+    await page.getByRole("tab", { name: "Edit" }).click();
+    await expect.element(page.getByRole("tab", { name: "Edit" })).toHaveAttribute("aria-selected", "true");
     await editor().click({ position: { x: 5, y: 30 } });
     await userEvent.keyboard("X");
     await expect.poll(editorText).toMatch(/X/);
@@ -357,7 +357,7 @@ describe("article coding page", () => {
     renderArticle();
     await ready();
 
-    await page.getByRole("button", { name: "edit text" }).click();
+    await page.getByRole("tab", { name: "Edit" }).click();
     await caretAtEnd();
     await userEvent.keyboard("!");
 
@@ -372,7 +372,7 @@ describe("article coding page", () => {
     renderArticle();
     await ready();
 
-    await page.getByRole("button", { name: "edit text" }).click();
+    await page.getByRole("tab", { name: "Edit" }).click();
     await editor().click({ position: { x: 5, y: 30 } });
     await userEvent.keyboard("Vorgeschichte. "); // 15 chars → Zitat shifts 4..9 → 19..24
     await expect.poll(async () => (await readCodes(id))[0]?.range).toEqual([19, 24]);
@@ -396,7 +396,7 @@ describe("article coding page", () => {
     await expect.element(page.getByRole("button", { name: "versions (1)" })).toBeInTheDocument();
 
     // change the body, then revert via the commit dot: the changed state is kept as a version
-    await page.getByRole("button", { name: "edit text" }).click();
+    await page.getByRole("tab", { name: "Edit" }).click();
     await caretAtEnd();
     await userEvent.keyboard(" CHANGED");
     await expect.poll(editorText).toMatch(/CHANGED$/);
@@ -613,7 +613,7 @@ describe("article coding page", () => {
 
     // coding mode: no cheatsheet button
     expect(document.querySelector(".mdhelp")).toBe(null);
-    await page.getByRole("button", { name: "edit text" }).click();
+    await page.getByRole("tab", { name: "Edit" }).click();
     const btn = page.getByRole("button", { name: "Markdown" });
     await expect.element(btn).toBeInTheDocument();
     await btn.click();
@@ -931,7 +931,7 @@ describe("article coding page", () => {
     expect(document.querySelectorAll(".pdfspan").length).toBeGreaterThan(0);
     expect(document.querySelector(".cm-content")).toBe(null);
     // no edit affordance at all
-    expect(document.querySelector('[aria-label="edit text"]')).toBe(null);
+    expect(document.querySelectorAll('[role="tab"]').length).toBe(3);
 
     // typing does nothing: the text layer is not an input
     await page.getByText("Hello coding world.").first().click();
@@ -971,9 +971,9 @@ describe("article coding page", () => {
     expect(document.querySelector(".cm-content")).toBe(null);
 
     // text surface: CodeMirror over the same canonical text, same marks
-    await page.getByRole("radio", { name: "Plain Text" }).click();
-    await expect.element(page.getByRole("radio", { name: "Plain Text" })).toHaveAttribute("aria-checked", "true");
-    await expect.element(page.getByRole("radio", { name: "Full" })).toHaveAttribute("aria-checked", "false");
+    await page.getByRole("tab", { name: "Coding" }).click();
+    await expect.element(page.getByRole("tab", { name: "Coding" })).toHaveAttribute("aria-selected", "true");
+    await expect.element(page.getByRole("tab", { name: "Preview" })).toHaveAttribute("aria-selected", "false");
     await expect.poll(() => document.querySelector(".cm-content") !== null).toBe(true);
     expect(document.querySelector(".pdfpage")).toBe(null);
     await expect.poll(() => document.querySelectorAll(".cm-underline").length).toBeGreaterThan(0);
@@ -992,7 +992,7 @@ describe("article coding page", () => {
       .toEqual(["Hello coding world.", "Zweite Zeile."]);
 
     // back to the rendered surface
-    await page.getByRole("radio", { name: "Full" }).click();
+    await page.getByRole("tab", { name: "Preview" }).click();
     await expect.poll(() => document.querySelector(".pdfpage canvas") !== null).toBe(true);
     expect(document.querySelector(".cm-content")).toBe(null);
     await expect.poll(() => document.querySelectorAll(".pdfmark").length).toBeGreaterThan(0);
@@ -1136,14 +1136,71 @@ describe("article coding page", () => {
     await expect.poll(async () => (await readCodes(id)).some((e) => e.note === "selected note")).toBe(true);
   });
 
-  it("starts an empty PDF article in coding mode, not edit mode", async () => {
+  it("lists the coded segments with a diagram in the Analysis tab", async () => {
+    await seedArticle({ project: FOLDER, name: NAME, text: TEXT, entries: [quoteEntry] });
+
+    renderArticle();
+    await ready();
+
+    await page.getByRole("tab", { name: "Analysis" }).click();
+    await expect.element(page.getByRole("img", { name: /Coding diagram/ })).toBeInTheDocument();
+    // the single entry: one proportional stripe + one list row carrying tag, excerpt + device
+    await expect.poll(() => document.querySelectorAll(".astripe").length).toBe(1);
+    const row = page.getByRole("listitem").filter({ hasText: "Zitat" });
+    await expect.element(row).toBeInTheDocument();
+    await expect.element(page.getByText("Zitat", { exact: true }).first()).toBeInTheDocument();
+  });
+
+  it("deletes a coded segment from the Analysis list", async () => {
+    const id = await seedArticle({ project: FOLDER, name: NAME, text: TEXT, entries: [quoteEntry] });
+
+    renderArticle();
+    await ready();
+
+    await page.getByRole("tab", { name: "Analysis" }).click();
+    await expect.poll(() => document.querySelectorAll(".arow").length).toBe(1);
+    await page.getByRole("button", { name: /Delete segment/ }).click();
+
+    await expect.poll(async () => (await readCodes(id)).length).toBe(0);
+    await expect.poll(() => document.querySelectorAll(".astripe").length).toBe(0);
+    await expect.element(page.getByText("No coded segments yet")).toBeInTheDocument();
+  });
+
+  it("folds and unfolds catalog subtrees with an animated caret", async () => {
+    await seedArticle({ project: FOLDER, name: NAME, text: TEXT });
+    await saveLocalCatalog(FOLDER, testInstructions);
+
+    renderArticle();
+    await ready();
+
+    // the seeded catalog opens expanded: the child device is visible
+    await expect.element(page.getByRole("treeitem", { name: "Zitat" })).toBeInTheDocument();
+
+    const group = page.getByRole("treeitem", { name: "Rahmen" });
+    await expect.element(group).toBeInTheDocument();
+    const caret = () => (group.element() as HTMLElement).querySelector(".caret") as HTMLElement | null;
+    await expect.poll(() => caret() !== null).toBe(true);
+
+    // fold: the caret rotates back to the chevron and the subtree slides away
+    caret()!.click();
+    await expect.poll(() => caret()!.classList.contains("open")).toBe(false);
+    // the fixture catalog has 2 top-level devices + the folded child = 3 rows
+    await expect.poll(() => document.querySelectorAll(".tnode").length).toBe(2);
+
+    // unfold: the caret turns down and the subtree returns
+    caret()!.click();
+    await expect.poll(() => caret()!.classList.contains("open")).toBe(true);
+    await expect.poll(() => document.querySelectorAll(".tnode").length).toBe(3);
+    await expect.element(page.getByRole("treeitem", { name: "Zitat" })).toBeInTheDocument();
+  });
+
+  it("starts an empty PDF article on Preview, never on Edit", async () => {
     await seedArticle({ project: FOLDER, name: NAME, text: "", kind: "pdf" });
 
     renderArticle();
     // no stored bytes → fallback notice instead of a surface; still no edit affordance
     await expect.element(page.getByText("no stored PDF")).toBeInTheDocument();
-    expect(document.querySelector('[aria-label="finish editing"]')).toBe(null);
-    expect(document.querySelector('[aria-label="edit text"]')).toBe(null);
+    expect(document.querySelectorAll('[role="tab"]').length).toBe(3);
   });
 
   it("uploads a PDF as a read-only extracted-text article", async () => {

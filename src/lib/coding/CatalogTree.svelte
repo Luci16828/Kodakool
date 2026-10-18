@@ -5,6 +5,7 @@
 <script lang="ts">
   import { Tree } from "melt/builders";
   import { flip } from "svelte/animate";
+  import { slide } from "svelte/transition";
   import "material-symbols/rounded.css";
   import { openRowMenu } from "$lib/coding/context-menu";
   import RowMenu from "$lib/coding/RowMenu.svelte";
@@ -180,13 +181,14 @@
             <span
               class="caret material-symbols-rounded"
               class:hidden={!n.canExpand}
+              class:open={n.expanded}
               aria-hidden="true"
               onclick={(e) => {
                 if (editing && n.canExpand) {
                   e.stopPropagation();
                   n.toggleExpand();
                 }
-              }}>{n.canExpand ? (n.expanded ? "expand_more" : "chevron_right") : ""}</span
+              }}>{n.canExpand ? "chevron_right" : ""}</span
             >
             {#if editing}
               <input
@@ -233,7 +235,9 @@
         </button>
       {/if}
       {#if n.canExpand && n.expanded}
-        <div {...tree.group}>{@render nodes(n.children ?? [])}</div>
+        <div {...tree.group} transition:slide={{ duration: 180 }}>
+          {@render nodes(n.children ?? [])}
+        </div>
       {/if}
     </div>
   {/each}
@@ -323,6 +327,13 @@
     text-align: center;
     font-size: 1.1rem;
     color: var(--on-surface-variant, #888);
+    /* one glyph (chevron_right) for every expandable row: the rotation IS the
+       fold/unfold motion — points right when folded, down when open */
+    transition: transform 0.18s ease;
+
+    &.open {
+      transform: rotate(90deg);
+    }
   }
   .caret.hidden {
     visibility: hidden;

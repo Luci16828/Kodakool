@@ -511,7 +511,7 @@ describe("quick select menu", () => {
     await userEvent.keyboard("{Escape}");
     await expect.poll(menuOpen).toBe(0);
 
-    await page.getByRole("button", { name: "edit text" }).click();
+    await page.getByRole("tab", { name: "Edit" }).click();
     const p = centerPoint();
     fire(surface(), "mousedown", { clientX: p.x, clientY: p.y, button: 2, buttons: 2 });
     expect(menuOpen()).toBe(0);

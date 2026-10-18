@@ -5,12 +5,14 @@
   import { Compartment, EditorState } from "@codemirror/state";
   import { history, historyKeymap } from "@codemirror/commands";
   import { onMount } from "svelte";
+  import { fade } from "svelte/transition";
   import { SvelteMap, SvelteSet } from "svelte/reactivity";
-  import { Dialog, RadioGroup, Toggle } from "bits-ui";
+  import { Dialog, Toggle } from "bits-ui";
   import { Pane, PaneGroup, PaneResizer } from "paneforge";
   import "material-symbols/rounded.css";
   import { buildPalette, onForFill, type CodeColor } from "$lib/coding/palette";
   import { useColors } from "$lib/coding/prefs.svelte";
+  import AnalysisPanel from "$lib/coding/AnalysisPanel.svelte";
   import CatalogAside from "$lib/coding/CatalogAside.svelte";
   import ColorsDialog from "$lib/coding/ColorsDialog.svelte";
   import ConfirmHost from "$lib/coding/ConfirmHost.svelte";
@@ -53,6 +55,9 @@
   const { data }: { data: { folder: string; name: string } } = $props();
 
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+  /** the center column's tabs (Preview is PDF-only, Edit is offered to no PDF) */
+  type Tab = "preview" | "coding" | "edit" | "analysis";
 
   /** editor is live once the initial local article has been handed to CodeMirror */
   let mounted = $state(false);
@@ -102,8 +107,6 @@
   const isPdf = $derived(article?.kind === "pdf");
   /** stored PDF bytes + lazily loaded PdfView component (unpdf stays out of the main bundle) */
   let pdfDoc = $state<{ data: string; pages: number } | null>(null);
-  /** PDF surface: rendered pages (default) or the extracted text in the editor */
-  let pdfMode = $state<"doc" | "text">("doc");
   let PdfViewComp = $state<typeof import("$lib/coding/PdfView.svelte").default | null>(null);
   let entries = $state<CodeEntry[]>([]);
   let versionCount = $state(0);
@@ -111,8 +114,18 @@
   let armed = $state<string | null>(null);
   let saving = $state(false);
   let smart = $state(true);
-  /** coding (read-only body, arming + entry edits) vs edit (body editable) */
-  let mode = $state<"code" | "edit">("code");
+  /** center-column tab: rendered PDF (pdf docs only), coding, text editing (no pdf), analysis */
+  let tab = $state<Tab>("coding");
+  /** coding (read-only body, arming + entry edits) vs edit (body editable) — from the tab */
+  const mode = $derived(tab === "edit" ? "edit" : "code");
+  const tabs = $derived.by<Tab[]>(() => {
+    const t: Tab[] = [];
+    if (isPdf) t.push("preview");
+    t.push("coding");
+    if (!isPdf) t.push("edit");
+    t.push("analysis");
+    return t;
+  });
   const roComp = new Compartment();
   const langComp = new Compartment();
   /** .md documents (extension kept in the name) get markdown + frontmatter highlighting */
@@ -120,14 +133,14 @@
 
   /** title keeps the raw name until the article (and with it the kind) is known */
   const titleName = $derived(article ? displayName(data.name, article.kind ?? "text") : data.name);
-  function setMode(m: "code" | "edit"): void {
-    if (mode === m || (m === "edit" && isPdf)) return;
-    mode = m;
-    if (m === "edit") {
+  function setTab(t: Tab): void {
+    if (tab === t) return;
+    if (!tabs.includes(t)) return;
+    tab = t;
+    if (t !== "coding") {
       armed = null;
       pop.close();
     }
-    if (view) view.dispatch({ effects: roComp.reconfigure(EditorState.readOnly.of(m === "code")) });
   }
   /** the app-wide color source (shared via context; the sliders below write to it) */
   const prefs = useColors();
@@ -136,6 +149,14 @@
     entries: () => entries,
     key: () => key,
   });
+  // the Edit tab makes the body editable; every other tab keeps it read-only.
+  // The editor stays mounted across tab switches (undo + selection survive),
+  // so the readOnly compartment is reconfigured here
+  $effect(() => {
+    if (view === undefined) return;
+    view.dispatch({ effects: roComp.reconfigure(EditorState.readOnly.of(tab !== "edit")) });
+  });
+
   /** current editor selection (rendered as just another mark) */
   let selRange: { from: number; to: number } | null = $state(null);
   /** span a smart click would select right now (hover preview mark) */
@@ -374,7 +395,7 @@
   /** release over a tag: arm that device, and code the live selection when there is one */
   function quickPick(id: string): void {
     if (!UUID_RE.test(id)) return;
-    if (mode === "edit") setMode("code");
+    if (tab === "edit") setTab("coding");
     const sel = selRange;
     armed = id;
     pop.close();
@@ -463,6 +484,55 @@
       onD: c?.dark.on ?? "#ffffff",
     };
   };
+
+  // ----- analysis tab: the coded segments as a list + a position diagram -----
+  /** entry id hovered in the analysis list (its diagram stripe lights up) */
+  let analysisHover = $state<string | null>(null);
+  /** diagram stripe clicked → scroll the matching list row into view */
+  let analysisScroll = $state<string | null>(null);
+  /** every coded segment in document order, with its palette identity */
+  const analysis = $derived.by(() => {
+    const out: {
+      id: string;
+      from: number;
+      to: number;
+      code: string;
+      label: string;
+      name: string;
+      excerpt: string;
+      note: string;
+      lines: string;
+      style: string;
+    }[] = [];
+    for (const e of entries) {
+      const id = entryId(key, e);
+      const r = livePos.get(id);
+      const from = r?.from ?? docStarts[e.line - 1] + e.range[0];
+      const to = r?.to ?? docStarts[(e.endLine ?? e.line) - 1] + e.range[1];
+      if (!Number.isFinite(from) || !Number.isFinite(to) || from >= to) continue;
+      const code = displayByDevice.get(e.device ?? e.code ?? "") ?? e.device ?? e.code ?? "";
+      const endLine = e.endLine ?? e.line;
+      out.push({
+        id,
+        from,
+        to,
+        code,
+        label: shortByCode.get(code) ?? code,
+        name: nameByDevice.get(e.device ?? e.code ?? "") ?? code,
+        excerpt: e.excerpt,
+        note: e.note ?? "",
+        lines: endLine > e.line ? `${e.line}–${endLine}` : `${e.line}`,
+        style: colorVars(code),
+      });
+    }
+    return out.sort((x, y) => x.from - y.from || x.to - y.to);
+  });
+  $effect(() => {
+    const id = analysisScroll;
+    if (id === null) return;
+    document.getElementById(`arow-${id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    analysisScroll = null;
+  });
 
   // article parity: entry size metric (lines dominate chars) for the narrowest
   // entry of a hovered segment; pseudo coverage (selection/preview) is ignored
@@ -685,7 +755,7 @@
 
   function pick(id: string) {
     if (!UUID_RE.test(id)) return;
-    if (mode === "edit") setMode("code"); // any coding action auto-exits edit mode
+    if (tab === "edit") setTab("coding"); // any coding action auto-exits edit mode
     armed = armed === id ? null : id;
     pop.close();
     saveMsg = "";
@@ -889,7 +959,7 @@
           // listed before codingMarks: its click-selection dispatch updates the
           // selection before the mouseup-add handler reads it
           smartSelect({
-            enabled: () => smart && mode === "code",
+            enabled: () => smart && tab === "coding",
             armed: () => armed !== null,
             // PDF extracted text: every line is a discrete layout line → hard breaks
             hard: () => isPdf,
@@ -930,8 +1000,9 @@
     const isPdfDoc = initial.article.kind === "pdf";
     // the editor div only exists for text docs; PDF docs load the PdfView chunk instead
     if (!isPdfDoc && !parent) return;
-    // an empty document starts in edit mode so the text can be pasted/typed first
-    mode = isPdfDoc ? "code" : initial.article.text.trim() === "" ? "edit" : "code";
+    // a PDF opens on its rendered pages; an empty text document opens on the Edit
+    // tab so the text can be pasted/typed first; everything else starts coding
+    tab = isPdfDoc ? "preview" : initial.article.text.trim() === "" ? "edit" : "coding";
     article = initial.article;
     entries = initial.entries;
     versionCount = initial.article.versions.length;
@@ -949,11 +1020,12 @@
     mounted = true;
   });
 
-  // PDF surface toggle: "doc" = PdfView (canvas + overlay marks), "text" = the
-  // extracted canonical text in the read-only editor — both code the same offsets
+  // PDF coding surface: the Coding tab runs the extracted canonical text through
+  // the read-only editor (the Preview tab shows the rendered pages) — both code
+  // the same offsets, so the editor is created on demand and destroyed on leave
   $effect(() => {
     if (!mounted || !isPdf) return;
-    if (pdfMode === "text") {
+    if (tab === "coding") {
       if (view === undefined) startEditor();
     } else if (view !== undefined) {
       void flushCommit();
@@ -1089,12 +1161,31 @@
                 >
                   <span class="material-symbols-rounded" aria-hidden="true">arrow_back</span>{data.folder}
                 </a>
-                {#if mode === "code"}
-                  {#if !isPdf}
-                    <button type="button" class="modebtn" aria-label="Edit text" onclick={() => setMode("edit")}>
-                      <span class="material-symbols-rounded" aria-hidden="true">edit_document</span>Edit
+                <div class="tabs" role="tablist" aria-label="Document view">
+                  {#each tabs as t (t)}
+                    <button
+                      type="button"
+                      role="tab"
+                      class={`tabbtn ${tab === t ? "on" : ""}`}
+                      aria-selected={tab === t}
+                      aria-label={`Show ${t} view`}
+                      title={`Show the ${t} view`}
+                      onclick={() => setTab(t)}
+                    >
+                      <span class="material-symbols-rounded" aria-hidden="true">
+                        {t === "preview"
+                          ? "visibility"
+                          : t === "coding"
+                            ? "draw"
+                            : t === "edit"
+                              ? "edit_document"
+                              : "pie_chart"}
+                      </span>
+                      {t === "preview" ? "Preview" : t === "coding" ? "Coding" : t === "edit" ? "Edit" : "Analysis"}
                     </button>
-                  {/if}
+                  {/each}
+                </div>
+                {#if tab === "coding"}
                   <Toggle.Root
                     class={`smart ${smart ? "on" : ""}`}
                     bind:pressed={smart}
@@ -1103,37 +1194,10 @@
                     <span class="material-symbols-rounded" aria-hidden="true">wand_shine</span>
                     Smart Select
                   </Toggle.Root>
-                {:else}
-                  <button
-                    type="button"
-                    class="modebtn finish"
-                    aria-label="Finish editing"
-                    onclick={() => setMode("code")}
-                  >
-                    <span class="material-symbols-rounded" aria-hidden="true">done</span>Finish
-                  </button>
-                  <span class="hint">editing mode</span>
-                  {#if isMd}<MarkdownHelp />{/if}
+                {:else if tab === "edit" && isMd}
+                  <MarkdownHelp />
                 {/if}
                 <span class="spacer"></span>
-                {#if isPdf}
-                  <RadioGroup.Root class="viewtoggle" bind:value={pdfMode} aria-label="PDF view">
-                    <RadioGroup.Item
-                      class={`seg ${pdfMode === "doc" ? "on" : ""}`}
-                      value="doc"
-                      title="Rendered PDF pages"
-                    >
-                      <span class="material-symbols-rounded" aria-hidden="true">newsmode</span>Full
-                    </RadioGroup.Item>
-                    <RadioGroup.Item
-                      class={`seg ${pdfMode === "text" ? "on" : ""}`}
-                      value="text"
-                      title="Extracted text (the coded canonical text)"
-                    >
-                      <span class="material-symbols-rounded" aria-hidden="true">convert_to_text</span>Plain Text
-                    </RadioGroup.Item>
-                  </RadioGroup.Root>
-                {/if}
                 <DownloadPicker
                   folder={data.folder}
                   docs={myDocs}
@@ -1162,26 +1226,46 @@
                 {#if editMsg}<span class="msg err">{editMsg}</span>{/if}
               </div>
             </header>
-            {#if isPdf && pdfMode === "doc"}
+            {#if isPdf && tab === "preview"}
               {#if pdfDoc !== null && PdfViewComp !== null}
-                <PdfViewComp
-                  data={pdfDoc.data}
-                  text={docText}
-                  marks={pdfMarks}
-                  armed={armed !== null}
-                  {smart}
-                  preview={previewRange}
-                  onadd={(from, to) => addEntryFromOffsets(from, to, false)}
-                  onselect={(r) => (selRange = r)}
-                  onpreview={(r) => (previewRange = r)}
-                  onhovermark={(id) => pop.chipHover(id)}
-                />
+                <!-- transitions are element-only: the fade wrapper hosts the lazy PdfView -->
+                <div class="surfacefade" transition:fade={{ duration: 140 }}>
+                  <PdfViewComp
+                    data={pdfDoc.data}
+                    text={docText}
+                    marks={pdfMarks}
+                    armed={armed !== null}
+                    {smart}
+                    preview={previewRange}
+                    onadd={(from, to) => addEntryFromOffsets(from, to, false)}
+                    onselect={(r) => (selRange = r)}
+                    onpreview={(r) => (previewRange = r)}
+                    onhovermark={(id) => pop.chipHover(id)}
+                  />
+                </div>
               {:else}
-                <div class="pdfmissing">no stored PDF for this document — re-upload it to render the pages</div>
+                <div class="pdfmissing" transition:fade={{ duration: 140 }}>
+                  no stored PDF for this document — re-upload it to render the pages
+                </div>
               {/if}
+            {:else if tab === "analysis"}
+              <div class="surfacefade" transition:fade={{ duration: 140 }}>
+                <AnalysisPanel
+                  items={analysis}
+                  total={docText.length}
+                  hover={analysisHover}
+                  onhover={(id) => (analysisHover = id)}
+                  onpick={(id) => (analysisScroll = id)}
+                  ondelete={(id) => {
+                    const e = entries.find((x) => entryId(key, x) === id);
+                    if (e !== undefined) removeCode(e);
+                  }}
+                />
+              </div>
             {:else}
               <div
                 class="editor"
+                transition:fade={{ duration: 140 }}
                 class:arm={armed !== null}
                 class:smartsel={smart}
                 style={armed !== null ? markerVars(armedCode) : ""}
@@ -1225,7 +1309,7 @@
     <ConfirmHost {confirm} />
 
     <QuickSelect
-      enabled={mode === "code" && mounted && !renaming && !colorsOpen && !confirm.open}
+      enabled={tab === "coding" && mounted && !renaming && !colorsOpen && !confirm.open}
       surface={quickSurface}
       tree={catalog}
       nodeById={quickNodes}
@@ -1262,40 +1346,46 @@
     font-size: 1.3rem;
   }
 
-  /* PDF pages/text radio group: one pill shell, two segments, active filled */
-  :global(.viewtoggle) {
+  /* view tabs: one pill shell, one segment per available tab, active filled
+     (Bits renders these as plain buttons — the tablist is the app's own markup) */
+  .tabs {
     display: inline-flex;
     flex: 0 0 auto; // never shrink — the segments would overflow the shrunk shell
     border: 1px solid var(--outline, #888);
     border-radius: 999px;
     overflow: hidden;
     background: var(--surface, white);
-  }
-  :global(.viewtoggle .seg) {
-    font: inherit;
-    font-size: 0.8rem;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
-    white-space: nowrap;
-    color: var(--on-surface-variant, #666);
-    padding: 0.15rem 0.7rem;
-    border: 0;
-    background: transparent;
-    cursor: pointer;
-  }
-  :global(.viewtoggle .seg + .seg) {
-    border-left: 1px solid var(--outline, #888);
-  }
-  :global(.viewtoggle .seg .material-symbols-rounded) {
-    font-size: 1rem;
-  }
-  :global(.viewtoggle .seg:hover) {
-    color: var(--primary, #6750a4);
-  }
-  :global(.viewtoggle .seg.on) {
-    color: var(--on-primary-container, #21005d);
-    background: var(--primary-container, #e9ddff);
+
+    .tabbtn {
+      font: inherit;
+      font-size: 0.8rem;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      white-space: nowrap;
+      color: var(--on-surface-variant, #666);
+      padding: 0.15rem 0.7rem;
+      border: 0;
+      background: transparent;
+      cursor: pointer;
+
+      .material-symbols-rounded {
+        font-size: 1rem;
+      }
+
+      & + .tabbtn {
+        border-left: 1px solid var(--outline, #888);
+      }
+
+      &:hover {
+        color: var(--primary, #6750a4);
+      }
+
+      &.on {
+        color: var(--on-primary-container, #21005d);
+        background: var(--primary-container, #e9ddff);
+      }
+    }
   }
 
   .rename {
@@ -1530,15 +1620,6 @@
       text-decoration: none;
     }
 
-    .hint {
-      font-style: italic;
-      flex: 0 1 auto;
-      min-width: 0;
-      overflow: hidden;
-      white-space: nowrap;
-      text-overflow: ellipsis;
-    }
-
     .msg {
       color: #0a6b2d;
 
@@ -1556,33 +1637,6 @@
       flex: 1 1 0;
       min-width: 0;
     }
-
-    .modebtn {
-      font: inherit;
-      font-size: 0.8rem;
-      display: inline-flex;
-      align-items: center;
-      gap: 0.3rem;
-      padding: 0.1rem 0.6rem;
-      border-radius: 999px;
-      border: 1px solid var(--outline, #888);
-      background: var(--surface, white);
-      color: var(--on-surface-variant, #666);
-      cursor: pointer;
-
-      .material-symbols-rounded {
-        font-size: 1rem;
-      }
-
-      &.finish {
-        background: var(--primary, #6750a4);
-        border-color: var(--primary, #6750a4);
-        color: var(--on-primary, white);
-        font-size: 0.9rem;
-        font-weight: 600;
-        padding: 0.25rem 1rem;
-      }
-    }
   }
   .editor {
     flex: 1;
@@ -1594,6 +1648,16 @@
     :global(.cm-editor) {
       height: 100%;
     }
+  }
+
+  /* tab-content fade wrapper (transitions are element-only, so the PdfView /
+     AnalysisPanel components ride inside it): fills the column like the editor */
+  .surfacefade {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    min-width: 0;
   }
 
   :global(.cm-editor.cm-focused) {
