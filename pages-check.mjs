@@ -83,7 +83,7 @@ console.log(
 // 3. client-side navigation inside the app (base-aware resolve() links)
 const links = await page.$$eval("a", (as) => as.map((a) => a.getAttribute("href")));
 console.log("links on coding page:", links.slice(0, 4));
-const backLink = await page.getAttribute('a[aria-label^="back to project"]', "href");
+const backLink = await page.getAttribute('a[aria-label^="Back to project"]', "href");
 console.log("coding page back link:", backLink);
 
 // 4. project page deep link: also served by 404.html, lists only its own documents

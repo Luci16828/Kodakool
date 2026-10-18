@@ -402,7 +402,7 @@
 
 {#if open}
   <div class="quickmenu" style={`left: ${anchor.x}px; top: ${anchor.y}px`}>
-    <div class="qleft" role="menu" aria-label="recent codes">
+    <div class="qleft" role="menu" aria-label="Recent codes">
       {#each display as id, i (i)}
         {@const label = id === null ? "" : labelOf(id)}
         {@const pinned = isPinned(i, id)}
@@ -413,15 +413,15 @@
               class={`qpin ${pinned ? "on" : ""}`}
               aria-pressed={pinned}
               aria-label={label === ""
-                ? "no code to pin"
+                ? "No code to pin"
                 : pinned
-                  ? `unpin ${label} for this document`
-                  : `pin ${label} for this document`}
+                  ? `Unpin ${label} for this document`
+                  : `Pin ${label} for this document`}
               title={label === ""
-                ? "nothing to pin"
+                ? "Nothing to pin"
                 : pinned
-                  ? `unpin ${label} (keeps the recent/top ranking free again)`
-                  : `pin ${label} for this document (bypasses the recent/top gate)`}
+                  ? `Unpin ${label} (keeps the recent/top ranking free again)`
+                  : `Pin ${label} for this document (bypasses the recent/top gate)`}
               onpointerenter={() => (hover = null)}
               onclick={() => onpin(i, pinned ? null : id)}
             >
@@ -439,7 +439,7 @@
               {label}
             </button>
           {:else}
-            <span class="qempty" title="empty slot"></span>
+            <span class="qempty" title="Empty slot"></span>
           {/if}
         </div>
       {/each}
@@ -447,7 +447,7 @@
         <span class="qname" style={`top: ${preview.top}px; right: calc(100% + 5px)`}>{previewName}</span>
       {/if}
     </div>
-    <div class="qright" role="menu" aria-label="device categories">
+    <div class="qright" role="menu" aria-label="Device categories">
       {#each columns as col, c (c)}
         <div class="qcol" style={`top: ${cascade[c]}px; left: ${c * COL_W}px`}>
           {#each col as node (node.id)}

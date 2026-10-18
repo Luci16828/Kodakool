@@ -326,12 +326,12 @@ describe("article coding page", () => {
     renderArticle();
     await ready();
 
-    await page.getByRole("button", { name: "colors" }).click();
-    await expect.element(page.getByRole("dialog", { name: "colors" })).toBeInTheDocument();
+    await page.getByRole("button", { name: "Colors" }).click();
+    await expect.element(page.getByRole("dialog", { name: "Colors" })).toBeInTheDocument();
     await expect.element(page.getByLabelText("base color")).toBeInTheDocument();
 
-    await page.getByRole("button", { name: "close colors" }).click();
-    await expect.element(page.getByRole("dialog", { name: "colors" })).not.toBeInTheDocument();
+    await page.getByRole("button", { name: "Close colors" }).click();
+    await expect.element(page.getByRole("dialog", { name: "Colors" })).not.toBeInTheDocument();
   });
 
   it("hosts the theme toggle inside the colors dialog", async () => {
@@ -343,7 +343,7 @@ describe("article coding page", () => {
     // the coding bar no longer carries a toggle of its own
     expect(document.querySelector(".theme-toggle")).toBe(null);
 
-    await page.getByRole("button", { name: "colors" }).click();
+    await page.getByRole("button", { name: "Colors" }).click();
     const toggle = page.getByRole("button", { name: "switch color theme" });
     await expect.element(toggle).toBeInTheDocument();
     const before = document.documentElement.dataset.theme ?? "light";
@@ -361,7 +361,7 @@ describe("article coding page", () => {
     await caretAtEnd();
     await userEvent.keyboard("!");
 
-    await expect.element(page.getByRole("button", { name: "save" })).toBeInTheDocument();
+    await expect.element(page.getByRole("button", { name: "Save" })).toBeInTheDocument();
     await expect.poll(editorText).toMatch(/Text\.!$/);
     await expect.poll(async () => (await getArticle(FOLDER, NAME))?.text).toMatch(/Text\.!$/);
   });
@@ -392,7 +392,7 @@ describe("article coding page", () => {
     await page.getByRole("button", { name: "versions (0)" }).click();
     await expect.element(page.getByText("No versions yet")).toBeInTheDocument();
     // the dashed pending node is the live working state: its dot snapshots it
-    await page.getByRole("button", { name: "snapshot current state" }).click();
+    await page.getByRole("button", { name: "Snapshot current state" }).click();
     await expect.element(page.getByRole("button", { name: "versions (1)" })).toBeInTheDocument();
 
     // change the body, then revert via the commit dot: the changed state is kept as a version
@@ -402,7 +402,7 @@ describe("article coding page", () => {
     await expect.poll(editorText).toMatch(/CHANGED$/);
 
     await page.getByRole("button", { name: "versions (1)" }).click();
-    await page.getByRole("button", { name: /revert to/ }).click();
+    await page.getByRole("button", { name: /Revert to/ }).click();
 
     await expect.poll(editorText).toBe(TEXT);
     // the pre-revert state was kept as a new version
@@ -423,8 +423,8 @@ describe("article coding page", () => {
       [...document.querySelectorAll(".histgraph .crow:not(.pending) .cdot")].map(
         (el) => (el.getAttribute("style") ?? "").match(/left: (\d+)px/)?.[1],
       );
-    const snapNow = () => page.getByRole("button", { name: "snapshot current state" });
-    const labelBox = () => page.getByRole("textbox", { name: "snapshot name" }).first();
+    const snapNow = () => page.getByRole("button", { name: "Snapshot current state" });
+    const labelBox = () => page.getByRole("textbox", { name: "Snapshot name" }).first();
 
     // the pending node shows the live time + (current); its + dot snapshots with the time as label
     await page.getByRole("button", { name: "versions (0)" }).click();
@@ -451,7 +451,7 @@ describe("article coding page", () => {
 
     // revert to Stand A2: nothing changed since Stand B, so NO pre-revert version is made
     await page.getByRole("button", { name: "versions (2)" }).click();
-    await page.getByRole("button", { name: /revert to Stand A2/ }).click();
+    await page.getByRole("button", { name: /Revert to Stand A2/ }).click();
     await expect.poll(editorText).toBe(TEXT);
     await expect.poll(async () => (await getArticle(FOLDER, NAME))!.versions.length).toBe(2);
 
@@ -488,7 +488,7 @@ describe("article coding page", () => {
     await ready();
 
     await page.getByRole("button", { name: `${NAME}.txt`, exact: true }).click();
-    const input = page.getByRole("textbox", { name: "document name" });
+    const input = page.getByRole("textbox", { name: "Document name" });
     await input.fill("spd 2");
     await userEvent.keyboard("{Enter}");
 
@@ -503,7 +503,7 @@ describe("article coding page", () => {
     await ready();
 
     await page.getByRole("button", { name: `${NAME}.txt`, exact: true }).click();
-    await expect.element(page.getByRole("textbox", { name: "document name" })).toBeInTheDocument();
+    await expect.element(page.getByRole("textbox", { name: "Document name" })).toBeInTheDocument();
     const input = document.querySelector(".rename") as HTMLInputElement;
     expect(document.activeElement).toBe(input);
     expect([input.selectionStart, input.selectionEnd]).toEqual([NAME.length, NAME.length]);
@@ -516,7 +516,7 @@ describe("article coding page", () => {
     await ready();
 
     await page.getByRole("button", { name: "Untitled 3.md", exact: true }).click();
-    await expect.element(page.getByRole("textbox", { name: "document name" })).toBeInTheDocument();
+    await expect.element(page.getByRole("textbox", { name: "Document name" })).toBeInTheDocument();
     const input = document.querySelector(".rename") as HTMLInputElement;
     // typing replaces the whole default name
     expect([input.selectionStart, input.selectionEnd]).toEqual([0, "Untitled 3.md".length]);
@@ -528,7 +528,7 @@ describe("article coding page", () => {
     renderArticle();
     await ready();
 
-    await page.getByRole("button", { name: "edit devices" }).click();
+    await page.getByRole("button", { name: "Edit devices" }).click();
     await page.getByRole("textbox", { name: "name Zitat" }).fill("Markierung");
     await page.getByRole("textbox", { name: "tag Kommentar" }).fill("KOM");
 
@@ -537,7 +537,7 @@ describe("article coding page", () => {
     editRow("Rahmen")?.dispatchEvent(new Event("dragover", { cancelable: true }));
     editRow("Rahmen")?.dispatchEvent(new Event("drop", { cancelable: true }));
 
-    await page.getByRole("button", { name: "save catalog" }).click();
+    await page.getByRole("button", { name: "Save catalog" }).click();
 
     await expect
       .poll(async () => (await getLocalCatalog(FOLDER))?.devices.map((d) => d.name))
@@ -555,8 +555,8 @@ describe("article coding page", () => {
     renderArticle();
     await ready();
 
-    await page.getByRole("button", { name: "edit devices" }).click();
-    await page.getByRole("button", { name: "new device" }).click();
+    await page.getByRole("button", { name: "Edit devices" }).click();
+    await page.getByRole("button", { name: "New device" }).click();
 
     // the new top-level device arrives with an editable name row
     await expect.element(page.getByRole("textbox", { name: "name New device" })).toBeInTheDocument();
@@ -576,15 +576,15 @@ describe("article coding page", () => {
         clientY: Math.round(dr.top + dr.height / 2),
       }),
     );
-    await page.getByRole("menuitem", { name: "delete device" }).click();
+    await page.getByRole("menuitem", { name: "Delete" }).click();
     await expect.element(page.getByRole("dialog", { name: 'Delete device "Kommentar"?' })).toBeInTheDocument();
     await expect
       .poll(() => (document.querySelector(".cfconfirm") as HTMLButtonElement | null)?.disabled, { timeout: 6000 })
       .toBe(false);
-    await page.getByRole("button", { name: "confirm" }).click();
+    await page.getByRole("button", { name: "Confirm" }).click();
     await expect.poll(delRow).toBeUndefined();
 
-    await page.getByRole("button", { name: "save catalog" }).click();
+    await page.getByRole("button", { name: "Save catalog" }).click();
     await expect
       .poll(async () => (await getLocalCatalog(FOLDER))?.devices.map((d) => d.name))
       .toEqual(["Rahmen", "Extra"]);
@@ -596,10 +596,10 @@ describe("article coding page", () => {
     renderArticle();
     await ready();
 
-    // "new category" enters edit mode with a fresh top-level device
-    await page.getByRole("button", { name: "new category" }).click();
-    await expect.element(page.getByRole("button", { name: "save catalog" })).toBeInTheDocument();
-    await page.getByRole("button", { name: "save catalog" }).click();
+    // "New category" enters edit mode with a fresh top-level device
+    await page.getByRole("button", { name: "New category" }).click();
+    await expect.element(page.getByRole("button", { name: "Save catalog" })).toBeInTheDocument();
+    await page.getByRole("button", { name: "Save catalog" }).click();
     await expect
       .poll(async () => (await getLocalCatalog(FOLDER))?.devices.map((d) => d.name))
       .toEqual(["Rahmen", "Kommentar", "New device"]);
@@ -617,11 +617,11 @@ describe("article coding page", () => {
     const btn = page.getByRole("button", { name: "Markdown" });
     await expect.element(btn).toBeInTheDocument();
     await btn.click();
-    await expect.element(page.getByRole("dialog", { name: "markdown cheatsheet" })).toBeInTheDocument();
+    await expect.element(page.getByRole("dialog", { name: "Markdown cheatsheet" })).toBeInTheDocument();
     await expect.element(page.getByText("YAML header", { exact: false })).toBeInTheDocument();
   });
 
-  it("shows a collapsible document tree with the current document marked", async () => {
+  it("shows the document tree with the current document marked", async () => {
     await seedArticle({ project: FOLDER, name: NAME, text: TEXT });
     await seedArticle({ project: FOLDER, name: "other doc", text: "x" });
 
@@ -632,9 +632,6 @@ describe("article coding page", () => {
     // accessible name ignores the aria-hidden kind icon
     await expect.element(page.getByRole("link", { name: `${NAME}.txt` })).toBeInTheDocument();
     expect(document.querySelector(".docs li.current")).toBeTruthy();
-
-    await page.getByRole("button", { name: "toggle document tree" }).click();
-    await expect.element(page.getByRole("link", { name: "other doc.txt" })).not.toBeInTheDocument();
   });
 
   it("marks tree entries with kind icons (text, markdown, pdf)", async () => {
@@ -693,7 +690,7 @@ describe("article coding page", () => {
     renderArticle();
     await ready();
 
-    const trigger = page.getByRole("button", { name: "switch project" });
+    const trigger = page.getByRole("button", { name: "Switch project" });
     await expect.element(trigger).toBeInTheDocument();
     // the trigger shows the current project
     await expect.element(trigger).toHaveTextContent(FOLDER);
@@ -717,14 +714,14 @@ describe("article coding page", () => {
     renderArticle();
     await ready();
 
-    await page.getByRole("button", { name: "switch project" }).click();
-    await page.getByRole("option", { name: "new project" }).click();
-    const input = (await page.getByLabelText("new project name").element()) as HTMLInputElement;
+    await page.getByRole("button", { name: "Switch project" }).click();
+    await page.getByRole("option", { name: "New project" }).click();
+    const input = (await page.getByLabelText("New project name").element()) as HTMLInputElement;
     // the row focuses its input so typing starts immediately
     expect(document.activeElement).toBe(input);
     input.value = "field study";
     input.dispatchEvent(new Event("input", { bubbles: true }));
-    await page.getByRole("button", { name: "create" }).click();
+    await page.getByRole("button", { name: "Create" }).click();
 
     await expect.poll(async () => (await listFolders()).includes("field study")).toBe(true);
     expect(navigated).toEqual(["/project/field study"]);
@@ -736,9 +733,9 @@ describe("article coding page", () => {
     renderArticle();
     await ready();
 
-    await page.getByRole("button", { name: "switch project" }).click();
-    await page.getByRole("option", { name: "new project" }).click();
-    const input = page.getByLabelText("new project name");
+    await page.getByRole("button", { name: "Switch project" }).click();
+    await page.getByRole("option", { name: "New project" }).click();
+    const input = page.getByLabelText("New project name");
     await input.fill(FOLDER);
     await userEvent.keyboard("{Enter}");
 
@@ -747,26 +744,13 @@ describe("article coding page", () => {
     expect(navigated).toEqual([`/project/${FOLDER}`]);
   });
 
-  it("hides the project switcher while the tree is collapsed", async () => {
-    await seedArticle({ project: FOLDER, name: NAME, text: TEXT });
-
-    renderArticle();
-    await ready();
-
-    await expect.element(page.getByRole("button", { name: "switch project" })).toBeInTheDocument();
-    await page.getByRole("button", { name: "toggle document tree" }).click();
-    await expect.element(page.getByRole("button", { name: "switch project" })).not.toBeInTheDocument();
-    await page.getByRole("button", { name: "toggle document tree" }).click();
-    await expect.element(page.getByRole("button", { name: "switch project" })).toBeInTheDocument();
-  });
-
   it("links back to the project page from the coding bar", async () => {
     await seedArticle({ project: FOLDER, name: NAME, text: TEXT });
 
     renderArticle();
     await ready();
 
-    const back = await page.getByRole("link", { name: "back to project test" }).element();
+    const back = await page.getByRole("link", { name: "Back to project test" }).element();
     expect(back.getAttribute("href")).toBe("/project/test");
   });
 
@@ -778,12 +762,12 @@ describe("article coding page", () => {
     await ready();
 
     await page.getByRole("button", { name: `menu for ${NAME}.txt` }).click();
-    await page.getByRole("menuitem", { name: "delete document" }).click();
+    await page.getByRole("menuitem", { name: "Delete document" }).click();
     await expect.element(page.getByRole("dialog", { name: `Delete "${NAME}.txt"?` })).toBeInTheDocument();
     await expect
       .poll(() => (document.querySelector(".cfconfirm") as HTMLButtonElement | null)?.disabled, { timeout: 6000 })
       .toBe(false);
-    await page.getByRole("button", { name: "confirm" }).click();
+    await page.getByRole("button", { name: "Confirm" }).click();
 
     await expect.poll(async () => await getArticle(FOLDER, NAME)).toBeNull();
     expect(navigated).toEqual(["/project/test"]);
@@ -796,13 +780,13 @@ describe("article coding page", () => {
     renderArticle();
     await ready();
 
-    await page.getByRole("button", { name: "menu for other doc.txt" }).click();
-    await page.getByRole("menuitem", { name: "delete document" }).click();
+    await page.getByRole("button", { name: "Menu for other doc.txt" }).click();
+    await page.getByRole("menuitem", { name: "Delete document" }).click();
     await expect.element(page.getByRole("dialog", { name: 'Delete "other doc.txt"?' })).toBeInTheDocument();
     await expect
       .poll(() => (document.querySelector(".cfconfirm") as HTMLButtonElement | null)?.disabled, { timeout: 6000 })
       .toBe(false);
-    await page.getByRole("button", { name: "confirm" }).click();
+    await page.getByRole("button", { name: "Confirm" }).click();
 
     await expect.element(page.getByRole("link", { name: "other doc.txt" })).not.toBeInTheDocument();
     expect(await getArticle(FOLDER, "other doc")).toBeNull();
@@ -829,9 +813,9 @@ describe("article coding page", () => {
 
     const menu = page.getByRole("menu");
     await expect.element(menu).toBeInTheDocument();
-    await expect.element(menu.getByRole("menuitem", { name: "open document" })).toBeInTheDocument();
-    await expect.element(menu.getByRole("menuitem", { name: "download document" })).toBeInTheDocument();
-    await expect.element(menu.getByRole("menuitem", { name: "delete document" })).toBeInTheDocument();
+    await expect.element(menu.getByRole("menuitem", { name: "Open document" })).toBeInTheDocument();
+    await expect.element(menu.getByRole("menuitem", { name: "Download document" })).toBeInTheDocument();
+    await expect.element(menu.getByRole("menuitem", { name: "Delete document" })).toBeInTheDocument();
   });
 
   it("downloads a document through its context menu", async () => {
@@ -859,7 +843,7 @@ describe("article coding page", () => {
           clientY: Math.round(r.top + r.height / 2),
         }),
       );
-      await page.getByRole("menuitem", { name: "download document" }).click();
+      await page.getByRole("menuitem", { name: "Download document" }).click();
       await expect.poll(() => downloads).toEqual(["other doc.txt"]);
     } finally {
       HTMLAnchorElement.prototype.click = realClick;
@@ -874,33 +858,19 @@ describe("article coding page", () => {
 
     // view mode: right-click the leaf row → arm it via the menu
     await rightClickRow("Zitat");
-    await page.getByRole("menuitem", { name: "code with this device" }).click();
+    await page.getByRole("menuitem", { name: "Code with this device" }).click();
     await expect.poll(() => document.querySelector(".tnode.sel")?.textContent?.includes("Zitat") ?? false).toBe(true);
 
     // right-click the top-level row → delete goes through the shared countdown dialog
     await rightClickRow("Kommentar");
-    await page.getByRole("menuitem", { name: "delete device" }).click();
+    await page.getByRole("menuitem", { name: "Delete" }).click();
     await expect.element(page.getByRole("dialog", { name: 'Delete device "Kommentar"?' })).toBeInTheDocument();
     await expect
       .poll(() => (document.querySelector(".cfconfirm") as HTMLButtonElement | null)?.disabled, { timeout: 6000 })
       .toBe(false);
-    await page.getByRole("button", { name: "confirm" }).click();
+    await page.getByRole("button", { name: "Confirm" }).click();
 
     await expect.poll(async () => (await getLocalCatalog(FOLDER))?.devices.map((d) => d.name)).toEqual(["Rahmen"]);
-  });
-
-  it("collapses the devices-codes aside", async () => {
-    await seedArticle({ project: FOLDER, name: NAME, text: TEXT });
-
-    renderArticle();
-    await ready();
-
-    const addBtn = page.getByRole("button", { name: "new category" });
-    await expect.element(addBtn).toBeInTheDocument();
-    await page.getByRole("button", { name: "toggle devices codes" }).click();
-    await expect.element(addBtn).not.toBeInTheDocument();
-    await page.getByRole("button", { name: "toggle devices codes" }).click();
-    await expect.element(addBtn).toBeInTheDocument();
   });
 
   it("uploads text files from the sidebar dropzone into the tree", async () => {
@@ -1133,8 +1103,8 @@ describe("article coding page", () => {
 
     // chip hover opens the entry popup (shared anchor with the editor tags)
     (document.querySelector(".pdfchip") as HTMLElement).dispatchEvent(new MouseEvent("mouseenter"));
-    await expect.element(page.getByRole("dialog", { name: "code entry" })).toBeInTheDocument();
-    await page.getByRole("button", { name: "delete", exact: true }).click();
+    await expect.element(page.getByRole("dialog", { name: "Code entry" })).toBeInTheDocument();
+    await page.getByRole("button", { name: "Delete", exact: true }).click();
 
     await expect.poll(async () => (await readCodes(id)).length).toBe(0);
     await expect.poll(() => document.querySelectorAll(".pdfmark").length).toBe(0);
@@ -1150,7 +1120,7 @@ describe("article coding page", () => {
 
     // editor chip hover is resolved on mousemove (code-mark.ts)
     (document.querySelector(".cm-tag") as HTMLElement).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
-    const popup = page.getByRole("dialog", { name: "code entry" });
+    const popup = page.getByRole("dialog", { name: "Code entry" });
     await expect.element(popup).toBeInTheDocument();
 
     // leaving the chip only starts the grace period; entering the popup cancels it
@@ -1202,18 +1172,18 @@ describe("article coding page", () => {
     renderArticle();
     await ready();
 
-    await expect.element(page.getByRole("button", { name: "download files" })).toBeInTheDocument();
-    await expect.element(page.getByRole("button", { name: "json", exact: true })).toBeInTheDocument();
+    await expect.element(page.getByRole("button", { name: "Download files" })).toBeInTheDocument();
+    await expect.element(page.getByRole("button", { name: "JSON", exact: true })).toBeInTheDocument();
     await expect.element(page.getByRole("button", { name: ".qdc" })).toBeInTheDocument();
-    await expect.element(page.getByRole("button", { name: "import", exact: true })).toBeInTheDocument();
+    await expect.element(page.getByRole("button", { name: "Import", exact: true })).toBeInTheDocument();
     expect(document.querySelector(".upfolder")).toBeTruthy();
 
     // the picker lists this project's documents with a select-all toggle
-    await page.getByRole("button", { name: "download files" }).click();
-    await expect.element(page.getByRole("dialog", { name: "download files" })).toBeInTheDocument();
-    await expect.element(page.getByRole("button", { name: "select all" })).toBeInTheDocument();
+    await page.getByRole("button", { name: "Download files" }).click();
+    await expect.element(page.getByRole("dialog", { name: "Download files" })).toBeInTheDocument();
+    await expect.element(page.getByRole("button", { name: "Select all" })).toBeInTheDocument();
     await expect.element(page.getByRole("button", { name: "download", exact: true })).toBeDisabled();
-    await page.getByRole("button", { name: "select all" }).click();
+    await page.getByRole("button", { name: "Select all" }).click();
     await expect.element(page.getByRole("button", { name: "download 1", exact: true })).toBeEnabled();
   });
 

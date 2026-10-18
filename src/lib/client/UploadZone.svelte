@@ -32,17 +32,17 @@
   <div
     class="upload"
     {...fileUpload.dropzone}
-    title={compact ? `upload .txt/.md/.pdf files into ${folder}/` : `upload into ${folder}/ (.txt/.md/.pdf)`}
+    title={compact ? `Upload .txt/.md/.pdf files into ${folder}/` : `Upload into ${folder}/ (.txt/.md/.pdf)`}
   >
     <span class="material-symbols-rounded" aria-hidden="true">upload</span>
     {#if compact}
-      {fileUpload.isDragging ? `drop → ${folder}/` : `file → ${folder}/`}
+      {fileUpload.isDragging ? `Drop → ${folder}/` : `File → ${folder}/`}
     {:else}
-      {fileUpload.isDragging ? `drop into ${folder}/` : `upload into ${folder}/ (.txt/.md/.pdf)`}
+      {fileUpload.isDragging ? `Drop into ${folder}/` : `Upload into ${folder}/ (.txt/.md/.pdf)`}
     {/if}
   </div>
-  <label class="upfolder" title="upload a whole folder of .txt/.md/.pdf files into {folder}/">
-    <span class="material-symbols-rounded" aria-hidden="true">upload</span>{compact ? "folder" : `folder → ${folder}/`}
+  <label class="upfolder" title="Upload a whole folder of .txt/.md/.pdf files into {folder}/">
+    <span class="material-symbols-rounded" aria-hidden="true">upload</span>{compact ? "Folder" : `Folder → ${folder}/`}
     <input type="file" webkitdirectory={true} onchange={(e) => void uploadFolder(e)} />
   </label>
 </div>

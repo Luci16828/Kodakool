@@ -72,7 +72,7 @@ describe("coding page edge cases", () => {
     await ready();
 
     await page.getByRole("button", { name: `${NAME}.txt`, exact: true }).click();
-    await page.getByRole("textbox", { name: "document name" }).fill("other");
+    await page.getByRole("textbox", { name: "Document name" }).fill("other");
     await userEvent.keyboard("{Enter}");
 
     await expect.poll(barError).toBe('"other" already exists in test/');
@@ -89,7 +89,7 @@ describe("coding page edge cases", () => {
 
     const long = "x".repeat(250);
     await page.getByRole("button", { name: `${NAME}.txt`, exact: true }).click();
-    await page.getByRole("textbox", { name: "document name" }).fill(long);
+    await page.getByRole("textbox", { name: "Document name" }).fill(long);
     await userEvent.keyboard("{Enter}");
 
     // the schema declares maxLength 200, but the Dexie storage accepts it —
@@ -107,7 +107,7 @@ describe("coding page edge cases", () => {
 
     const tricky = "Zitat: 100% #1&2";
     await page.getByRole("button", { name: `${NAME}.txt`, exact: true }).click();
-    await page.getByRole("textbox", { name: "document name" }).fill(tricky);
+    await page.getByRole("textbox", { name: "Document name" }).fill(tricky);
     await userEvent.keyboard("{Enter}");
 
     await expect.poll(async () => (await getArticle(FOLDER, tricky))?.name).toBe(tricky);
@@ -122,7 +122,7 @@ describe("coding page edge cases", () => {
     await ready();
 
     await page.getByRole("button", { name: `${NAME}.txt`, exact: true }).click();
-    const input = page.getByRole("textbox", { name: "document name" });
+    const input = page.getByRole("textbox", { name: "Document name" });
     await input.fill("abgebrochen");
     await userEvent.keyboard("{Escape}");
 
@@ -193,7 +193,7 @@ describe("coding page edge cases", () => {
 
     // snapshot the initial one-entry state (no CodeMirror exists in this view)
     await page.getByRole("button", { name: "versions (0)" }).click();
-    await page.getByRole("button", { name: "snapshot current state" }).click();
+    await page.getByRole("button", { name: "Snapshot current state" }).click();
     await expect.element(page.getByRole("button", { name: "versions (1)" })).toBeInTheDocument();
 
     // code a second entry on the PDF surface
@@ -203,7 +203,7 @@ describe("coding page edge cases", () => {
 
     // revert must restore the snapshot — the view-less (PDF) commit path
     await page.getByRole("button", { name: "versions (1)" }).click();
-    await page.getByRole("button", { name: /revert to/ }).click();
+    await page.getByRole("button", { name: /Revert to/ }).click();
 
     await expect.poll(async () => (await readCodes(id)).map((c) => c.excerpt)).toEqual(["Hello coding world."]);
     await expect.element(page.getByRole("button", { name: "versions (2)" })).toBeInTheDocument();

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Collapsible, ScrollArea } from "bits-ui";
+  import { ScrollArea } from "bits-ui";
   import "material-symbols/rounded.css";
   import { buildCatalogView, type CatalogView } from "$lib/coding/catalog-view";
   import CatalogTree from "$lib/coding/CatalogTree.svelte";
@@ -27,7 +27,6 @@
     confirm,
     pal,
     options,
-    open = $bindable(true),
     onpick,
     onhover,
     styleFor,
@@ -40,7 +39,6 @@
     confirm: ConfirmAsk;
     pal: number;
     options: PaletteOptions;
-    open?: boolean;
     onpick: (id: string) => void;
     onhover: (id: string | null) => void;
     styleFor: (node: CatalogView) => string;
@@ -96,19 +94,32 @@
     const at = list.findIndex((d) => d.id === targetId);
     list.splice(from <= to ? at + 1 : at, 0, moved);
   }
+  /** a fresh device for the tree: new UUID, editable placeholder name, kind inherited */
+  function newDevice(kind?: FrameDevice["kind"]): FrameDevice {
+    return {
+      id: crypto.randomUUID(),
+      name: "New device",
+      kind: kind ?? "device",
+      examples: [],
+      children: [],
+    };
+  }
   /** new device under `parentId` (null = top level); fresh UUID, editable name */
   function draftAdd(parentId: string | null): void {
     if (!draft) return;
     const parent = parentId === null ? null : draftFind(draft.devices, parentId);
-    const dev: FrameDevice = {
-      id: crypto.randomUUID(),
-      name: "New device",
-      kind: parent?.kind ?? "device",
-      examples: [],
-      children: [],
-    };
+    const dev = newDevice(parent?.kind);
     if (parent) parent.children.push(dev);
     else draft.devices.push(dev);
+  }
+  /** new device as the sibling directly BELOW `id` in the draft */
+  function draftAddBelow(id: string): void {
+    if (!draft) return;
+    const list = draftSiblings(draft.devices, id);
+    if (!list) return;
+    const at = list.findIndex((d) => d.id === id);
+    if (at < 0) return;
+    list.splice(at + 1, 0, newDevice(list[at].kind));
   }
   /** remove a device from the draft (entries referencing it survive as orphans) */
   function draftDelete(id: string): void {
@@ -131,10 +142,39 @@
     if (i < 0) return;
     const name = list[i].name;
     list.splice(i, 1);
-    void saveLocalCatalog(folder, copy)
-      .then(() => (localCatalog = copy))
-      .catch((e: unknown) => (catIoMsg = `delete failed: ${e instanceof Error ? e.message : String(e)}`));
-    catIoMsg = `device "${name}" deleted — its entries stay as orphaned codes`;
+    void persist(copy, `Device "${name}" deleted — its entries stay as orphaned codes`, "delete failed");
+  }
+  /** write a mutated catalog copy back to the store (view-mode row-menu edits) */
+  function persist(copy: Instructions, note: string, failLabel: string): Promise<void> {
+    return saveLocalCatalog(folder, copy)
+      .then(() => {
+        localCatalog = copy;
+        catIoMsg = note;
+      })
+      .catch((e: unknown) => {
+        catIoMsg = `${failLabel}: ${e instanceof Error ? e.message : String(e)}`;
+      });
+  }
+  /** view-mode row menu: a child device straight into the stored local catalog */
+  function addStoredChild(parentId: string): void {
+    if (localCatalog === null) return;
+    const copy = plainClone(localCatalog);
+    const parent = draftFind(copy.devices, parentId);
+    if (!parent) return;
+    parent.children.push(newDevice(parent.kind));
+    void persist(copy, `New device added under "${parent.name}"`, "save failed");
+  }
+  /** view-mode row menu: a sibling device directly below `id` in the stored catalog */
+  function addStoredBelow(id: string): void {
+    if (localCatalog === null) return;
+    const copy = plainClone(localCatalog);
+    const list = draftSiblings(copy.devices, id);
+    if (!list) return;
+    const at = list.findIndex((d) => d.id === id);
+    if (at < 0) return;
+    const above = list[at].name;
+    list.splice(at + 1, 0, newDevice(list[at].kind));
+    void persist(copy, `New device added below "${above}"`, "save failed");
   }
   function askDeleteDevice(id: string): void {
     if (!draft) return;
@@ -235,108 +275,107 @@
   }
 </script>
 
-<aside class="catalog" class:closed={!open} data-pal={pal}>
+<aside class="catalog" data-pal={pal}>
   <ScrollArea.Root class="wsarea" type="hover">
     <ScrollArea.Viewport class="wsview catview">
-      <Collapsible.Root class="catroot" bind:open>
-        <Collapsible.Trigger class="catbtn" aria-label="toggle devices codes">
-          <span class="material-symbols-rounded" aria-hidden="true">account_tree</span>
-          {#if open}Devices codes{/if}
-        </Collapsible.Trigger>
-        <Collapsible.Content class="catbody">
-          <div class="cathd">
-            <div class="cathead">
-              <button
-                type="button"
-                class="cattool addcat"
-                title="add a new code category (top-level device)"
-                onclick={() => startAdd(null)}
-              >
-                <span class="material-symbols-rounded" aria-hidden="true">add</span>new category
-              </button>
-              <button
-                type="button"
-                class="cattool addcode"
-                title={armed === null
-                  ? "add a new code (top-level; arm a device first to nest under it)"
-                  : "add a new code under the armed device"}
-                onclick={() => startAdd(armed)}
-              >
-                <span class="material-symbols-rounded" aria-hidden="true">add</span>new code
-              </button>
-              {#if !editCat && localCatalog !== null}
-                <button type="button" class="editcat" aria-label="edit devices" onclick={startEditCat}>
-                  <span class="material-symbols-rounded" aria-hidden="true">edit</span>Edit
-                </button>
-              {/if}
-            </div>
+      <div class="catbody">
+        <div class="cathd">
+          <div class="cathead">
+            <button
+              type="button"
+              class="cattool addcat"
+              title="Add a new code category (top-level device)"
+              onclick={() => startAdd(null)}
+            >
+              <span class="material-symbols-rounded" aria-hidden="true">add</span>New category
+            </button>
+            <button
+              type="button"
+              class="cattool addcode"
+              title={armed === null
+                ? "Add a new code (top-level; arm a device first to nest under it)"
+                : "Add a new code under the armed device"}
+              onclick={() => startAdd(armed)}
+            >
+              <span class="material-symbols-rounded" aria-hidden="true">add</span>New code
+            </button>
             {#if !editCat && localCatalog !== null}
-              <div class="cattools">
-                <button type="button" class="cattool" onclick={exportCatJson} title="export frame devices as JSON">
-                  <span class="material-symbols-rounded" aria-hidden="true">file_download</span>json
-                </button>
-                <button
-                  type="button"
-                  class="cattool"
-                  onclick={exportCatQdc}
-                  title="export frame devices as .qdc (lossy)"
-                >
-                  <span class="material-symbols-rounded" aria-hidden="true">file_download</span>.qdc
-                </button>
-                <button
-                  type="button"
-                  class="cattool"
-                  onclick={() => catImport?.click()}
-                  title="import frame devices from .json or .qdc"
-                >
-                  <span class="material-symbols-rounded" aria-hidden="true">file_upload</span>import
-                </button>
-                <input
-                  type="file"
-                  accept=".json,.qdc"
-                  class="catfile"
-                  bind:this={catImport}
-                  onchange={(e) => void importCat(e)}
-                />
-              </div>
-            {/if}
-            {#if editCat && draft}
-              <div class="catbar">
-                <button type="button" class="catfinish" onclick={saveCat} disabled={catBusy}>
-                  {catBusy ? "saving…" : "save catalog"}
-                </button>
-                <button type="button" class="catcancel" onclick={cancelCat}>cancel</button>
-                <button type="button" class="cattool" onclick={() => draftAdd(null)} title="add a top-level device">
-                  <span class="material-symbols-rounded" aria-hidden="true">add</span>new device
-                </button>
-                {#if localCatalog !== null}
-                  <button type="button" class="catcancel" onclick={resetCat} title="discard the local catalog"
-                    >remove catalog</button
-                  >
-                {/if}
-                {#if catMsg}<span class="msg err">{catMsg}</span>{/if}
-              </div>
+              <button type="button" class="editcat" aria-label="Edit devices" onclick={startEditCat}>
+                <span class="material-symbols-rounded" aria-hidden="true">edit</span>Edit
+              </button>
             {/if}
           </div>
-          {#if catIoMsg}<p class="catio">{catIoMsg}</p>{/if}
-          {#if editCat && draft}
-            <CatalogTree
-              catalog={draftView}
-              selected={armed}
-              {styleFor}
-              {onhover}
-              editing
-              onrename={draftRename}
-              ontag={draftTag}
-              onmove={draftMove}
-              onadd={draftAdd}
-              ondelete={askDeleteDevice}
-            />
-          {:else}
-            <CatalogTree {catalog} selected={armed} {styleFor} {onpick} {onhover} ondelete={askRemoveDevice} />
+          {#if !editCat && localCatalog !== null}
+            <div class="cattools">
+              <button type="button" class="cattool" onclick={exportCatJson} title="Export frame devices as JSON">
+                <span class="material-symbols-rounded" aria-hidden="true">file_download</span>JSON
+              </button>
+              <button type="button" class="cattool" onclick={exportCatQdc} title="Export frame devices as .qdc (lossy)">
+                <span class="material-symbols-rounded" aria-hidden="true">file_download</span>.qdc
+              </button>
+              <button
+                type="button"
+                class="cattool"
+                onclick={() => catImport?.click()}
+                title="Import frame devices from .json or .qdc"
+              >
+                <span class="material-symbols-rounded" aria-hidden="true">file_upload</span>Import
+              </button>
+              <input
+                type="file"
+                accept=".json,.qdc"
+                class="catfile"
+                bind:this={catImport}
+                onchange={(e) => void importCat(e)}
+              />
+            </div>
           {/if}
-        </Collapsible.Content>
-      </Collapsible.Root>
+          {#if editCat && draft}
+            <div class="catbar">
+              <button type="button" class="catfinish" onclick={saveCat} disabled={catBusy}>
+                {catBusy ? "Saving…" : "Save catalog"}
+              </button>
+              <button type="button" class="catcancel" onclick={cancelCat}>Cancel</button>
+              <button type="button" class="cattool" onclick={() => draftAdd(null)} title="Add a top-level device">
+                <span class="material-symbols-rounded" aria-hidden="true">add</span>New device
+              </button>
+              {#if localCatalog !== null}
+                <button type="button" class="catcancel" onclick={resetCat} title="Discard the local catalog"
+                  >Remove catalog</button
+                >
+              {/if}
+              {#if catMsg}<span class="msg err">{catMsg}</span>{/if}
+            </div>
+          {/if}
+        </div>
+        {#if catIoMsg}<p class="catio">{catIoMsg}</p>{/if}
+        {#if editCat && draft}
+          <CatalogTree
+            catalog={draftView}
+            selected={armed}
+            {styleFor}
+            {onhover}
+            editing
+            onrename={draftRename}
+            ontag={draftTag}
+            onmove={draftMove}
+            onadd={draftAdd}
+            onaddbelow={draftAddBelow}
+            ondelete={askDeleteDevice}
+          />
+        {:else}
+          <CatalogTree
+            {catalog}
+            selected={armed}
+            {styleFor}
+            {onpick}
+            {onhover}
+            onadd={addStoredChild}
+            onaddbelow={addStoredBelow}
+            ondelete={askRemoveDevice}
+          />
+        {/if}
+      </div>
     </ScrollArea.Viewport>
     <ScrollArea.Scrollbar class="wsbar" orientation="vertical">
       <ScrollArea.Thumb class="wsthumb" />
@@ -362,52 +401,12 @@
       padding: 0.2rem 0;
     }
   }
-  /* Bits Collapsible.Root wrapper carries the aside's flex column (like .treeroot) */
-  :global(.catroot) {
+  .catbody {
     display: flex;
     flex-direction: column;
     gap: 0.4rem;
     flex: 1;
     min-height: 0;
-  }
-  :global(.catbtn) {
-    font: inherit;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
-    font-size: 0.75rem;
-    color: var(--on-surface-variant, #666);
-    background: var(--surface-variant, #eee);
-    border: 1px solid var(--outline, #888);
-    border-radius: 999px;
-    padding: 0.15rem 0.55rem;
-    cursor: pointer;
-
-    .material-symbols-rounded {
-      font-size: 1rem;
-    }
-  }
-  :global(.catbtn:hover) {
-    color: var(--primary, #6750a4);
-    border-color: var(--primary, #6750a4);
-  }
-  :global(.catbody) {
-    display: flex;
-    flex-direction: column;
-    gap: 0.4rem;
-    flex: 1;
-    min-height: 0;
-    transition: opacity 0.18s ease;
-  }
-  /* Bits keeps closed content mounted with [hidden] — restore the UA's display:none */
-  :global(.catbody[hidden]) {
-    display: none;
-  }
-  /* Bits tags the animating surfaces with data-starting/ending-style; presence waits
-     for these transitions to finish before hiding the content (collapse fade) */
-  :global(.catbody[data-starting-style]),
-  :global(.catbody[data-ending-style]) {
-    opacity: 0;
   }
 
   .editcat {

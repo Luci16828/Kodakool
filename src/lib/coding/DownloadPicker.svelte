@@ -63,15 +63,15 @@
 </script>
 
 <Popover.Root bind:open>
-  <Popover.Trigger class="pill" aria-label="download files" title="download project files">
+  <Popover.Trigger class="pill" aria-label="Download files" title="Download project files">
     <span class="material-symbols-rounded" aria-hidden="true">download</span>
   </Popover.Trigger>
   <Popover.Portal>
-    <Popover.Content class="downloads" role="dialog" aria-label="download files">
+    <Popover.Content class="downloads" role="dialog" aria-label="Download files">
       <div class="dlhead">
         <span>download from {folder}/</span>
         <button type="button" class="dlsel" onclick={toggleAll}>
-          {sel.size === docs.length && docs.length > 0 ? "select none" : "select all"}
+          {sel.size === docs.length && docs.length > 0 ? "Select none" : "Select all"}
         </button>
       </div>
       <ul>

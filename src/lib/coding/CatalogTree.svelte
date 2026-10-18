@@ -22,6 +22,7 @@
     ontag,
     onmove,
     onadd,
+    onaddbelow,
     ondelete,
   }: {
     catalog: CatalogView[];
@@ -43,6 +44,8 @@
     onmove?: (dragId: string, targetId: string) => void;
     /** add a child device under `id` (edit mode) */
     onadd?: (id: string) => void;
+    /** add a sibling device directly below `id` (edit mode) */
+    onaddbelow?: (id: string) => void;
     /** request deletion of the device `id` (edit mode; parent confirms) */
     ondelete?: (id: string) => void;
   } = $props();
@@ -112,18 +115,12 @@
     <div class="titem" animate:flip={{ duration: 180 }}>
       <RowMenu
         items={[
-          ...(editing
+          ...(editing || !UUID_RE.test(n.item.id) || n.item.kind !== "device" || n.canExpand
             ? []
-            : [
-                ...(UUID_RE.test(n.item.id) && n.item.kind === "device" && !n.canExpand
-                  ? [{ label: "code with this device", icon: "edit_note", onSelect: () => onpick?.(n.item.id) }]
-                  : []),
-                { label: "new code under it", icon: "add", onSelect: () => onadd?.(n.item.id) },
-              ]),
-          ...(onadd ? [{ label: "add child device", icon: "add", onSelect: () => onadd(n.item.id) }] : []),
-          ...(ondelete
-            ? [{ label: "delete device", icon: "delete", danger: true, onSelect: () => ondelete(n.item.id) }]
-            : []),
+            : [{ label: "Code with this device", icon: "edit_note", onSelect: () => onpick?.(n.item.id) }]),
+          ...(onadd ? [{ label: "New child code", icon: "tab_new_right", onSelect: () => onadd(n.item.id) }] : []),
+          ...(onaddbelow ? [{ label: "New below", icon: "add_row_below", onSelect: () => onaddbelow(n.item.id) }] : []),
+          ...(ondelete ? [{ label: "Delete", icon: "delete", danger: true, onSelect: () => ondelete(n.item.id) }] : []),
         ]}
       >
         {#snippet trigger({ props }: { props: Record<string, unknown> })}
@@ -165,7 +162,7 @@
               <span
                 class="grip material-symbols-rounded"
                 draggable="true"
-                title="drag to reorder"
+                title="Drag to reorder"
                 aria-hidden="true"
                 ondragstart={(e) => {
                   dragId = n.item.id;
@@ -199,16 +196,16 @@
                 maxlength={12}
                 spellcheck="false"
                 title={n.item.code}
-                aria-label={`tag ${n.item.name || n.item.code}`}
+                aria-label={`Tag ${n.item.name || n.item.code}`}
                 oninput={(e) => ontag?.(n.item.id, e.currentTarget.value)}
                 onkeydown={(e) => e.stopPropagation()}
               />
               <input
                 class="tedit"
                 value={n.item.name}
-                placeholder="name"
+                placeholder="Name"
                 spellcheck="false"
-                aria-label={`name ${n.item.name || n.item.code}`}
+                aria-label={`Name ${n.item.name || n.item.code}`}
                 oninput={(e) => onrename?.(n.item.id, e.currentTarget.value)}
                 onkeydown={(e) => e.stopPropagation()}
               />
@@ -228,8 +225,8 @@
         <button
           type="button"
           class="menubtn"
-          title="device actions"
-          aria-label={`menu for ${n.item.name || n.item.code}`}
+          title="Device actions"
+          aria-label={`Menu for ${n.item.name || n.item.code}`}
           onclick={(e) => openRowMenu(e.currentTarget.closest("[data-rowmenu]") ?? e.currentTarget)}
         >
           <span class="material-symbols-rounded" aria-hidden="true">more_vert</span>
@@ -350,11 +347,12 @@
     opacity: 0.7;
     font-variant-numeric: tabular-nums;
   }
+  /* sub-category groups keep their indent, no guide line — the marker colors of
+     each level carry the hierarchy */
   div[role="group"] {
     display: flex;
     flex-direction: column;
     padding-left: 1rem;
-    border-left: 1px solid var(--outline, #ccc);
     margin-left: 0.4rem;
   }
   /* edit mode: grip handle + inline name/tag inputs, hover no longer paints the row */

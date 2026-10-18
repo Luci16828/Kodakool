@@ -175,32 +175,11 @@
   let localCatalog = $state<Instructions | null>(null);
   /** colors customization popup (Bits Dialog) */
   let colorsOpen = $state(false);
-  /** right-side document tree sidebar (Bits Collapsible) */
-  let treeOpen = $state(true);
-  /** right-side frame-devices sidebar (Bits Collapsible) */
-  let catOpen = $state(true);
-  /** resizable workspace panes (PaneForge): sizes are % of the workspace width */
-  const WS_TREE = { def: 18, min: 11, max: 32, collapsed: 3.5 };
+  /** resizable workspace panes (PaneForge): sizes are % of the workspace width.
+      The sidebars never collapse — they are only resizable by dragging the rails */
+  const WS_TREE = { def: 18, min: 11, max: 32 };
   const WS_DOC = { def: 61, min: 38 };
-  const WS_CAT = { def: 21, min: 12, max: 36, collapsed: 3.5 };
-  /** pane instances: the collapse pills drive them, dragging a pane reports back */
-  let treePane: ReturnType<typeof Pane> | null = $state(null);
-  let catPane: ReturnType<typeof Pane> | null = $state(null);
-
-  /** the collapse pills resize the panes; dragging a pane down to its collapsed
-      size collapses the sidebar, and the Collapsible state follows it back */
-  $effect(() => {
-    const pane = treePane;
-    if (pane === null) return;
-    if (treeOpen) pane.expand();
-    else pane.collapse();
-  });
-  $effect(() => {
-    const pane = catPane;
-    if (pane === null) return;
-    if (catOpen) pane.expand();
-    else pane.collapse();
-  });
+  const WS_CAT = { def: 21, min: 12, max: 36 };
   /** all local documents; the sidebar shows only this project's slice */
   let docs = $state<ArticleSummary[]>([]);
   /** registered local folders (the switcher's base; projects with documents are added) */
@@ -1071,33 +1050,17 @@
   <main>
     <ColorsDialog bind:open={colorsOpen}>
       <PaneGroup class="workspace" direction="horizontal" autoSaveId={`workspace:${data.folder}`}>
-        <Pane
-          bind:this={treePane}
-          collapsible
-          collapsedSize={WS_TREE.collapsed}
-          minSize={WS_TREE.min}
-          maxSize={WS_TREE.max}
-          defaultSize={WS_TREE.def}
-          onCollapse={() => (treeOpen = false)}
-          onExpand={() => (treeOpen = true)}
-        >
-          <DocTree
-            folder={data.folder}
-            currentName={data.name}
-            docs={myDocs}
-            {projects}
-            {confirm}
-            bind:open={treeOpen}
-          />
+        <Pane minSize={WS_TREE.min} maxSize={WS_TREE.max} defaultSize={WS_TREE.def}>
+          <DocTree folder={data.folder} currentName={data.name} docs={myDocs} {projects} {confirm} />
         </Pane>
-        <PaneResizer class={`wshandle ${treeOpen ? "" : "dim"}`} />
+        <PaneResizer class="wshandle" />
         <Pane minSize={WS_DOC.min} defaultSize={WS_DOC.def}>
           <div class="doccol">
             <header>
               {#if renaming}
                 <input
                   class="rename"
-                  aria-label="document name"
+                  aria-label="Document name"
                   bind:value={renameDraft}
                   spellcheck="false"
                   use:renameCaret
@@ -1114,28 +1077,28 @@
                 />
               {:else}
                 <h1>
-                  <button type="button" class="title" onclick={startRename} title="rename document">{titleName}</button>
+                  <button type="button" class="title" onclick={startRename} title="Rename document">{titleName}</button>
                 </h1>
               {/if}
               <div class="bar">
                 <a
                   class="pill back"
                   href={resolve("/project/[folder]", { folder: data.folder })}
-                  aria-label="back to project {data.folder}"
-                  title="back to {data.folder}/"
+                  aria-label="Back to project {data.folder}"
+                  title="Back to {data.folder}/"
                 >
                   <span class="material-symbols-rounded" aria-hidden="true">arrow_back</span>{data.folder}
                 </a>
                 {#if mode === "code"}
                   {#if !isPdf}
-                    <button type="button" class="modebtn" aria-label="edit text" onclick={() => setMode("edit")}>
-                      <span class="material-symbols-rounded" aria-hidden="true">edit_document</span>edit
+                    <button type="button" class="modebtn" aria-label="Edit text" onclick={() => setMode("edit")}>
+                      <span class="material-symbols-rounded" aria-hidden="true">edit_document</span>Edit
                     </button>
                   {/if}
                   <Toggle.Root
                     class={`smart ${smart ? "on" : ""}`}
                     bind:pressed={smart}
-                    title="select by word/quote/sentence instead of raw characters"
+                    title="Select by word/quote/sentence instead of raw characters"
                   >
                     <span class="material-symbols-rounded" aria-hidden="true">wand_shine</span>
                     Smart Select
@@ -1144,10 +1107,10 @@
                   <button
                     type="button"
                     class="modebtn finish"
-                    aria-label="finish editing"
+                    aria-label="Finish editing"
                     onclick={() => setMode("code")}
                   >
-                    <span class="material-symbols-rounded" aria-hidden="true">done</span>finish
+                    <span class="material-symbols-rounded" aria-hidden="true">done</span>Finish
                   </button>
                   <span class="hint">editing mode</span>
                   {#if isMd}<MarkdownHelp />{/if}
@@ -1158,14 +1121,14 @@
                     <RadioGroup.Item
                       class={`seg ${pdfMode === "doc" ? "on" : ""}`}
                       value="doc"
-                      title="rendered PDF pages"
+                      title="Rendered PDF pages"
                     >
                       <span class="material-symbols-rounded" aria-hidden="true">newsmode</span>Full
                     </RadioGroup.Item>
                     <RadioGroup.Item
                       class={`seg ${pdfMode === "text" ? "on" : ""}`}
                       value="text"
-                      title="extracted text (the coded canonical text)"
+                      title="Extracted text (the coded canonical text)"
                     >
                       <span class="material-symbols-rounded" aria-hidden="true">convert_to_text</span>Plain Text
                     </RadioGroup.Item>
@@ -1179,7 +1142,7 @@
                   bind:open={dlOpen}
                 />
                 <Dialog.Trigger class="pill">
-                  <span class="material-symbols-rounded" aria-hidden="true">palette</span>colors
+                  <span class="material-symbols-rounded" aria-hidden="true">palette</span>Colors
                 </Dialog.Trigger>
                 <HistoryPanel
                   count={versionCount}
@@ -1192,7 +1155,7 @@
                 />
                 {#if pending}
                   <button type="button" class="save" onclick={save} disabled={saving}>
-                    {saving ? "saving…" : "save"}
+                    {saving ? "Saving…" : "Save"}
                   </button>
                 {/if}
                 {#if saveMsg}<span class="msg">{saveMsg}</span>{/if}
@@ -1227,17 +1190,8 @@
             {/if}
           </div>
         </Pane>
-        <PaneResizer class={`wshandle ${catOpen ? "" : "dim"}`} />
-        <Pane
-          bind:this={catPane}
-          collapsible
-          collapsedSize={WS_CAT.collapsed}
-          minSize={WS_CAT.min}
-          maxSize={WS_CAT.max}
-          defaultSize={WS_CAT.def}
-          onCollapse={() => (catOpen = false)}
-          onExpand={() => (catOpen = true)}
-        >
+        <PaneResizer class="wshandle" />
+        <Pane minSize={WS_CAT.min} maxSize={WS_CAT.max} defaultSize={WS_CAT.def}>
           <CatalogAside
             folder={data.folder}
             bind:localCatalog
@@ -1247,7 +1201,6 @@
             {confirm}
             pal={paletteTick}
             options={prefs.options}
-            bind:open={catOpen}
             onpick={pick}
             {onhover}
             {styleFor}
@@ -1293,7 +1246,8 @@
   main {
     max-width: 90cm;
     margin: 0 auto;
-    padding: 1rem 2rem;
+    /* no bottom padding: the panes scroll all the way down to the viewport edge */
+    padding: 1rem 2rem 0;
     font-family: var(--font-sans, system-ui, sans-serif);
     /* full-viewport app layout: side panels fill the viewport, bar sits above the editor */
     height: 100vh;
@@ -1378,6 +1332,11 @@
     flex: 1;
     min-height: 0;
     height: auto !important;
+    /* bleed into the main's right padding: the catalog pane's scrollbar rail lands
+       on the very right edge of the window. PaneForge pins inline `width: 100%`, and a
+       definite width makes a negative margin a no-op — so the width goes auto first */
+    width: auto !important;
+    margin-right: -2rem;
   }
 
   /* the panes render their own divs: they carry the column layout the asides expect */
@@ -1418,12 +1377,6 @@
         background 0.14s ease;
     }
 
-    /* a collapsed sidebar's rail: faint, but it stays draggable — dragging it back
-       out expands the pane and the Collapsible state follows via onExpand */
-    &:global(.dim)::before {
-      opacity: 0.22;
-    }
-
     &:hover::before,
     &:focus-visible::before,
     &:global([data-active])::before {
@@ -1434,10 +1387,12 @@
     }
   }
 
-  /* center column: title + bar sit directly above the editor */
+  /* center column: title + bar sit directly above the editor, and the column fills
+     the pane so the editor's own scroller takes the whole remaining height */
   .doccol {
     display: flex;
     flex-direction: column;
+    flex: 1;
     gap: 0.5rem;
     min-width: 0;
     min-height: 0;
@@ -1450,12 +1405,15 @@
       height: auto;
       display: block;
       overflow: visible;
+      padding-bottom: 1rem;
     }
 
     :global(.workspace) {
       /* stacked: the panes become plain full-width blocks and the rails go away */
       display: block !important;
       height: auto !important;
+      /* no bleed in page flow: it would overflow the viewport sideways */
+      margin-right: 0;
 
       :global([data-pane]) {
         flex: none !important;
@@ -1506,8 +1464,9 @@
   /* hover-fade scrollbar in the theme's colors (Bits fades it via data-state) */
   :global(.wsbar) {
     width: 8px;
-    /* Bits pins the rail at right:0 of the Root: nudge it off the pane edge */
-    margin-right: 2px;
+    /* Bits pins the rail at right:0 of the Root: keep it flush with the pane's edge
+       (the catalog pane's rail therefore lands on the very right of the window) */
+    margin-right: 0;
     border-radius: 999px;
     background: color-mix(in srgb, var(--surface-variant, #ddd) 55%, transparent);
     transition: opacity 0.18s ease;

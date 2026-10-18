@@ -43,11 +43,11 @@
 </script>
 
 <Popover.Root bind:open>
-  <Popover.Trigger class="save ghost vbtn" title="snapshot history">
-    <span class="material-symbols-rounded" aria-hidden="true">history</span>versions ({count})
+  <Popover.Trigger class="save ghost vbtn" title="Snapshot history">
+    <span class="material-symbols-rounded" aria-hidden="true">history</span>Versions ({count})
   </Popover.Trigger>
   <Popover.Portal>
-    <Popover.Content class="historypop" role="dialog" aria-label="snapshot history">
+    <Popover.Content class="historypop" role="dialog" aria-label="Snapshot history">
       {#if HistoryGraphComp !== null}
         <HistoryGraphComp {versions} {head} {onsnapshot} {onrevert} {onrename} onpreview={(v) => (preview = v)} />
       {/if}
@@ -55,7 +55,7 @@
         <p class="vempty">No versions yet — name the current state and snapshot it.</p>
       {/if}
       {#if preview !== null}
-        <pre class="vprev" aria-label="preview of {snapshotLabel(preview)}">{preview.text}</pre>
+        <pre class="vprev" aria-label="Preview of {snapshotLabel(preview)}">{preview.text}</pre>
       {/if}
     </Popover.Content>
   </Popover.Portal>

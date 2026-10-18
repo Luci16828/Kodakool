@@ -35,13 +35,13 @@
 </div>
 
 <section class="controls">
-  <label class="swatch-src" title="brand color for the whole theme">
+  <label class="swatch-src" title="Brand color for the whole theme">
     <input type="color" value={prefs.themeSource} oninput={(e) => (prefs.themeSource = e.currentTarget.value)} />
-    <span>base color <code>{prefs.themeSource}</code></span>
+    <span>Base color <code>{prefs.themeSource}</code></span>
   </label>
 
-  <label class="adj" title="marker chroma (colorfulness)">
-    chroma <output>{prefs.chromaAdj > 0 ? `+${prefs.chromaAdj}` : prefs.chromaAdj}</output>
+  <label class="adj" title="Marker chroma (colorfulness)">
+    Chroma <output>{prefs.chromaAdj > 0 ? `+${prefs.chromaAdj}` : prefs.chromaAdj}</output>
     <input
       type="range"
       min={-40}
@@ -52,8 +52,8 @@
     />
   </label>
 
-  <label class="adj" title="marker tone (lightness)">
-    tone <output>{prefs.toneAdj > 0 ? `+${prefs.toneAdj}` : prefs.toneAdj}</output>
+  <label class="adj" title="Marker tone (lightness)">
+    Tone <output>{prefs.toneAdj > 0 ? `+${prefs.toneAdj}` : prefs.toneAdj}</output>
     <input
       type="range"
       min={-60}
@@ -65,7 +65,7 @@
   </label>
 
   <button type="button" class="reset" onclick={() => prefs.reset()}>
-    <span class="material-symbols-rounded" aria-hidden="true">restart_alt</span>reset all
+    <span class="material-symbols-rounded" aria-hidden="true">restart_alt</span>Reset all
   </button>
 </section>
 

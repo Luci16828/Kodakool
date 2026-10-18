@@ -31,14 +31,14 @@
     style={`left: ${ctl.popup.x}px; bottom: ${ctl.popup.y}px; --tag:${tag.marker}; --tag-d:${tag.markerD}; --tag-on:${tag.on}; --tag-on-d:${tag.onD}`}
     role="dialog"
     tabindex={-1}
-    aria-label="code entry"
+    aria-label="Code entry"
     onmouseenter={() => ctl.enter()}
     onmouseleave={() => ctl.leave()}
   >
     <span class="tname">{fullName}</span>
-    <textarea class="tnote" rows={2} placeholder="note" value={ctl.note} oninput={(e) => onnote(e.currentTarget.value)}
+    <textarea class="tnote" rows={2} placeholder="Note" value={ctl.note} oninput={(e) => onnote(e.currentTarget.value)}
     ></textarea>
-    <button type="button" class="del" onclick={ondelete}> delete </button>
+    <button type="button" class="del" onclick={ondelete}> Delete </button>
   </div>
 {/if}
 

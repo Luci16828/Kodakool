@@ -42,11 +42,11 @@ async function confirmDelete(name: string): Promise<void> {
   const dialog = page.getByRole("dialog", { name });
   await expect.element(dialog).toBeInTheDocument();
   await expect
-    .poll(() => (dialog.getByRole("button", { name: "confirm" }).element() as HTMLButtonElement).disabled, {
+    .poll(() => (dialog.getByRole("button", { name: "Confirm" }).element() as HTMLButtonElement).disabled, {
       timeout: 6000,
     })
     .toBe(false);
-  await dialog.getByRole("button", { name: "confirm" }).click();
+  await dialog.getByRole("button", { name: "Confirm" }).click();
 }
 
 beforeEach(async () => {
@@ -104,7 +104,7 @@ describe("project page", () => {
   it("links back to the project screen", async () => {
     renderProject();
 
-    const link = await page.getByRole("link", { name: "projects", exact: true }).element();
+    const link = await page.getByRole("link", { name: "Projects", exact: true }).element();
     expect(link.getAttribute("href")).toBe("/");
   });
 
@@ -113,7 +113,7 @@ describe("project page", () => {
 
     renderProject();
 
-    await page.getByRole("button", { name: "new document" }).click();
+    await page.getByRole("button", { name: "New document" }).click();
 
     // new documents are markdown by default
     await expect.element(page.getByRole("link", { name: "Untitled 1.md" })).toBeInTheDocument();
@@ -127,7 +127,7 @@ describe("project page", () => {
 
     renderProject();
 
-    await page.getByRole("button", { name: "new document" }).click();
+    await page.getByRole("button", { name: "New document" }).click();
 
     // max existing "Untitled 2" → the next free name is "Untitled 3.md"
     await expect.poll(async () => (await getArticle(FOLDER, "Untitled 3.md"))?.name).toBe("Untitled 3.md");
@@ -186,8 +186,8 @@ describe("project page", () => {
 
     renderProject();
 
-    await page.getByRole("button", { name: "menu for spd 1.txt" }).click();
-    await page.getByRole("menuitem", { name: "delete document" }).click();
+    await page.getByRole("button", { name: "Menu for spd 1.txt" }).click();
+    await page.getByRole("menuitem", { name: "Delete document" }).click();
     await confirmDelete('Delete "spd 1.txt"?');
 
     await expect.element(page.getByRole("link", { name: "spd 1.txt" })).not.toBeInTheDocument();
@@ -201,8 +201,8 @@ describe("project page", () => {
 
     renderProject();
 
-    await page.getByRole("button", { name: "project menu" }).click();
-    await page.getByRole("menuitem", { name: "delete project" }).click();
+    await page.getByRole("button", { name: "Project menu" }).click();
+    await page.getByRole("menuitem", { name: "Delete project" }).click();
     await confirmDelete("Delete project test/?");
 
     await expect.poll(async () => (await listArticles()).map((a) => a.project)).toEqual(["other"]);
@@ -229,9 +229,9 @@ describe("project page", () => {
 
     const menu = page.getByRole("menu");
     await expect.element(menu).toBeInTheDocument();
-    await expect.element(menu.getByRole("menuitem", { name: "open document" })).toBeInTheDocument();
-    await expect.element(menu.getByRole("menuitem", { name: "download document" })).toBeInTheDocument();
-    await expect.element(menu.getByRole("menuitem", { name: "delete document" })).toBeInTheDocument();
+    await expect.element(menu.getByRole("menuitem", { name: "Open document" })).toBeInTheDocument();
+    await expect.element(menu.getByRole("menuitem", { name: "Download document" })).toBeInTheDocument();
+    await expect.element(menu.getByRole("menuitem", { name: "Delete document" })).toBeInTheDocument();
   });
 
   it("offers a .qdc export only when the project has a frame-device catalog", async () => {
@@ -240,7 +240,7 @@ describe("project page", () => {
 
     renderProject();
 
-    await expect.element(page.getByRole("button", { name: "export .qdc" })).toBeInTheDocument();
+    await expect.element(page.getByRole("button", { name: "Export .qdc" })).toBeInTheDocument();
     expect(document.querySelectorAll(".export")).toHaveLength(1);
   });
 
@@ -257,10 +257,10 @@ describe("project page", () => {
   it("hosts the colors dialog on the project page", async () => {
     renderProject();
 
-    await page.getByRole("button", { name: "colors" }).click();
-    await expect.element(page.getByRole("dialog", { name: "colors" })).toBeInTheDocument();
+    await page.getByRole("button", { name: "Colors" }).click();
+    await expect.element(page.getByRole("dialog", { name: "Colors" })).toBeInTheDocument();
     await expect.element(page.getByLabelText("base color")).toBeInTheDocument();
-    await page.getByRole("button", { name: "close colors" }).click();
-    await expect.element(page.getByRole("dialog", { name: "colors" })).not.toBeInTheDocument();
+    await page.getByRole("button", { name: "Close colors" }).click();
+    await expect.element(page.getByRole("dialog", { name: "Colors" })).not.toBeInTheDocument();
   });
 });

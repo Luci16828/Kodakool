@@ -5,7 +5,7 @@
   const t = useTheme();
 </script>
 
-<button type="button" class="theme-toggle" onclick={t.toggle} title="switch color theme">
+<button type="button" class="theme-toggle" onclick={t.toggle} title="Switch color theme">
   <span class="material-symbols-rounded" aria-hidden="true">{t.theme === "dark" ? "light_mode" : "dark_mode"}</span>
 </button>
 

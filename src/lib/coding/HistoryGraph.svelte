@@ -164,8 +164,8 @@
       type="button"
       class="cdot pdot"
       style={`left: ${x(pending.col) - PDOT / 2}px`}
-      aria-label="snapshot current state"
-      title="snapshot the current working state"
+      aria-label="Snapshot current state"
+      title="Snapshot the current working state"
       onclick={snap}
     >
       <span class="material-symbols-rounded" aria-hidden="true">add</span>
@@ -182,8 +182,8 @@
         class="cdot"
         class:head={v.id === head}
         style={`left: ${x(p.col) - DOT / 2}px; --dot-color: ${colorOf(p.col)}`}
-        aria-label={`revert to ${snapshotLabel(v)}`}
-        title="revert to this snapshot"
+        aria-label={`Revert to ${snapshotLabel(v)}`}
+        title="Revert to this snapshot"
         onclick={() => onrevert(v)}
         onpointerenter={() => onpreview?.(v)}
         onpointerleave={() => onpreview?.(null)}
@@ -195,7 +195,7 @@
         type="text"
         value={v.label ?? ""}
         placeholder={new Date(v.savedAt).toLocaleString()}
-        aria-label="snapshot name"
+        aria-label="Snapshot name"
         maxlength="120"
         onchange={(e) => rename(v, e.currentTarget)}
       />

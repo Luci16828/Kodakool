@@ -78,18 +78,18 @@ describe("project screen", () => {
 
     renderDashboard();
 
-    await expect.element(page.getByRole("button", { name: "export .qdc" })).toBeInTheDocument();
+    await expect.element(page.getByRole("button", { name: "Export .qdc" })).toBeInTheDocument();
     await expect.poll(() => document.querySelectorAll(".export").length).toBe(1);
   });
 
   it("creates a project through the new-project input", async () => {
     renderDashboard();
 
-    await page.getByRole("button", { name: "new project" }).click();
-    const input = (await page.getByLabelText("new project name").element()) as HTMLInputElement;
+    await page.getByRole("button", { name: "New project" }).click();
+    const input = (await page.getByLabelText("New project name").element()) as HTMLInputElement;
     input.value = "research";
     input.dispatchEvent(new Event("input", { bubbles: true }));
-    await page.getByRole("button", { name: "create" }).click();
+    await page.getByRole("button", { name: "Create" }).click();
 
     await expect.element(page.getByRole("heading", { level: 2 }).first()).toHaveTextContent("research");
     await expect.element(page.getByText("Empty project")).toBeInTheDocument();
@@ -99,11 +99,11 @@ describe("project screen", () => {
     renderDashboard();
 
     const long = "f".repeat(250);
-    await page.getByRole("button", { name: "new project" }).click();
-    const input = (await page.getByLabelText("new project name").element()) as HTMLInputElement;
+    await page.getByRole("button", { name: "New project" }).click();
+    const input = (await page.getByLabelText("New project name").element()) as HTMLInputElement;
     input.value = long;
     input.dispatchEvent(new Event("input", { bubbles: true }));
-    await page.getByRole("button", { name: "create" }).click();
+    await page.getByRole("button", { name: "Create" }).click();
 
     await expect.poll(async () => (await listFolders()).includes(long)).toBe(true);
   });
@@ -113,15 +113,15 @@ describe("project screen", () => {
 
     renderDashboard();
 
-    await page.getByRole("button", { name: "menu for project test" }).click();
-    await page.getByRole("menuitem", { name: "delete project" }).click();
+    await page.getByRole("button", { name: "Menu for project test" }).click();
+    await page.getByRole("menuitem", { name: "Delete project" }).click();
     const dialog = page.getByRole("dialog", { name: "Delete project test/?" });
     await expect.element(dialog).toBeInTheDocument();
-    const confirm = dialog.getByRole("button", { name: /confirm/ });
+    const confirm = dialog.getByRole("button", { name: /Confirm/ });
     // the confirm button starts disabled with a visible countdown
     await expect.element(confirm).toBeDisabled();
-    await expect.element(dialog.getByRole("button", { name: "confirm" })).toBeEnabled();
-    await dialog.getByRole("button", { name: "confirm" }).click();
+    await expect.element(dialog.getByRole("button", { name: "Confirm" })).toBeEnabled();
+    await dialog.getByRole("button", { name: "Confirm" }).click();
 
     await expect.poll(async () => (await listArticles()).length).toBe(0);
     await expect.element(page.getByText("No projects yet")).toBeInTheDocument();
@@ -148,9 +148,9 @@ describe("project screen", () => {
 
     const menu = page.getByRole("menu");
     await expect.element(menu).toBeInTheDocument();
-    await expect.element(menu.getByRole("menuitem", { name: "open project" })).toBeInTheDocument();
-    await expect.element(menu.getByRole("menuitem", { name: "export .qdc" })).toBeInTheDocument();
-    await expect.element(menu.getByRole("menuitem", { name: "delete project" })).toBeInTheDocument();
+    await expect.element(menu.getByRole("menuitem", { name: "Open project" })).toBeInTheDocument();
+    await expect.element(menu.getByRole("menuitem", { name: "Export .qdc" })).toBeInTheDocument();
+    await expect.element(menu.getByRole("menuitem", { name: "Delete project" })).toBeInTheDocument();
   });
 
   it("offers database export/import and re-imports a dump", async () => {
@@ -160,8 +160,8 @@ describe("project screen", () => {
     await resetArticles();
     renderDashboard();
 
-    await expect.element(page.getByRole("button", { name: "database" })).toBeInTheDocument();
-    await expect.element(page.getByRole("button", { name: "import db" })).toBeInTheDocument();
+    await expect.element(page.getByRole("button", { name: "Database" })).toBeInTheDocument();
+    await expect.element(page.getByRole("button", { name: "Import DB" })).toBeInTheDocument();
 
     const input = document.querySelector(".dbfile") as HTMLInputElement;
     const dt = new DataTransfer();

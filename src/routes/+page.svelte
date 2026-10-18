@@ -113,21 +113,21 @@
   ): { label: string; icon: string; danger?: boolean; onSelect: () => void }[] {
     return [
       {
-        label: "open project",
+        label: "Open project",
         icon: "folder_open",
         onSelect: () => void goto(resolve("/project/[folder]", { folder: project })),
       },
       ...(instr
         ? [
             {
-              label: "export .qdc",
+              label: "Export .qdc",
               icon: "file_download",
               onSelect: () => exportQdc(project, instr),
             },
           ]
         : []),
       {
-        label: "delete project",
+        label: "Delete project",
         icon: "delete",
         danger: true,
         onSelect: () =>
@@ -185,13 +185,13 @@
     <p class="sub">Projects, documents, coding entries and frame devices live entirely in this browser.</p>
     <p class="nav">
       <Dialog.Trigger class="pill">
-        <span class="material-symbols-rounded" aria-hidden="true">palette</span>colors
+        <span class="material-symbols-rounded" aria-hidden="true">palette</span>Colors
       </Dialog.Trigger>
-      <button type="button" class="pill" onclick={() => void exportDb()} title="export the local database as JSON">
-        <span class="material-symbols-rounded" aria-hidden="true">file_download</span>database
+      <button type="button" class="pill" onclick={() => void exportDb()} title="Export the local database as JSON">
+        <span class="material-symbols-rounded" aria-hidden="true">file_download</span>Database
       </button>
-      <button type="button" class="pill" onclick={() => dbInput?.click()} title="import a database JSON export">
-        <span class="material-symbols-rounded" aria-hidden="true">file_upload</span>import db
+      <button type="button" class="pill" onclick={() => dbInput?.click()} title="Import a database JSON export">
+        <span class="material-symbols-rounded" aria-hidden="true">file_upload</span>Import DB
       </button>
       <input
         type="file"
@@ -211,15 +211,15 @@
 
     <div class="actions">
       <button type="button" class="go" onclick={() => (newProj = !newProj)} disabled={busy}>
-        <span class="material-symbols-rounded" aria-hidden="true">create_new_folder</span>new project
+        <span class="material-symbols-rounded" aria-hidden="true">create_new_folder</span>New project
       </button>
       {#if newProj}
         <span class="nfrow">
           <input
             type="text"
             class="nfinput"
-            placeholder="project name"
-            aria-label="new project name"
+            placeholder="Project name"
+            aria-label="New project name"
             bind:value={projName}
             onkeydown={(e) => e.key === "Enter" && void newProject()}
           />
@@ -258,14 +258,14 @@
               <div class="prow">
                 {#if instr}
                   <button type="button" class="export" onclick={() => exportQdc(project, instr)}>
-                    <span class="material-symbols-rounded" aria-hidden="true">file_download</span>export .qdc
+                    <span class="material-symbols-rounded" aria-hidden="true">file_download</span>Export .qdc
                   </button>
                 {/if}
                 <button
                   type="button"
                   class="menubtn"
-                  title="project actions"
-                  aria-label={`menu for project ${project}`}
+                  title="Project actions"
+                  aria-label={`Menu for project ${project}`}
                   onclick={(e) => openRowMenu(e.currentTarget.closest("[data-rowmenu]") ?? e.currentTarget)}
                 >
                   <span class="material-symbols-rounded" aria-hidden="true">more_vert</span>

@@ -20,8 +20,8 @@
 <Dialog.Root bind:open>
   {@render children()}
   <Dialog.Overlay class="dlg-overlay" />
-  <Dialog.Content class="colorsdlg" aria-label="colors">
-    <Dialog.Close class="dlgclose" aria-label="close colors">
+  <Dialog.Content class="colorsdlg" aria-label="Colors">
+    <Dialog.Close class="dlgclose" aria-label="Close colors">
       <span class="material-symbols-rounded" aria-hidden="true">close</span>
     </Dialog.Close>
     <ColorPanel />

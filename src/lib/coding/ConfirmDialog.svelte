@@ -45,9 +45,9 @@
     {#if detail}<p class="cdetail">{detail}</p>{/if}
     <div class="cfrow">
       <button type="button" class="cfconfirm" disabled={left > 0} onclick={confirm}>
-        {left > 0 ? `confirm (${left}s)` : "confirm"}
+        {left > 0 ? `Confirm (s)` : "Confirm"}
       </button>
-      <button type="button" class="cfcancel" onclick={() => (open = false)}>cancel</button>
+      <button type="button" class="cfcancel" onclick={() => (open = false)}>Cancel</button>
     </div>
   </Dialog.Content>
 </Dialog.Root>

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { resolve } from "$app/paths";
   import { goto } from "$app/navigation";
-  import { Collapsible, ScrollArea, Select } from "bits-ui";
+  import { ScrollArea, Select } from "bits-ui";
   import "material-symbols/rounded.css";
   import { docIcon, displayName } from "$lib/coding/display";
   import { openRowMenu } from "$lib/coding/context-menu";
@@ -28,7 +28,6 @@
     docs,
     projects,
     confirm,
-    open = $bindable(true),
   }: {
     folder: string;
     currentName: string;
@@ -36,7 +35,6 @@
     /** every local project: registered folders + projects that hold documents (sorted) */
     projects: string[];
     confirm: ConfirmAsk;
-    open?: boolean;
   } = $props();
 
   let busy = $state(false);
@@ -59,7 +57,7 @@
   /** select items so the trigger keeps its label while the menu is closed */
   const items = $derived([
     ...others.map((name) => ({ value: name, label: name })),
-    { value: NEW_PROJECT, label: "new project" },
+    { value: NEW_PROJECT, label: "New project" },
   ]);
 
   function focusFirst(node: HTMLInputElement): void {
@@ -86,10 +84,10 @@
   /** the tree row's context menu: open / download / delete (replaces the old per-row trash) */
   function docMenu(a: ArticleSummary): { label: string; icon: string; danger?: boolean; onSelect: () => void }[] {
     return [
-      { label: "open document", icon: "open_in_new", onSelect: () => openDoc(a) },
-      { label: "download document", icon: "download", onSelect: () => void downloadArticle(a) },
+      { label: "Open document", icon: "open_in_new", onSelect: () => openDoc(a) },
+      { label: "Download document", icon: "download", onSelect: () => void downloadArticle(a) },
       {
-        label: "delete document",
+        label: "Delete document",
         icon: "delete",
         danger: true,
         onSelect: () =>
@@ -136,158 +134,140 @@
   }
 </script>
 
-<aside class="docs" class:closed={!open}>
-  <Collapsible.Root class="treeroot" bind:open>
-    {#if open}
-      <div class="projrow">
-        <Select.Root type="single" {items} bind:value={picked} onValueChange={(name: string) => pickProject(name)}>
-          <Select.Trigger class="switchbtn" aria-label="switch project" title="switch to another project">
-            <span class="material-symbols-rounded switchicon" aria-hidden="true">folder</span>
-            <span class="switchcol">
-              <span class="switchcap">project</span>
-              <Select.Value class="switchname" placeholder={folder} />
-            </span>
-            <span class="material-symbols-rounded switchmore" aria-hidden="true">unfold_more</span>
-          </Select.Trigger>
-          <Select.Content class="switchlist" side="bottom" align="start" sideOffset={8}>
-            {#each others as name (name)}
-              <Select.Item class="switchopt" value={name} label={name}>{name}</Select.Item>
-            {/each}
-            <Select.Item class="switchopt newopt" value={NEW_PROJECT} label="new project">
-              <span class="material-symbols-rounded" aria-hidden="true">create_new_folder</span>new project
-            </Select.Item>
-          </Select.Content>
-        </Select.Root>
-      </div>
-      {#if newProj}
-        <div class="nfrow">
-          <input
-            type="text"
-            class="nfinput"
-            placeholder="project name"
-            aria-label="new project name"
-            spellcheck="false"
-            use:focusFirst
-            bind:value={projName}
-            onkeydown={(e) => {
-              if (e.key === "Enter") {
-                e.stopPropagation();
-                void newProject();
-              } else if (e.key === "Escape") {
-                e.stopPropagation();
-                newProj = false;
-              }
-            }}
-          />
-          <button
-            type="button"
-            class="nfgo"
-            disabled={busy || projName.trim() === ""}
-            onclick={() => void newProject()}
-          >
-            create
-          </button>
-        </div>
-      {/if}
-      {#if projErr}<p class="pmsg">{projErr}</p>{/if}
-    {/if}
-    <div class="docshead">
-      <Collapsible.Trigger
-        class={`treebtn ${open ? "" : "closed"}`}
-        aria-label="toggle document tree"
-        title={open ? "collapse document tree" : "expand document tree"}
-      >
-        <span class="material-symbols-rounded" aria-hidden="true">folder_open</span>
-      </Collapsible.Trigger>
-      {#if open}
-        <button
-          type="button"
-          class="newdoc"
-          disabled={busy}
-          title="new document in {folder}"
-          aria-label="new document in {folder}"
-          onclick={() => void newDoc()}
-        >
-          <span class="material-symbols-rounded" aria-hidden="true">note_add</span>
-        </button>
-      {/if}
+<aside class="docs">
+  <div class="projrow">
+    <Select.Root type="single" {items} bind:value={picked} onValueChange={(name: string) => pickProject(name)}>
+      <Select.Trigger class="switchbtn" aria-label="Switch project" title="Switch to another project">
+        <span class="material-symbols-rounded switchicon" aria-hidden="true">folder</span>
+        <span class="switchcol">
+          <span class="switchcap">project</span>
+          <Select.Value class="switchname" placeholder={folder} />
+        </span>
+        <span class="material-symbols-rounded switchmore" aria-hidden="true">unfold_more</span>
+      </Select.Trigger>
+      <Select.Content class="switchlist" side="bottom" align="start" sideOffset={8}>
+        {#each others as name (name)}
+          <Select.Item class="switchopt" value={name} label={name}>{name}</Select.Item>
+        {/each}
+        <Select.Item class="switchopt newopt" value={NEW_PROJECT} label="New project">
+          <span class="material-symbols-rounded" aria-hidden="true">create_new_folder</span>New project
+        </Select.Item>
+      </Select.Content>
+    </Select.Root>
+  </div>
+  {#if newProj}
+    <div class="nfrow">
+      <input
+        type="text"
+        class="nfinput"
+        placeholder="Project name"
+        aria-label="New project name"
+        spellcheck="false"
+        use:focusFirst
+        bind:value={projName}
+        onkeydown={(e) => {
+          if (e.key === "Enter") {
+            e.stopPropagation();
+            void newProject();
+          } else if (e.key === "Escape") {
+            e.stopPropagation();
+            newProj = false;
+          }
+        }}
+      />
+      <button type="button" class="nfgo" disabled={busy || projName.trim() === ""} onclick={() => void newProject()}>
+        create
+      </button>
     </div>
-    <Collapsible.Content class="docsbody">
-      <ScrollArea.Root class="wsarea" type="hover">
-        <ScrollArea.Viewport class="wsview treeview">
-          <UploadZone {folder} compact />
-          <div class="fgrow">
-            <RowMenu
-              items={[
-                { label: `new document in ${folder}`, icon: "note_add", onSelect: () => void newDoc() },
-                {
-                  label: "open project page",
-                  icon: "folder_open",
-                  onSelect: () => void goto(resolve("/project/[folder]", { folder })),
-                },
-              ]}
-            >
-              {#snippet trigger({ props }: { props: Record<string, unknown> })}
-                <!-- role=button div (not a <button>): the menu pill nests inside it -->
-                <div
-                  class="fgroup sel"
-                  role="button"
-                  tabindex="0"
-                  aria-pressed="true"
-                  title="selected upload target — uploads and new documents land in {folder}/ · right-click for project actions"
-                  {...props}
+  {/if}
+  {#if projErr}<p class="pmsg">{projErr}</p>{/if}
+  <div class="docshead">
+    <button
+      type="button"
+      class="newdoc"
+      disabled={busy}
+      title="New document in {folder}"
+      aria-label="New document in {folder}"
+      onclick={() => void newDoc()}
+    >
+      <span class="material-symbols-rounded" aria-hidden="true">note_add</span>
+    </button>
+  </div>
+  <div class="docsbody">
+    <ScrollArea.Root class="wsarea" type="hover">
+      <ScrollArea.Viewport class="wsview treeview">
+        <UploadZone {folder} compact />
+        <div class="fgrow">
+          <RowMenu
+            items={[
+              { label: `New document in ${folder}`, icon: "note_add", onSelect: () => void newDoc() },
+              {
+                label: "Open project page",
+                icon: "folder_open",
+                onSelect: () => void goto(resolve("/project/[folder]", { folder })),
+              },
+            ]}
+          >
+            {#snippet trigger({ props }: { props: Record<string, unknown> })}
+              <!-- role=button div (not a <button>): the menu pill nests inside it -->
+              <div
+                class="fgroup sel"
+                role="button"
+                tabindex="0"
+                aria-pressed="true"
+                title="Selected upload target — uploads and new documents land in {folder}/ · right-click for project actions"
+                {...props}
+              >
+                <span class="material-symbols-rounded" aria-hidden="true">folder</span>{folder}/
+                <span class="fcodes">{docs.length}</span>
+                <button
+                  type="button"
+                  class="menubtn"
+                  title="Project actions"
+                  aria-label="Project menu"
+                  onclick={(e) => {
+                    e.stopPropagation();
+                    openRowMenu(e.currentTarget.closest("[data-rowmenu]") ?? e.currentTarget);
+                  }}
                 >
-                  <span class="material-symbols-rounded" aria-hidden="true">folder</span>{folder}/
-                  <span class="fcodes">{docs.length}</span>
-                  <button
-                    type="button"
-                    class="menubtn"
-                    title="project actions"
-                    aria-label="project menu"
-                    onclick={(e) => {
-                      e.stopPropagation();
-                      openRowMenu(e.currentTarget.closest("[data-rowmenu]") ?? e.currentTarget);
-                    }}
-                  >
-                    <span class="material-symbols-rounded" aria-hidden="true">more_vert</span>
-                  </button>
-                </div>
-              {/snippet}
-            </RowMenu>
-          </div>
-          <ul>
-            {#each docs as a (a.id)}
-              <li class:current={a.name === currentName}>
-                <RowMenu items={docMenu(a)}>
-                  {#snippet trigger({ props }: { props: Record<string, unknown> })}
-                    <div class="row" {...props}>
-                      <a href={resolve("/text/[folder]/[name]", { folder: a.project, name: a.name })}>
-                        <span class="material-symbols-rounded docicon" aria-hidden="true">{docIcon(a)}</span>
-                        {displayName(a.name, a.kind)}
-                      </a>
-                      <span class="fcodes">{a.codes}</span>
-                      <button
-                        type="button"
-                        class="menubtn"
-                        title="document actions"
-                        aria-label={`menu for ${displayName(a.name, a.kind)}`}
-                        onclick={(e) => openRowMenu(e.currentTarget.closest("[data-rowmenu]") ?? e.currentTarget)}
-                      >
-                        <span class="material-symbols-rounded" aria-hidden="true">more_vert</span>
-                      </button>
-                    </div>
-                  {/snippet}
-                </RowMenu>
-              </li>
-            {/each}
-          </ul>
-        </ScrollArea.Viewport>
-        <ScrollArea.Scrollbar class="wsbar" orientation="vertical">
-          <ScrollArea.Thumb class="wsthumb" />
-        </ScrollArea.Scrollbar>
-      </ScrollArea.Root>
-    </Collapsible.Content>
-  </Collapsible.Root>
+                  <span class="material-symbols-rounded" aria-hidden="true">more_vert</span>
+                </button>
+              </div>
+            {/snippet}
+          </RowMenu>
+        </div>
+        <ul>
+          {#each docs as a (a.id)}
+            <li class:current={a.name === currentName}>
+              <RowMenu items={docMenu(a)}>
+                {#snippet trigger({ props }: { props: Record<string, unknown> })}
+                  <div class="row" {...props}>
+                    <a href={resolve("/text/[folder]/[name]", { folder: a.project, name: a.name })}>
+                      <span class="material-symbols-rounded docicon" aria-hidden="true">{docIcon(a)}</span>
+                      {displayName(a.name, a.kind)}
+                    </a>
+                    <span class="fcodes">{a.codes}</span>
+                    <button
+                      type="button"
+                      class="menubtn"
+                      title="Document actions"
+                      aria-label={`Menu for ${displayName(a.name, a.kind)}`}
+                      onclick={(e) => openRowMenu(e.currentTarget.closest("[data-rowmenu]") ?? e.currentTarget)}
+                    >
+                      <span class="material-symbols-rounded" aria-hidden="true">more_vert</span>
+                    </button>
+                  </div>
+                {/snippet}
+              </RowMenu>
+            </li>
+          {/each}
+        </ul>
+      </ScrollArea.Viewport>
+      <ScrollArea.Scrollbar class="wsbar" orientation="vertical">
+        <ScrollArea.Thumb class="wsthumb" />
+      </ScrollArea.Scrollbar>
+    </ScrollArea.Root>
+  </div>
 </aside>
 
 <style lang="scss">
@@ -300,14 +280,6 @@
     flex-direction: column;
     gap: 0.4rem;
     height: 100%;
-  }
-  /* Bits Collapsible.Root renders a wrapper div — it carries the column layout */
-  :global(.treeroot) {
-    display: flex;
-    flex-direction: column;
-    gap: 0.4rem;
-    flex: 1;
-    min-height: 0;
   }
   /* ----- project switcher (sidebar top row, account-switcher style) ----- */
   .projrow {
@@ -466,49 +438,11 @@
       font-size: 1.15rem;
     }
   }
-  :global(.treebtn) {
-    font: inherit;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
-    font-size: 0.75rem;
-    color: var(--on-surface-variant, #666);
-    background: var(--surface-variant, #eee);
-    border: 1px solid var(--outline, #888);
-    border-radius: 999px;
-    padding: 0.15rem 0.55rem;
-    cursor: pointer;
-
-    .material-symbols-rounded {
-      font-size: 1rem;
-    }
-  }
-  :global(.treebtn:hover) {
-    color: var(--primary, #6750a4);
-    border-color: var(--primary, #6750a4);
-  }
-  /* the toggle is icon-only: the switcher above carries the project name */
-  :global(.treebtn.closed) {
-    width: 100%;
-    justify-content: center;
-  }
-  :global(.docsbody) {
+  .docsbody {
     display: flex;
     flex-direction: column;
     flex: 1;
     min-height: 0;
-    transition: opacity 0.18s ease;
-  }
-  /* Bits keeps closed content mounted with [hidden] — restore the UA's display:none
-     (our display:flex would otherwise override it and keep the tree in the a11y tree) */
-  :global(.docsbody[hidden]) {
-    display: none;
-  }
-  /* Bits tags the animating surfaces with data-starting/ending-style; presence waits
-     for these transitions to finish before hiding the content (collapse fade) */
-  :global(.docsbody[data-starting-style]),
-  :global(.docsbody[data-ending-style]) {
-    opacity: 0;
   }
   .docshead {
     display: flex;
@@ -646,7 +580,7 @@
       height: auto;
     }
 
-    :global(.docsbody) {
+    .docsbody {
       max-height: 60vh;
     }
   }

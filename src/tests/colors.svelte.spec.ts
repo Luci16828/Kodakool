@@ -71,7 +71,7 @@ describe("colors page", () => {
     await userEvent.keyboard("{ArrowRight}");
     await expect.element(page.getByText("#00b050")).toBeInTheDocument();
 
-    await page.getByRole("button", { name: "reset all" }).click();
+    await page.getByRole("button", { name: "Reset all" }).click();
 
     await expect.element(colorInput()).toHaveValue(THEME_SOURCE);
     await expect.element(chromaSlider()).toHaveValue("0");

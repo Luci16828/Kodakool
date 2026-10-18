@@ -7,11 +7,11 @@
 </script>
 
 <Popover.Root bind:open>
-  <Popover.Trigger class="pill mdhelp" title="markdown syntax cheatsheet">
+  <Popover.Trigger class="pill mdhelp" title="Markdown syntax cheatsheet">
     <span class="material-symbols-rounded" aria-hidden="true">format_size</span>Markdown
   </Popover.Trigger>
   <Popover.Portal>
-    <Popover.Content class="cheatsheet" role="dialog" aria-label="markdown cheatsheet">
+    <Popover.Content class="cheatsheet" role="dialog" aria-label="Markdown cheatsheet">
       <h3>Markdown cheatsheet</h3>
       <p class="cheatnote">
         This syntax only matters when the file is later converted to HTML or PDF (e.g. with pandoc) — plain reading

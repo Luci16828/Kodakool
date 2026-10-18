@@ -82,10 +82,10 @@
   /** the document row's context menu: open / download / delete (replaces the old row trash) */
   function docMenu(a: ArticleSummary): { label: string; icon: string; danger?: boolean; onSelect: () => void }[] {
     return [
-      { label: "open document", icon: "open_in_new", onSelect: () => openDoc(a) },
-      { label: "download document", icon: "download", onSelect: () => void downloadArticle(a) },
+      { label: "Open document", icon: "open_in_new", onSelect: () => openDoc(a) },
+      { label: "Download document", icon: "download", onSelect: () => void downloadArticle(a) },
       {
-        label: "delete document",
+        label: "Delete document",
         icon: "delete",
         danger: true,
         onSelect: () =>
@@ -102,9 +102,9 @@
     return [
       ...(instr === null
         ? []
-        : [{ label: "export .qdc", icon: "file_download" as const, onSelect: () => exportQdc() }]),
+        : [{ label: "Export .qdc", icon: "file_download" as const, onSelect: () => exportQdc() }]),
       {
-        label: "delete project",
+        label: "Delete project",
         icon: "delete",
         danger: true,
         onSelect: () =>
@@ -134,10 +134,10 @@
   <ColorsDialog bind:open={colorsOpen}>
     <p class="crumb">
       <a class="pill" href={resolve("/")}>
-        <span class="material-symbols-rounded" aria-hidden="true">arrow_back</span>projects
+        <span class="material-symbols-rounded" aria-hidden="true">arrow_back</span>Projects
       </a>
       <Dialog.Trigger class="pill">
-        <span class="material-symbols-rounded" aria-hidden="true">palette</span>colors
+        <span class="material-symbols-rounded" aria-hidden="true">palette</span>Colors
       </Dialog.Trigger>
     </p>
     <RowMenu items={projectMenu()}>
@@ -150,8 +150,8 @@
           <button
             type="button"
             class="menubtn"
-            title="project actions"
-            aria-label="project menu"
+            title="Project actions"
+            aria-label="Project menu"
             onclick={(e) => openRowMenu(e.currentTarget.closest("[data-rowmenu]") ?? e.currentTarget)}
           >
             <span class="material-symbols-rounded" aria-hidden="true">more_vert</span>
@@ -169,11 +169,11 @@
 
     <div class="actions">
       <button type="button" class="go" onclick={() => void newDoc()} disabled={busy}>
-        <span class="material-symbols-rounded" aria-hidden="true">note_add</span>new document
+        <span class="material-symbols-rounded" aria-hidden="true">note_add</span>New document
       </button>
       {#if instr !== null}
-        <button type="button" class="export" onclick={exportQdc} title="export the frame devices of this project">
-          <span class="material-symbols-rounded" aria-hidden="true">file_download</span>export .qdc
+        <button type="button" class="export" onclick={exportQdc} title="Export the frame devices of this project">
+          <span class="material-symbols-rounded" aria-hidden="true">file_download</span>Export .qdc
         </button>
       {/if}
     </div>
@@ -200,8 +200,8 @@
                   <button
                     type="button"
                     class="menubtn"
-                    title="document actions"
-                    aria-label={`menu for ${displayName(a.name, a.kind)}`}
+                    title="Document actions"
+                    aria-label={`Menu for ${displayName(a.name, a.kind)}`}
                     onclick={(e) => openRowMenu(e.currentTarget.closest("[data-rowmenu]") ?? e.currentTarget)}
                   >
                     <span class="material-symbols-rounded" aria-hidden="true">more_vert</span>
