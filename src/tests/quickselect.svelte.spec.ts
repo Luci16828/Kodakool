@@ -4,6 +4,7 @@ import { render } from "vitest-browser-svelte";
 import ColorProvider from "./ColorProvider.svelte";
 import ArticlePage from "../routes/text/[folder]/[name]/+page.svelte";
 import { saveLocalCatalog } from "$lib/client/coding-db";
+import { Q_OPEN_MS } from "$lib/coding/quickselect";
 import type { CodeEntry } from "$lib/coding/types";
 import { DEVICE_COMMENT, DEVICE_FRAME, DEVICE_QUOTE, resetArticles, seedArticle, testInstructions } from "./fixtures";
 
@@ -86,9 +87,12 @@ function fire(target: EventTarget, type: string, init: MouseEventInit): void {
   );
 }
 
+/** the editor body: the right press that arms the menu is listened for on the document surface */
+const surface = () => document.querySelector(".cm-content")!;
+
 async function openMenu(): Promise<void> {
   press = centerPoint();
-  fire(window, "mousedown", { clientX: press.x, clientY: press.y, button: 2, buttons: 2 });
+  fire(surface(), "mousedown", { clientX: press.x, clientY: press.y, button: 2, buttons: 2 });
   await expect.poll(menuOpen).toBe(1);
 }
 
@@ -262,13 +266,13 @@ describe("quick select menu", () => {
     // dismissing a popover with the right button must not flash the menu: a press
     // released inside the hold window never opens it
     press = centerPoint();
-    fire(window, "mousedown", { clientX: press.x, clientY: press.y, button: 2, buttons: 2 });
+    fire(surface(), "mousedown", { clientX: press.x, clientY: press.y, button: 2, buttons: 2 });
     fire(window, "mouseup", { clientX: press.x, clientY: press.y, button: 2, buttons: 0 });
     await expect.poll(menuOpen, { timeout: 500, interval: 50 }).toBe(0);
 
     // a drag is an intentional press: it opens before the hold window ends
     press = centerPoint();
-    fire(window, "mousedown", { clientX: press.x, clientY: press.y, button: 2, buttons: 2 });
+    fire(surface(), "mousedown", { clientX: press.x, clientY: press.y, button: 2, buttons: 2 });
     fire(window, "mousemove", {
       clientX: press.x + 14,
       clientY: press.y,
@@ -509,9 +513,56 @@ describe("quick select menu", () => {
 
     await page.getByRole("button", { name: "edit text" }).click();
     const p = centerPoint();
-    fire(window, "mousedown", { clientX: p.x, clientY: p.y, button: 2, buttons: 2 });
+    fire(surface(), "mousedown", { clientX: p.x, clientY: p.y, button: 2, buttons: 2 });
     expect(menuOpen()).toBe(0);
     fire(window, "mouseup", { clientX: p.x, clientY: p.y, button: 2, buttons: 0 });
+  });
+
+  it("arms only on the document surface: a right press in the sidebar never opens it", async () => {
+    await seedArticle({ project: FOLDER, name: NAME, text: TEXT, entries: [quoteEntry] });
+    renderArticle();
+    await ready();
+
+    // the tree sidebar is outside the document: holding the right button there
+    // must not arm the menu (its own context menus own that region)
+    const aside = document.querySelector("aside.docs")!;
+    const r = aside.getBoundingClientRect();
+    fire(aside, "mousedown", {
+      clientX: Math.round(r.left + 20),
+      clientY: Math.round(r.top + 20),
+      button: 2,
+      buttons: 2,
+    });
+    // past the hold window: still closed
+    await new Promise((res) => setTimeout(res, Q_OPEN_MS + 150));
+    expect(menuOpen()).toBe(0);
+    fire(window, "mouseup", {
+      clientX: Math.round(r.left + 20),
+      clientY: Math.round(r.top + 20),
+      button: 2,
+      buttons: 0,
+    });
+
+    // inside the editor the same press opens it
+    await openMenu();
+    await releaseMenu();
+  });
+
+  it("a plain left click dismisses the menu and de-arms", async () => {
+    await seedArticle({ project: FOLDER, name: NAME, text: TEXT, entries: [quoteEntry] });
+    renderArticle();
+    await ready();
+
+    // arm a device first, so the de-arm is observable
+    await codeWith("Kommentar", 12);
+    await expect.poll(ctag).toBe("K");
+
+    await openMenu();
+    // no movement needed: the left click itself closes the menu and drops the armed device
+    fire(window, "mousedown", { clientX: press.x, clientY: press.y, button: 0, buttons: 1 });
+    fire(window, "mouseup", { clientX: press.x, clientY: press.y, button: 0, buttons: 0 });
+    await expect.poll(menuOpen).toBe(0);
+    await expect.poll(ctag).toBe("");
   });
 
   it("keeps the bar above the text on a single line", async () => {

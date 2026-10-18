@@ -42,6 +42,12 @@
   interface Props {
     /** menu may open (coding mode, no dialog/renaming in the way) */
     enabled: boolean;
+    /**
+     * The document surface (editor / PDF page): the right press that arms the menu
+     * is listened for HERE only, so a right click on the sidebars, bar or any other
+     * part of the page stays untouched (their own context menus own those regions).
+     */
+    surface: HTMLElement | null;
     /** top-level catalog nodes (the right-hand cascade) */
     tree: CatalogView[];
     /** every catalog node by id, to resolve the cascade + slot ids */
@@ -66,8 +72,21 @@
     onpin: (i: number, id: string | null) => void;
   }
 
-  let { enabled, tree, nodeById, display, pins, labelOf, nameOf, styleFor, onpick, oncancel, onpinid, onpin }: Props =
-    $props();
+  let {
+    enabled,
+    surface,
+    tree,
+    nodeById,
+    display,
+    pins,
+    labelOf,
+    nameOf,
+    styleFor,
+    onpick,
+    oncancel,
+    onpinid,
+    onpin,
+  }: Props = $props();
 
   /** fixed tag box + row metrics (px): the lists are laid out arithmetically */
   const TAG_W = Q_TAG_W;
@@ -257,6 +276,40 @@
     }
   });
 
+  /**
+   * The right press is listened for on the document surface only: a right click
+   * anywhere else on the page (sidebars, bar, popovers) never arms the menu, and
+   * the native context menu is suppressed only over the surface as well.
+   */
+  $effect(() => {
+    const el = surface;
+    if (el === null) return;
+    const onDown = (e: MouseEvent) => {
+      if (e.button !== 2 || !enabled || open) return;
+      anchor = anchorFor(e.clientX, e.clientY);
+      virtual = { x: e.clientX, y: e.clientY };
+      path = [];
+      hover = null;
+      // hold (or drag) opens; a quick plain right click stays inert
+      armX = e.clientX;
+      armY = e.clientY;
+      arming = true;
+      clearTimeout(armTimer);
+      armTimer = window.setTimeout(() => openMenu(armX, armY), Q_OPEN_MS);
+    };
+    const onMenu = (e: MouseEvent) => {
+      if (enabled) e.preventDefault();
+    };
+    el.addEventListener("mousedown", onDown);
+    el.addEventListener("contextmenu", onMenu);
+    return () => {
+      el.removeEventListener("mousedown", onDown);
+      el.removeEventListener("contextmenu", onMenu);
+      clearTimeout(armTimer);
+      armTimer = undefined;
+    };
+  });
+
   // pointer lock reports its state on document events (not part of svelte:window)
   $effect(() => {
     const onChange = () => {
@@ -283,28 +336,20 @@
 
 <svelte:window
   onmousedown={(e) => {
-    if (e.button === 2) {
-      if (!enabled || open) return;
-      anchor = anchorFor(e.clientX, e.clientY);
-      virtual = { x: e.clientX, y: e.clientY };
-      path = [];
-      hover = null;
-      // hold (or drag) opens; a quick plain right click stays inert
-      armX = e.clientX;
-      armY = e.clientY;
-      arming = true;
-      clearTimeout(armTimer);
-      armTimer = window.setTimeout(() => openMenu(armX, armY), Q_OPEN_MS);
-      return;
-    }
-    // left click while the menu is held: pin the tag the cursor is on
-    if (e.button === 0 && open && hover !== null) {
-      e.preventDefault();
-      if (hover.kind === "node") onpinid(hover.id);
-      else {
-        const i = display.indexOf(hover.id);
-        if (i >= 0) onpin(i, isPinned(i, hover.id) ? null : hover.id);
+    // left click while the menu is held: pin the tag the cursor is on, then the
+    // click dismisses the menu and de-arms (a plain left click closes it too)
+    if (e.button === 0 && open) {
+      if (hover !== null) {
+        e.preventDefault();
+        if (hover.kind === "node") onpinid(hover.id);
+        else {
+          const i = display.indexOf(hover.id);
+          if (i >= 0) onpin(i, isPinned(i, hover.id) ? null : hover.id);
+        }
       }
+      close();
+      if (document.pointerLockElement !== null) document.exitPointerLock();
+      oncancel();
     }
   }}
   onmousemove={(e) => {
@@ -344,9 +389,6 @@
     if (wasLocked) document.exitPointerLock();
     if (hit !== null) onpick(hit.id);
     else oncancel();
-  }}
-  oncontextmenu={(e) => {
-    if (enabled) e.preventDefault();
   }}
   onkeydown={(e) => {
     if (e.key === "Escape" && open) {

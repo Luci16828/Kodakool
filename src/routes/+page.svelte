@@ -1,14 +1,17 @@
 <script lang="ts">
   import { resolve } from "$app/paths";
+  import { goto } from "$app/navigation";
   import { onMount } from "svelte";
   import { SvelteMap } from "svelte/reactivity";
   import { Dialog } from "bits-ui";
   import "material-symbols/rounded.css";
   import { toQdc } from "$lib/coding/qdc";
   import { useColors } from "$lib/coding/prefs.svelte";
+  import { openRowMenu } from "$lib/coding/context-menu";
   import ColorsDialog from "$lib/coding/ColorsDialog.svelte";
   import ConfirmHost from "$lib/coding/ConfirmHost.svelte";
   import { ConfirmAsk } from "$lib/coding/confirm.svelte";
+  import RowMenu from "$lib/coding/RowMenu.svelte";
   import { EXAMPLE_PROJECT } from "$lib/client/examples";
   import { downloadText } from "$lib/client/download";
   import {
@@ -100,6 +103,41 @@
 
   async function removeProject(name: string) {
     await deleteFolder(name);
+  }
+
+  /** the project card's context menu (replaces the old `delete project` button) */
+  function cardMenu(
+    project: string,
+    items: ArticleSummary[],
+    instr: Instructions | undefined,
+  ): { label: string; icon: string; danger?: boolean; onSelect: () => void }[] {
+    return [
+      {
+        label: "open project",
+        icon: "folder_open",
+        onSelect: () => void goto(resolve("/project/[folder]", { folder: project })),
+      },
+      ...(instr
+        ? [
+            {
+              label: "export .qdc",
+              icon: "file_download",
+              onSelect: () => exportQdc(project, instr),
+            },
+          ]
+        : []),
+      {
+        label: "delete project",
+        icon: "delete",
+        danger: true,
+        onSelect: () =>
+          confirm.ask(
+            `Delete project ${project}/?`,
+            "Deletes the project with all its documents, coding entries and its frame-device catalog.",
+            () => void removeProject(project),
+          ),
+      },
+    ];
   }
 
   // ----- whole-database export / import (local RxDB snapshot as JSON) -----
@@ -200,45 +238,45 @@
         {@const items = byProject.get(project) ?? []}
         {@const instr = localCats.get(project)}
         {@const stats = statsOf(items)}
-        <section class="card">
-          <h2>
-            <a class="open" href={resolve("/project/[folder]", { folder: project })}>
-              {project}
-              <span class="material-symbols-rounded" aria-hidden="true">chevron_right</span>
-            </a>
-            {#if project === EXAMPLE_PROJECT}
-              <span class="chip ex">example</span>
-            {/if}
-            <span class="chip">{items.length} documents</span>
-            <span class="chip">{stats.codes} codes</span>
-            {#if stats.versions}
-              <span class="chip versions">{stats.versions} versions</span>
-            {/if}
-          </h2>
-          <div class="prow">
-            {#if instr}
-              <button type="button" class="export" onclick={() => exportQdc(project, instr)}>
-                <span class="material-symbols-rounded" aria-hidden="true">file_download</span>export .qdc
-              </button>
-            {/if}
-            <button
-              type="button"
-              class="delproj"
-              aria-label="delete project {project}"
-              onclick={() =>
-                confirm.ask(
-                  `Delete project ${project}/?`,
-                  "Deletes the project with all its documents, coding entries and its frame-device catalog.",
-                  () => void removeProject(project),
-                )}
-            >
-              <span class="material-symbols-rounded" aria-hidden="true">delete</span>delete project
-            </button>
-          </div>
-          {#if items.length === 0}
-            <p class="empty">Empty project — open it to add a document.</p>
-          {/if}
-        </section>
+        <RowMenu items={cardMenu(project, items, instr)}>
+          {#snippet trigger({ props }: { props: Record<string, unknown> })}
+            <section class="card" {...props}>
+              <h2>
+                <a class="open" href={resolve("/project/[folder]", { folder: project })}>
+                  {project}
+                  <span class="material-symbols-rounded" aria-hidden="true">chevron_right</span>
+                </a>
+                {#if project === EXAMPLE_PROJECT}
+                  <span class="chip ex">example</span>
+                {/if}
+                <span class="chip">{items.length} documents</span>
+                <span class="chip">{stats.codes} codes</span>
+                {#if stats.versions}
+                  <span class="chip versions">{stats.versions} versions</span>
+                {/if}
+              </h2>
+              <div class="prow">
+                {#if instr}
+                  <button type="button" class="export" onclick={() => exportQdc(project, instr)}>
+                    <span class="material-symbols-rounded" aria-hidden="true">file_download</span>export .qdc
+                  </button>
+                {/if}
+                <button
+                  type="button"
+                  class="menubtn"
+                  title="project actions"
+                  aria-label={`menu for project ${project}`}
+                  onclick={(e) => openRowMenu(e.currentTarget.closest("[data-rowmenu]") ?? e.currentTarget)}
+                >
+                  <span class="material-symbols-rounded" aria-hidden="true">more_vert</span>
+                </button>
+              </div>
+              {#if items.length === 0}
+                <p class="empty">Empty project — open it to add a document.</p>
+              {/if}
+            </section>
+          {/snippet}
+        </RowMenu>
       {:else}
         <p class="empty">No projects yet — create one to start coding.</p>
       {/each}

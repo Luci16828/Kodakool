@@ -113,7 +113,8 @@ describe("project screen", () => {
 
     renderDashboard();
 
-    await page.getByRole("button", { name: "delete project test" }).click();
+    await page.getByRole("button", { name: "menu for project test" }).click();
+    await page.getByRole("menuitem", { name: "delete project" }).click();
     const dialog = page.getByRole("dialog", { name: "Delete project test/?" });
     await expect.element(dialog).toBeInTheDocument();
     const confirm = dialog.getByRole("button", { name: /confirm/ });
@@ -124,6 +125,32 @@ describe("project screen", () => {
 
     await expect.poll(async () => (await listArticles()).length).toBe(0);
     await expect.element(page.getByText("No projects yet")).toBeInTheDocument();
+  });
+
+  it("opens the project card's context menu on right click", async () => {
+    await seedArticle({ project: "test", name: "spd 1", text: "Ein Artikel." });
+    await saveLocalCatalog("test", testInstructions);
+
+    renderDashboard();
+    await expect.element(page.getByRole("link", { name: "test", exact: true })).toBeInTheDocument();
+
+    const card = document.querySelector(".card") as HTMLElement;
+    const r = card.getBoundingClientRect();
+    card.dispatchEvent(
+      new MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+        view: window,
+        clientX: Math.round(r.left + 30),
+        clientY: Math.round(r.top + 10),
+      }),
+    );
+
+    const menu = page.getByRole("menu");
+    await expect.element(menu).toBeInTheDocument();
+    await expect.element(menu.getByRole("menuitem", { name: "open project" })).toBeInTheDocument();
+    await expect.element(menu.getByRole("menuitem", { name: "export .qdc" })).toBeInTheDocument();
+    await expect.element(menu.getByRole("menuitem", { name: "delete project" })).toBeInTheDocument();
   });
 
   it("offers database export/import and re-imports a dump", async () => {

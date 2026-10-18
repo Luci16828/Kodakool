@@ -118,6 +118,24 @@
     const i = list.findIndex((d) => d.id === id);
     if (i >= 0) list.splice(i, 1);
   }
+  /**
+   * Delete a device straight from the stored local catalog (the row context menu
+   * in view mode; same orphan rule as draft deletion).
+   */
+  function removeDevice(id: string): void {
+    if (localCatalog === null) return;
+    const copy = plainClone(localCatalog);
+    const list = draftSiblings(copy.devices, id);
+    if (!list) return;
+    const i = list.findIndex((d) => d.id === id);
+    if (i < 0) return;
+    const name = list[i].name;
+    list.splice(i, 1);
+    void saveLocalCatalog(folder, copy)
+      .then(() => (localCatalog = copy))
+      .catch((e: unknown) => (catIoMsg = `delete failed: ${e instanceof Error ? e.message : String(e)}`));
+    catIoMsg = `device "${name}" deleted — its entries stay as orphaned codes`;
+  }
   function askDeleteDevice(id: string): void {
     if (!draft) return;
     const d = draftFind(draft.devices, id);
@@ -129,6 +147,20 @@
         ? `${used} code entr${used === 1 ? "y" : "ies"} use this device; they stay in the file as orphaned codes.`
         : "No code entries use this device.",
       () => draftDelete(id),
+    );
+  }
+  /** view-mode row menu: the same countdown confirmation, applied to the stored catalog */
+  function askRemoveDevice(id: string): void {
+    if (localCatalog === null) return;
+    const d = draftFind(localCatalog.devices, id);
+    if (!d) return;
+    const used = entryKeys.filter((k) => k === id).length;
+    confirm.ask(
+      `Delete device "${d.name}"?`,
+      used > 0
+        ? `${used} code entr${used === 1 ? "y" : "ies"} use this device; they stay in the file as orphaned codes.`
+        : "No code entries use this device.",
+      () => removeDevice(id),
     );
   }
   /** Proxy-safe deep clone: Svelte 5 props/$state are proxies and structuredClone rejects them. */
@@ -301,7 +333,7 @@
               ondelete={askDeleteDevice}
             />
           {:else}
-            <CatalogTree {catalog} selected={armed} {styleFor} {onpick} {onhover} />
+            <CatalogTree {catalog} selected={armed} {styleFor} {onpick} {onhover} ondelete={askRemoveDevice} />
           {/if}
         </Collapsible.Content>
       </Collapsible.Root>

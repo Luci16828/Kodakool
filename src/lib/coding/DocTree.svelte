@@ -4,8 +4,11 @@
   import { Collapsible, ScrollArea, Select } from "bits-ui";
   import "material-symbols/rounded.css";
   import { docIcon, displayName } from "$lib/coding/display";
+  import { openRowMenu } from "$lib/coding/context-menu";
+  import RowMenu from "$lib/coding/RowMenu.svelte";
   import type { ConfirmAsk } from "$lib/coding/confirm.svelte";
   import { createArticle, createFolder, deleteArticle, type ArticleSummary } from "$lib/client/coding-db";
+  import { downloadArticle } from "$lib/client/download";
   import UploadZone from "$lib/client/UploadZone.svelte";
 
   /**
@@ -15,6 +18,9 @@
    * row, and one row per document of THIS project (other projects never appear). New
    * documents open their coding page; switching to another project and creating one open
    * that project's page; deleting the open document returns to its project.
+   *
+   * Rows and the project header carry right-click context menus (Bits ContextMenu,
+   * anchored at the pointer); the `more_vert` buttons open the same menus for keyboard use.
    */
   let {
     folder,
@@ -69,10 +75,31 @@
       busy = false;
     }
   }
+  function openDoc(a: ArticleSummary): void {
+    void goto(resolve("/text/[folder]/[name]", { folder: a.project, name: a.name }));
+  }
   async function deleteDoc(a: ArticleSummary): Promise<void> {
     await deleteArticle(a.id);
     // deleting the document we are looking at returns to its project
     if (a.project === folder && a.name === currentName) await goto(resolve("/project/[folder]", { folder: a.project }));
+  }
+  /** the tree row's context menu: open / download / delete (replaces the old per-row trash) */
+  function docMenu(a: ArticleSummary): { label: string; icon: string; danger?: boolean; onSelect: () => void }[] {
+    return [
+      { label: "open document", icon: "open_in_new", onSelect: () => openDoc(a) },
+      { label: "download document", icon: "download", onSelect: () => void downloadArticle(a) },
+      {
+        label: "delete document",
+        icon: "delete",
+        danger: true,
+        onSelect: () =>
+          confirm.ask(
+            `Delete "${displayName(a.name, a.kind)}"?`,
+            `This removes the document and its ${a.codes} code entr${a.codes === 1 ? "y" : "ies"}.`,
+            () => void deleteDoc(a),
+          ),
+      },
+    ];
   }
 
   /** the switcher leaves the document: every project has its own page */
@@ -190,38 +217,67 @@
         <ScrollArea.Viewport class="wsview treeview">
           <UploadZone {folder} compact />
           <div class="fgrow">
-            <button
-              type="button"
-              class="fgroup sel"
-              aria-pressed="true"
-              title="selected upload target — uploads and new documents land in {folder}/"
+            <RowMenu
+              items={[
+                { label: `new document in ${folder}`, icon: "note_add", onSelect: () => void newDoc() },
+                {
+                  label: "open project page",
+                  icon: "folder_open",
+                  onSelect: () => void goto(resolve("/project/[folder]", { folder })),
+                },
+              ]}
             >
-              <span class="material-symbols-rounded" aria-hidden="true">folder</span>{folder}/
-              <span class="fcodes">{docs.length}</span></button
-            >
+              {#snippet trigger({ props }: { props: Record<string, unknown> })}
+                <!-- role=button div (not a <button>): the menu pill nests inside it -->
+                <div
+                  class="fgroup sel"
+                  role="button"
+                  tabindex="0"
+                  aria-pressed="true"
+                  title="selected upload target — uploads and new documents land in {folder}/ · right-click for project actions"
+                  {...props}
+                >
+                  <span class="material-symbols-rounded" aria-hidden="true">folder</span>{folder}/
+                  <span class="fcodes">{docs.length}</span>
+                  <button
+                    type="button"
+                    class="menubtn"
+                    title="project actions"
+                    aria-label="project menu"
+                    onclick={(e) => {
+                      e.stopPropagation();
+                      openRowMenu(e.currentTarget.closest("[data-rowmenu]") ?? e.currentTarget);
+                    }}
+                  >
+                    <span class="material-symbols-rounded" aria-hidden="true">more_vert</span>
+                  </button>
+                </div>
+              {/snippet}
+            </RowMenu>
           </div>
           <ul>
             {#each docs as a (a.id)}
               <li class:current={a.name === currentName}>
-                <a href={resolve("/text/[folder]/[name]", { folder: a.project, name: a.name })}>
-                  <span class="material-symbols-rounded docicon" aria-hidden="true">{docIcon(a)}</span>
-                  {displayName(a.name, a.kind)}
-                </a>
-                <span class="fcodes">{a.codes}</span>
-                <button
-                  type="button"
-                  class="fdel"
-                  title="delete document"
-                  aria-label={`delete ${displayName(a.name, a.kind)}`}
-                  onclick={() =>
-                    confirm.ask(
-                      `Delete "${displayName(a.name, a.kind)}"?`,
-                      `This removes the document and its ${a.codes} code entr${a.codes === 1 ? "y" : "ies"}.`,
-                      () => void deleteDoc(a),
-                    )}
-                >
-                  <span class="material-symbols-rounded" aria-hidden="true">delete</span>
-                </button>
+                <RowMenu items={docMenu(a)}>
+                  {#snippet trigger({ props }: { props: Record<string, unknown> })}
+                    <div class="row" {...props}>
+                      <a href={resolve("/text/[folder]/[name]", { folder: a.project, name: a.name })}>
+                        <span class="material-symbols-rounded docicon" aria-hidden="true">{docIcon(a)}</span>
+                        {displayName(a.name, a.kind)}
+                      </a>
+                      <span class="fcodes">{a.codes}</span>
+                      <button
+                        type="button"
+                        class="menubtn"
+                        title="document actions"
+                        aria-label={`menu for ${displayName(a.name, a.kind)}`}
+                        onclick={(e) => openRowMenu(e.currentTarget.closest("[data-rowmenu]") ?? e.currentTarget)}
+                      >
+                        <span class="material-symbols-rounded" aria-hidden="true">more_vert</span>
+                      </button>
+                    </div>
+                  {/snippet}
+                </RowMenu>
               </li>
             {/each}
           </ul>
@@ -512,12 +568,20 @@
     .material-symbols-rounded {
       font-size: 1.05rem;
     }
+
+    .menubtn {
+      margin-left: 0.15rem;
+    }
   }
-  /* folder header row: group button + delete button */
+  /* folder header row: the group button IS the row (it carries the context menu) */
   .fgrow {
     display: flex;
     align-items: center;
     gap: 0.2rem;
+
+    :global(.ctxmenu) {
+      min-width: 13rem;
+    }
 
     .fgroup {
       flex: 1;
@@ -547,6 +611,15 @@
     &.current {
       background: var(--primary-container, #e8def8);
       color: var(--on-primary-container, #21005d);
+    }
+
+    /* the Bits trigger wraps the row's own content (right-click opens its menu) */
+    :global(.row) {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      align-items: baseline;
+      gap: 0.4rem;
     }
 
     a {

@@ -119,6 +119,28 @@ function editRow(value: string): HTMLElement | undefined {
   );
 }
 
+/**
+ * Right-click a catalog tree row (the Bits context menu anchors at the pointer).
+ * Playwright's right-click needs a visible locator; the rows are dense flex items,
+ * so the event is dispatched on the row element itself.
+ */
+async function rightClickRow(name: string): Promise<void> {
+  await expect
+    .poll(() => [...document.querySelectorAll(".tnode")].some((r) => r.textContent?.includes(name)))
+    .toBe(true);
+  const row = [...document.querySelectorAll<HTMLElement>(".tnode")].find((r) => r.textContent?.includes(name))!;
+  const r = row.getBoundingClientRect();
+  row.dispatchEvent(
+    new MouseEvent("contextmenu", {
+      bubbles: true,
+      cancelable: true,
+      view: window,
+      clientX: Math.round(r.left + 10),
+      clientY: Math.round(r.top + r.height / 2),
+    }),
+  );
+}
+
 afterEach(() => {
   // unmount before the next test seeds: the page's unmount commit flush must not
   // race with resetArticles/seedArticle (RxDB CONFLICT on the codes collection)
@@ -540,14 +562,27 @@ describe("article coding page", () => {
     await expect.element(page.getByRole("textbox", { name: "name New device" })).toBeInTheDocument();
     await page.getByRole("textbox", { name: "name New device" }).fill("Extra");
 
-    // deleting a device goes through the countdown confirmation
-    await page.getByRole("button", { name: "delete Kommentar" }).click();
+    // the row's context menu carries the delete action; it goes through the countdown
+    // confirmation (edit-mode rows carry their name in an input → address them via `editRow`)
+    const delRow = () => editRow("Kommentar");
+    await expect.poll(delRow).toBeTruthy();
+    const dr = delRow()!.getBoundingClientRect();
+    delRow()!.dispatchEvent(
+      new MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+        view: window,
+        clientX: Math.round(dr.left + 10),
+        clientY: Math.round(dr.top + dr.height / 2),
+      }),
+    );
+    await page.getByRole("menuitem", { name: "delete device" }).click();
     await expect.element(page.getByRole("dialog", { name: 'Delete device "Kommentar"?' })).toBeInTheDocument();
     await expect
       .poll(() => (document.querySelector(".cfconfirm") as HTMLButtonElement | null)?.disabled, { timeout: 6000 })
       .toBe(false);
     await page.getByRole("button", { name: "confirm" }).click();
-    await expect.element(page.getByRole("button", { name: "delete Kommentar" })).not.toBeInTheDocument();
+    await expect.poll(delRow).toBeUndefined();
 
     await page.getByRole("button", { name: "save catalog" }).click();
     await expect
@@ -742,7 +777,8 @@ describe("article coding page", () => {
     renderArticle();
     await ready();
 
-    await page.getByRole("button", { name: `delete ${NAME}.txt` }).click();
+    await page.getByRole("button", { name: `menu for ${NAME}.txt` }).click();
+    await page.getByRole("menuitem", { name: "delete document" }).click();
     await expect.element(page.getByRole("dialog", { name: `Delete "${NAME}.txt"?` })).toBeInTheDocument();
     await expect
       .poll(() => (document.querySelector(".cfconfirm") as HTMLButtonElement | null)?.disabled, { timeout: 6000 })
@@ -760,7 +796,8 @@ describe("article coding page", () => {
     renderArticle();
     await ready();
 
-    await page.getByRole("button", { name: "delete other doc.txt" }).click();
+    await page.getByRole("button", { name: "menu for other doc.txt" }).click();
+    await page.getByRole("menuitem", { name: "delete document" }).click();
     await expect.element(page.getByRole("dialog", { name: 'Delete "other doc.txt"?' })).toBeInTheDocument();
     await expect
       .poll(() => (document.querySelector(".cfconfirm") as HTMLButtonElement | null)?.disabled, { timeout: 6000 })
@@ -769,6 +806,87 @@ describe("article coding page", () => {
 
     await expect.element(page.getByRole("link", { name: "other doc.txt" })).not.toBeInTheDocument();
     expect(await getArticle(FOLDER, "other doc")).toBeNull();
+  });
+
+  it("opens the document row's context menu on right click", async () => {
+    await seedArticle({ project: FOLDER, name: NAME, text: TEXT });
+    await seedArticle({ project: FOLDER, name: "other doc", text: "x" });
+
+    renderArticle();
+    await ready();
+
+    const li = (await page.getByRole("link", { name: "other doc.txt" }).element()).parentElement as HTMLElement;
+    const r = li.getBoundingClientRect();
+    li.dispatchEvent(
+      new MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+        view: window,
+        clientX: Math.round(r.left + 20),
+        clientY: Math.round(r.top + r.height / 2),
+      }),
+    );
+
+    const menu = page.getByRole("menu");
+    await expect.element(menu).toBeInTheDocument();
+    await expect.element(menu.getByRole("menuitem", { name: "open document" })).toBeInTheDocument();
+    await expect.element(menu.getByRole("menuitem", { name: "download document" })).toBeInTheDocument();
+    await expect.element(menu.getByRole("menuitem", { name: "delete document" })).toBeInTheDocument();
+  });
+
+  it("downloads a document through its context menu", async () => {
+    await seedArticle({ project: FOLDER, name: NAME, text: TEXT });
+    await seedArticle({ project: FOLDER, name: "other doc", text: "x" });
+
+    renderArticle();
+    await ready();
+
+    // downloads go through a generated <a> click — record it instead of downloading
+    const downloads: string[] = [];
+    const realClick = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function (this: HTMLAnchorElement) {
+      downloads.push(this.download);
+    };
+    try {
+      const li = (await page.getByRole("link", { name: "other doc.txt" }).element()).parentElement as HTMLElement;
+      const r = li.getBoundingClientRect();
+      li.dispatchEvent(
+        new MouseEvent("contextmenu", {
+          bubbles: true,
+          cancelable: true,
+          view: window,
+          clientX: Math.round(r.left + 20),
+          clientY: Math.round(r.top + r.height / 2),
+        }),
+      );
+      await page.getByRole("menuitem", { name: "download document" }).click();
+      await expect.poll(() => downloads).toEqual(["other doc.txt"]);
+    } finally {
+      HTMLAnchorElement.prototype.click = realClick;
+    }
+  });
+
+  it("arms a device from its context menu and deletes catalog rows through it", async () => {
+    await seedArticle({ project: FOLDER, name: NAME, text: TEXT });
+
+    renderArticle();
+    await ready();
+
+    // view mode: right-click the leaf row → arm it via the menu
+    await rightClickRow("Zitat");
+    await page.getByRole("menuitem", { name: "code with this device" }).click();
+    await expect.poll(() => document.querySelector(".tnode.sel")?.textContent?.includes("Zitat") ?? false).toBe(true);
+
+    // right-click the top-level row → delete goes through the shared countdown dialog
+    await rightClickRow("Kommentar");
+    await page.getByRole("menuitem", { name: "delete device" }).click();
+    await expect.element(page.getByRole("dialog", { name: 'Delete device "Kommentar"?' })).toBeInTheDocument();
+    await expect
+      .poll(() => (document.querySelector(".cfconfirm") as HTMLButtonElement | null)?.disabled, { timeout: 6000 })
+      .toBe(false);
+    await page.getByRole("button", { name: "confirm" }).click();
+
+    await expect.poll(async () => (await getLocalCatalog(FOLDER))?.devices.map((d) => d.name)).toEqual(["Rahmen"]);
   });
 
   it("collapses the devices-codes aside", async () => {

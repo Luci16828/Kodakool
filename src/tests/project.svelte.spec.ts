@@ -186,7 +186,8 @@ describe("project page", () => {
 
     renderProject();
 
-    await page.getByRole("button", { name: "delete spd 1.txt" }).click();
+    await page.getByRole("button", { name: "menu for spd 1.txt" }).click();
+    await page.getByRole("menuitem", { name: "delete document" }).click();
     await confirmDelete('Delete "spd 1.txt"?');
 
     await expect.element(page.getByRole("link", { name: "spd 1.txt" })).not.toBeInTheDocument();
@@ -200,11 +201,37 @@ describe("project page", () => {
 
     renderProject();
 
-    await page.getByRole("button", { name: "delete project test" }).click();
+    await page.getByRole("button", { name: "project menu" }).click();
+    await page.getByRole("menuitem", { name: "delete project" }).click();
     await confirmDelete("Delete project test/?");
 
     await expect.poll(async () => (await listArticles()).map((a) => a.project)).toEqual(["other"]);
     expect(navigated).toEqual(["/"]);
+  });
+
+  it("opens the document row's context menu on right click", async () => {
+    await seedArticle({ project: FOLDER, name: "spd 1", text: TEXT });
+
+    renderProject();
+    await expect.element(page.getByRole("link", { name: "spd 1.txt" })).toBeInTheDocument();
+
+    const row = (await page.getByRole("link", { name: "spd 1.txt" }).element()).parentElement as HTMLElement;
+    const r = row.getBoundingClientRect();
+    row.dispatchEvent(
+      new MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+        view: window,
+        clientX: Math.round(r.left + 20),
+        clientY: Math.round(r.top + r.height / 2),
+      }),
+    );
+
+    const menu = page.getByRole("menu");
+    await expect.element(menu).toBeInTheDocument();
+    await expect.element(menu.getByRole("menuitem", { name: "open document" })).toBeInTheDocument();
+    await expect.element(menu.getByRole("menuitem", { name: "download document" })).toBeInTheDocument();
+    await expect.element(menu.getByRole("menuitem", { name: "delete document" })).toBeInTheDocument();
   });
 
   it("offers a .qdc export only when the project has a frame-device catalog", async () => {

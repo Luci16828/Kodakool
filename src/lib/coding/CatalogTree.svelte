@@ -6,6 +6,8 @@
   import { Tree } from "melt/builders";
   import { flip } from "svelte/animate";
   import "material-symbols/rounded.css";
+  import { openRowMenu } from "$lib/coding/context-menu";
+  import RowMenu from "$lib/coding/RowMenu.svelte";
   import type { Slug } from "./shortlabel";
 
   let {
@@ -108,124 +110,131 @@
     {@const droppable = editing && dragId !== null && dragId !== n.item.id}
     <!-- keyed wrapper: animate:flip needs the animated element to be the each block's only child -->
     <div class="titem" animate:flip={{ duration: 180 }}>
-      <div
-        {...n.attrs}
-        class="tnode"
-        class:edit={editing}
-        class:group={n.canExpand}
-        class:unused={countOf(n) === 0}
-        class:sel={selected === n.item.id}
-        class:drop={droppable && dropId === n.item.id}
-        class:dragging={dragId === n.item.id}
-        data-kind={n.item.kind}
-        style={styleFor(n.item)}
-        onmouseenter={() => onhover?.(n.item.id)}
-        onmouseleave={() => onhover?.(null)}
-        onclick={() => click(n)}
-        ondragover={(e) => {
-          if (droppable) {
-            e.preventDefault();
-            dropId = n.item.id;
-          }
-        }}
-        ondragleave={() => {
-          if (dropId === n.item.id) dropId = null;
-        }}
-        ondrop={(e) => {
-          if (dragId !== null) {
-            e.preventDefault();
-            onmove?.(dragId, n.item.id);
-          }
-          dragId = null;
-          dropId = null;
-        }}
+      <RowMenu
+        items={[
+          ...(editing
+            ? []
+            : [
+                ...(UUID_RE.test(n.item.id) && n.item.kind === "device" && !n.canExpand
+                  ? [{ label: "code with this device", icon: "edit_note", onSelect: () => onpick?.(n.item.id) }]
+                  : []),
+                { label: "new code under it", icon: "add", onSelect: () => onadd?.(n.item.id) },
+              ]),
+          ...(onadd ? [{ label: "add child device", icon: "add", onSelect: () => onadd(n.item.id) }] : []),
+          ...(ondelete
+            ? [{ label: "delete device", icon: "delete", danger: true, onSelect: () => ondelete(n.item.id) }]
+            : []),
+        ]}
       >
-        {#if editing}
-          <span
-            class="grip material-symbols-rounded"
-            draggable="true"
-            title="drag to reorder"
-            aria-hidden="true"
-            ondragstart={(e) => {
-              dragId = n.item.id;
-              // Firefox refuses to start a drag unless data is set on the DataTransfer
-              e.dataTransfer?.setData("text/plain", n.item.id);
+        {#snippet trigger({ props }: { props: Record<string, unknown> })}
+          {@const { style: triggerStyle, ...rest } = props}
+          <div
+            {...n.attrs}
+            class="tnode"
+            class:edit={editing}
+            class:group={n.canExpand}
+            class:unused={countOf(n) === 0}
+            class:sel={selected === n.item.id}
+            class:drop={droppable && dropId === n.item.id}
+            class:dragging={dragId === n.item.id}
+            data-kind={n.item.kind}
+            style={`${styleFor(n.item)};pointer-events:auto`}
+            onmouseenter={() => onhover?.(n.item.id)}
+            onmouseleave={() => onhover?.(null)}
+            onclick={() => click(n)}
+            ondragover={(e) => {
+              if (droppable) {
+                e.preventDefault();
+                dropId = n.item.id;
+              }
             }}
-            ondragend={() => {
+            ondragleave={() => {
+              if (dropId === n.item.id) dropId = null;
+            }}
+            ondrop={(e) => {
+              if (dragId !== null) {
+                e.preventDefault();
+                onmove?.(dragId, n.item.id);
+              }
               dragId = null;
               dropId = null;
             }}
+            {...rest}
           >
-            drag_indicator</span
-          >
-        {/if}
-        <span
-          class="caret material-symbols-rounded"
-          class:hidden={!n.canExpand}
-          aria-hidden="true"
-          onclick={(e) => {
-            if (editing && n.canExpand) {
-              e.stopPropagation();
-              n.toggleExpand();
-            }
-          }}>{n.canExpand ? (n.expanded ? "expand_more" : "chevron_right") : ""}</span
+            {#if editing}
+              <span
+                class="grip material-symbols-rounded"
+                draggable="true"
+                title="drag to reorder"
+                aria-hidden="true"
+                ondragstart={(e) => {
+                  dragId = n.item.id;
+                  // Firefox refuses to start a drag unless data is set on the DataTransfer
+                  e.dataTransfer?.setData("text/plain", n.item.id);
+                }}
+                ondragend={() => {
+                  dragId = null;
+                  dropId = null;
+                }}
+              >
+                drag_indicator</span
+              >
+            {/if}
+            <span
+              class="caret material-symbols-rounded"
+              class:hidden={!n.canExpand}
+              aria-hidden="true"
+              onclick={(e) => {
+                if (editing && n.canExpand) {
+                  e.stopPropagation();
+                  n.toggleExpand();
+                }
+              }}>{n.canExpand ? (n.expanded ? "expand_more" : "chevron_right") : ""}</span
+            >
+            {#if editing}
+              <input
+                class="ttag"
+                value={n.item.tag ?? ""}
+                placeholder={n.item.slug?.short ?? "tag"}
+                maxlength={12}
+                spellcheck="false"
+                title={n.item.code}
+                aria-label={`tag ${n.item.name || n.item.code}`}
+                oninput={(e) => ontag?.(n.item.id, e.currentTarget.value)}
+                onkeydown={(e) => e.stopPropagation()}
+              />
+              <input
+                class="tedit"
+                value={n.item.name}
+                placeholder="name"
+                spellcheck="false"
+                aria-label={`name ${n.item.name || n.item.code}`}
+                oninput={(e) => onrename?.(n.item.id, e.currentTarget.value)}
+                onkeydown={(e) => e.stopPropagation()}
+              />
+            {:else}
+              <span class="tnum" title={n.item.code}>{n.item.slug?.short ?? codeId(n.item.code)}</span>
+              <span class="tname"
+                >{#each boldSegments(n.item.name, n.item.slug) as seg, si (si)}{#if seg.b}<b>{seg.t}</b
+                    >{:else}{seg.t}{/if}{/each}</span
+              >
+            {/if}
+            <span class="tcount">{countOf(n) || ""}</span>
+          </div>
+        {/snippet}
+      </RowMenu>
+      {#if editing}
+        <!-- edit mode: the row's add/delete actions live in this row's context menu -->
+        <button
+          type="button"
+          class="menubtn"
+          title="device actions"
+          aria-label={`menu for ${n.item.name || n.item.code}`}
+          onclick={(e) => openRowMenu(e.currentTarget.closest("[data-rowmenu]") ?? e.currentTarget)}
         >
-        {#if editing}
-          <input
-            class="ttag"
-            value={n.item.tag ?? ""}
-            placeholder={n.item.slug?.short ?? "tag"}
-            maxlength={12}
-            spellcheck="false"
-            title={n.item.code}
-            aria-label={`tag ${n.item.name || n.item.code}`}
-            oninput={(e) => ontag?.(n.item.id, e.currentTarget.value)}
-            onkeydown={(e) => e.stopPropagation()}
-          />
-          <input
-            class="tedit"
-            value={n.item.name}
-            placeholder="name"
-            spellcheck="false"
-            aria-label={`name ${n.item.name || n.item.code}`}
-            oninput={(e) => onrename?.(n.item.id, e.currentTarget.value)}
-            onkeydown={(e) => e.stopPropagation()}
-          />
-        {:else}
-          <span class="tnum" title={n.item.code}>{n.item.slug?.short ?? codeId(n.item.code)}</span>
-          <span class="tname"
-            >{#each boldSegments(n.item.name, n.item.slug) as seg, si (si)}{#if seg.b}<b>{seg.t}</b
-                >{:else}{seg.t}{/if}{/each}</span
-          >
-        {/if}
-        {#if editing}
-          <button
-            type="button"
-            class="tadd"
-            title="add child device"
-            aria-label={`add child of ${n.item.name || n.item.code}`}
-            onclick={(e) => {
-              e.stopPropagation();
-              onadd?.(n.item.id);
-            }}
-          >
-            <span class="material-symbols-rounded" aria-hidden="true">add</span>
-          </button>
-          <button
-            type="button"
-            class="tdel"
-            title="delete device"
-            aria-label={`delete ${n.item.name || n.item.code}`}
-            onclick={(e) => {
-              e.stopPropagation();
-              ondelete?.(n.item.id);
-            }}
-          >
-            <span class="material-symbols-rounded" aria-hidden="true">delete</span>
-          </button>
-        {/if}
-        <span class="tcount">{countOf(n) || ""}</span>
-      </div>
+          <span class="material-symbols-rounded" aria-hidden="true">more_vert</span>
+        </button>
+      {/if}
       {#if n.canExpand && n.expanded}
         <div {...tree.group}>{@render nodes(n.children ?? [])}</div>
       {/if}
@@ -243,11 +252,33 @@
     flex-direction: column;
     outline: none;
   }
-  /* keyed per-item wrapper (row + expanded subtree) — the animate:flip carrier */
+  /* keyed per-item wrapper (row + expanded subtree) — the animate:flip carrier;
+     the Bits trigger renders no extra element: `.tnode` IS the context-menu trigger */
   .titem {
+    position: relative;
     display: flex;
     flex-direction: column;
     min-width: 0;
+  }
+  /* edit mode: keyboard/touch way into the row's context menu, overlaid on the row's right edge */
+  .menubtn {
+    position: absolute;
+    top: -0.15rem;
+    right: 0.1rem;
+    font: inherit;
+    display: inline-flex;
+    align-items: center;
+    border: none;
+    background: none;
+    padding: 0.1rem;
+    cursor: pointer;
+    color: var(--on-surface-variant, #888);
+  }
+  .menubtn:hover {
+    color: var(--primary, #6750a4);
+  }
+  .menubtn .material-symbols-rounded {
+    font-size: 1rem;
   }
   .tnode {
     display: flex;
@@ -342,27 +373,6 @@
   /* the row being dragged reads as lifted; siblings slide into place via animate:flip */
   .tnode.dragging {
     opacity: 0.4;
-  }
-  .tadd,
-  .tdel {
-    font: inherit;
-    display: inline-flex;
-    align-items: center;
-    border: none;
-    background: none;
-    padding: 0.1rem;
-    cursor: pointer;
-    color: var(--on-surface-variant, #888);
-  }
-  .tadd:hover {
-    color: var(--primary, #6750a4);
-  }
-  .tdel:hover {
-    color: #b3261e;
-  }
-  .tadd .material-symbols-rounded,
-  .tdel .material-symbols-rounded {
-    font-size: 1rem;
   }
   .tedit {
     flex: 1;

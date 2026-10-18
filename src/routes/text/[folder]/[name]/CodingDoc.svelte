@@ -355,6 +355,14 @@
   const onhover = (id: string | null) => (hoverDevice = id);
 
   // ----- quick select menu (hold the right mouse button) -----
+  /**
+   * The document surface the right press is listened for on: the editor div for
+   * text documents, the PDF surface for PDF documents. Right clicks on the
+   * sidebars/bar belong to their own context menus, never to quick select.
+   */
+  const quickSurface = $derived(
+    parent ?? (typeof document === "undefined" ? null : document.querySelector<HTMLElement>(".pdfview")),
+  );
   /** slot preferences of this project + pins of this document (localStorage) */
   const quick = new QuickPrefs(
     () => data.folder,
@@ -1265,6 +1273,7 @@
 
     <QuickSelect
       enabled={mode === "code" && mounted && !renaming && !colorsOpen && !confirm.open}
+      surface={quickSurface}
       tree={catalog}
       nodeById={quickNodes}
       display={quickDisplay}

@@ -8,10 +8,12 @@
   import ConfirmHost from "$lib/coding/ConfirmHost.svelte";
   import { ConfirmAsk } from "$lib/coding/confirm.svelte";
   import { docIcon, displayName } from "$lib/coding/display";
+  import { openRowMenu } from "$lib/coding/context-menu";
   import { toQdc } from "$lib/coding/qdc";
   import { useColors } from "$lib/coding/prefs.svelte";
+  import RowMenu from "$lib/coding/RowMenu.svelte";
   import { EXAMPLE_PROJECT } from "$lib/client/examples";
-  import { downloadText } from "$lib/client/download";
+  import { downloadArticle, downloadText } from "$lib/client/download";
   import UploadZone from "$lib/client/UploadZone.svelte";
   import {
     createArticle,
@@ -74,6 +76,47 @@
     );
   }
 
+  function openDoc(a: ArticleSummary): void {
+    void goto(resolve("/text/[folder]/[name]", { folder: a.project, name: a.name }));
+  }
+  /** the document row's context menu: open / download / delete (replaces the old row trash) */
+  function docMenu(a: ArticleSummary): { label: string; icon: string; danger?: boolean; onSelect: () => void }[] {
+    return [
+      { label: "open document", icon: "open_in_new", onSelect: () => openDoc(a) },
+      { label: "download document", icon: "download", onSelect: () => void downloadArticle(a) },
+      {
+        label: "delete document",
+        icon: "delete",
+        danger: true,
+        onSelect: () =>
+          confirm.ask(
+            `Delete "${displayName(a.name, a.kind)}"?`,
+            `This removes the document and its ${a.codes} code entr${a.codes === 1 ? "y" : "ies"}.`,
+            () => void removeDoc(a),
+          ),
+      },
+    ];
+  }
+  /** the project title's context menu (replaces the old `delete project` button) */
+  function projectMenu(): { label: string; icon: string; danger?: boolean; onSelect: () => void }[] {
+    return [
+      ...(instr === null
+        ? []
+        : [{ label: "export .qdc", icon: "file_download" as const, onSelect: () => exportQdc() }]),
+      {
+        label: "delete project",
+        icon: "delete",
+        danger: true,
+        onSelect: () =>
+          confirm.ask(
+            `Delete project ${data.folder}/?`,
+            `Deletes the project with its ${items.length} document${items.length === 1 ? "" : "s"}, coding entries and its frame-device catalog.`,
+            () => void removeProject(),
+          ),
+      },
+    ];
+  }
+
   async function removeDoc(a: ArticleSummary): Promise<void> {
     await deleteArticle(a.id);
   }
@@ -97,12 +140,25 @@
         <span class="material-symbols-rounded" aria-hidden="true">palette</span>colors
       </Dialog.Trigger>
     </p>
-    <h1>
-      {data.folder}
-      {#if data.folder === EXAMPLE_PROJECT}
-        <span class="chip ex">example</span>
-      {/if}
-    </h1>
+    <RowMenu items={projectMenu()}>
+      {#snippet trigger({ props }: { props: Record<string, unknown> })}
+        <h1 {...props}>
+          {data.folder}
+          {#if data.folder === EXAMPLE_PROJECT}
+            <span class="chip ex">example</span>
+          {/if}
+          <button
+            type="button"
+            class="menubtn"
+            title="project actions"
+            aria-label="project menu"
+            onclick={(e) => openRowMenu(e.currentTarget.closest("[data-rowmenu]") ?? e.currentTarget)}
+          >
+            <span class="material-symbols-rounded" aria-hidden="true">more_vert</span>
+          </button>
+        </h1>
+      {/snippet}
+    </RowMenu>
     <p class="summary">
       <span class="chip">{items.length} documents</span>
       <span class="chip">{stats.codes} codes</span>
@@ -120,19 +176,6 @@
           <span class="material-symbols-rounded" aria-hidden="true">file_download</span>export .qdc
         </button>
       {/if}
-      <button
-        type="button"
-        class="delproj"
-        aria-label="delete project {data.folder}"
-        onclick={() =>
-          confirm.ask(
-            `Delete project ${data.folder}/?`,
-            `Deletes the project with its ${items.length} document${items.length === 1 ? "" : "s"}, coding entries and its frame-device catalog.`,
-            () => void removeProject(),
-          )}
-      >
-        <span class="material-symbols-rounded" aria-hidden="true">delete</span>delete project
-      </button>
     </div>
 
     <UploadZone folder={data.folder} />
@@ -143,28 +186,29 @@
       <ul class="docs">
         {#each items as a (a.id)}
           <li>
-            <a href={resolve("/text/[folder]/[name]", { folder: a.project, name: a.name })}>
-              <span class="material-symbols-rounded docicon" aria-hidden="true">{docIcon(a)}</span>
-              <span class="name">{displayName(a.name, a.kind)}</span>
-            </a>
-            <span class="codes">{a.codes}</span>
-            {#if a.versions}
-              <span class="chip versions">{a.versions} v</span>
-            {/if}
-            <button
-              type="button"
-              class="fdel"
-              title="delete document"
-              aria-label={`delete ${displayName(a.name, a.kind)}`}
-              onclick={() =>
-                confirm.ask(
-                  `Delete "${displayName(a.name, a.kind)}"?`,
-                  `This removes the document and its ${a.codes} code entr${a.codes === 1 ? "y" : "ies"}.`,
-                  () => void removeDoc(a),
-                )}
-            >
-              <span class="material-symbols-rounded" aria-hidden="true">delete</span>
-            </button>
+            <RowMenu items={docMenu(a)}>
+              {#snippet trigger({ props }: { props: Record<string, unknown> })}
+                <div class="row" {...props}>
+                  <a href={resolve("/text/[folder]/[name]", { folder: a.project, name: a.name })}>
+                    <span class="material-symbols-rounded docicon" aria-hidden="true">{docIcon(a)}</span>
+                    <span class="name">{displayName(a.name, a.kind)}</span>
+                  </a>
+                  <span class="codes">{a.codes}</span>
+                  {#if a.versions}
+                    <span class="chip versions">{a.versions} v</span>
+                  {/if}
+                  <button
+                    type="button"
+                    class="menubtn"
+                    title="document actions"
+                    aria-label={`menu for ${displayName(a.name, a.kind)}`}
+                    onclick={(e) => openRowMenu(e.currentTarget.closest("[data-rowmenu]") ?? e.currentTarget)}
+                  >
+                    <span class="material-symbols-rounded" aria-hidden="true">more_vert</span>
+                  </button>
+                </div>
+              {/snippet}
+            </RowMenu>
           </li>
         {/each}
       </ul>
@@ -186,6 +230,7 @@
   .crumb a {
     text-decoration: none;
   }
+  /* the h1 IS the project context-menu trigger and carries its menu pill */
   h1 {
     font-size: 1.4rem;
     margin: 0 0 0.5rem;
@@ -218,6 +263,15 @@
   }
   .docs li:hover {
     background: var(--surface-variant);
+  }
+  /* the Bits trigger wraps the row's own content (right-click opens its menu) */
+  .docs .row {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
+    flex-wrap: wrap;
   }
   .docs a {
     flex: 1;
