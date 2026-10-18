@@ -169,6 +169,9 @@ export function codingMarks(
     labelsField,
     EditorView.domEventHandlers({
       mouseup(_event, view) {
+        // the quick select menu rides the right button: releasing it must not code
+        // whatever selection happens to be live
+        if (_event.button !== 0) return false;
         const r = view.state.selection.main;
         if (!r.empty) onAdd?.(r.from, r.to);
         return false;
@@ -244,6 +247,9 @@ export function smartSelect(o: SmartOptions) {
     }),
     EditorView.domEventHandlers({
       mousedown(event) {
+        // only the primary button anchors a click; a right-press must not steal the
+        // down position of a left-press (the click slop check below compares them)
+        if (event.button !== 0) return false;
         downX = event.clientX;
         downY = event.clientY;
         report(null);
@@ -263,6 +269,8 @@ export function smartSelect(o: SmartOptions) {
         return false;
       },
       mouseup(event, view) {
+        // right button = the quick select menu, never a selection/coding gesture
+        if (event.button !== 0) return false;
         if (!o.enabled()) return false;
         if (Math.hypot(event.clientX - downX, event.clientY - downY) > CLICK_SLOP) return false;
         if (event.target instanceof Element && event.target.closest(".cm-tag,.cm-tagline,.cm-widget")) return false;

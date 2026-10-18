@@ -36,7 +36,7 @@
       `a { color: var(--primary); }`,
       /* shared UI primitives — global so headless-component-rendered elements
          (Bits Dialog pills/overlay/content) are styled too */
-      `.pill { font: inherit; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.35rem; color: var(--on-surface-variant, #666); background: var(--surface, white); padding: 0.15rem 0.7rem; border: 1px solid var(--outline, #888); border-radius: 999px; cursor: pointer; }`,
+      `.pill { font: inherit; font-size: 0.8rem; display: inline-flex; align-items: center; flex: 0 0 auto; white-space: nowrap; gap: 0.35rem; color: var(--on-surface-variant, #666); background: var(--surface, white); padding: 0.15rem 0.7rem; border: 1px solid var(--outline, #888); border-radius: 999px; cursor: pointer; }`,
       `.pill:hover { color: var(--primary, #6750a4); border-color: var(--primary, #6750a4); }`,
       `.pill .material-symbols-rounded { font-size: 1rem; }`,
       `.dlg-overlay { position: fixed; inset: 0; z-index: 40; background: black; opacity: 0.35; }`,

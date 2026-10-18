@@ -139,6 +139,9 @@ importers:
       melt:
         specifier: ^0.44.0
         version: 0.44.0(@floating-ui/dom@1.8.0)(svelte@5.57.1)
+      paneforge:
+        specifier: ^1.0.2
+        version: 1.0.2(svelte@5.57.1)
       rxdb:
         specifier: ^17.5.0
         version: 17.5.0(rxjs@7.8.2)(supports-color@7.2.0)
@@ -1173,6 +1176,11 @@ packages:
     resolution: {integrity: sha512-rhIwUycgwwKcP9yTOOFK/AKsAopjjCakVqLHePO3CC6Mir1Z99xT+R63jZxAT5lFZLa2inS5h+ZS2GvR99/FBg==}
     engines: {node: '>=8'}
 
+  paneforge@1.0.2:
+    resolution: {integrity: sha512-KzmIXQH1wCfwZ4RsMohD/IUtEjVhteR+c+ulb/CHYJHX8SuDXoJmChtsc/Xs5Wl8NHS4L5Q7cxL8MG40gSU1bA==}
+    peerDependencies:
+      svelte: ^5.29.0
+
   path-key@3.1.1:
     resolution: {integrity: sha512-ojmeN0qd+y0jszEtoY48r0Peq5dwMEkIlCOu6Q5f41lfkswXuKtYrhgoTpLnyIcHm24Uhqx+5Tqm2InSwLhE6Q==}
     engines: {node: '>=8'}
@@ -1271,6 +1279,11 @@ packages:
 
   runed@0.23.4:
     resolution: {integrity: sha512-9q8oUiBYeXIDLWNK5DfCWlkL0EW3oGbk845VdKlPeia28l751VpfesaB/+7pI6rnbx1I6rqoZ2fZxptOJLxILA==}
+    peerDependencies:
+      svelte: ^5.7.0
+
+  runed@0.29.2:
+    resolution: {integrity: sha512-0cq6cA6sYGZwl/FvVqjx9YN+1xEBu9sDDyuWdDW1yWX7JF2wmvmVKfH+hVCZs+csW+P3ARH92MjI3H9QTagOQA==}
     peerDependencies:
       svelte: ^5.7.0
 
@@ -1384,6 +1397,12 @@ packages:
 
   svelte-toolbelt@0.10.6:
     resolution: {integrity: sha512-YWuX+RE+CnWYx09yseAe4ZVMM7e7GRFZM6OYWpBKOb++s+SQ8RBIMMe+Bs/CznBMc0QPLjr+vDBxTAkozXsFXQ==}
+    engines: {node: '>=18', pnpm: '>=8.7.0'}
+    peerDependencies:
+      svelte: ^5.30.2
+
+  svelte-toolbelt@0.9.3:
+    resolution: {integrity: sha512-HCSWxCtVmv+c6g1ACb8LTwHVbDqLKJvHpo6J8TaqwUme2hj9ATJCpjCPNISR1OCq2Q4U1KT41if9ON0isINQZw==}
     engines: {node: '>=18', pnpm: '>=8.7.0'}
     peerDependencies:
       svelte: ^5.30.2
@@ -2494,6 +2513,12 @@ snapshots:
     dependencies:
       p-finally: 1.0.0
 
+  paneforge@1.0.2(svelte@5.57.1):
+    dependencies:
+      runed: 0.23.4(svelte@5.57.1)
+      svelte: 5.57.1
+      svelte-toolbelt: 0.9.3(svelte@5.57.1)
+
   path-key@3.1.1: {}
 
   pathe@2.0.3: {}
@@ -2581,6 +2606,11 @@ snapshots:
       '@rolldown/binding-win32-x64-msvc': 1.2.9
 
   runed@0.23.4(svelte@5.57.1):
+    dependencies:
+      esm-env: 1.2.2
+      svelte: 5.57.1
+
+  runed@0.29.2(svelte@5.57.1):
     dependencies:
       esm-env: 1.2.2
       svelte: 5.57.1
@@ -2718,6 +2748,13 @@ snapshots:
       svelte: 5.57.1
     transitivePeerDependencies:
       - '@sveltejs/kit'
+
+  svelte-toolbelt@0.9.3(svelte@5.57.1):
+    dependencies:
+      clsx: 2.1.1
+      runed: 0.29.2(svelte@5.57.1)
+      style-to-object: 1.0.14
+      svelte: 5.57.1
 
   svelte@5.57.1:
     dependencies:

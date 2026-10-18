@@ -46,6 +46,9 @@ export default defineConfig({
             provider: playwright(),
             // BROWSER=firefox pnpm test → run the client suite in Firefox
             instances: [{ browser: (process.env.BROWSER ?? "chromium") as "chromium" | "firefox", headless: true }],
+            // the coding page is a desktop layout: the 414px default viewport
+            // squeezed the bar into overflow, so clicks landed on shifted pills
+            viewport: { width: 1280, height: 900 },
           },
           // every client test file shares one Dexie/RxDB store in parallel:
           // the default 1s `expect.poll` timeout is too tight under that load

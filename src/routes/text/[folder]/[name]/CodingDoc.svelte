@@ -7,7 +7,8 @@
   import { onDestroy, onMount } from "svelte";
   import { SvelteMap, SvelteSet } from "svelte/reactivity";
   import { FileUpload } from "melt/builders";
-  import { Collapsible, Dialog, Popover, RadioGroup, Toggle } from "bits-ui";
+  import { Collapsible, Dialog, Popover, RadioGroup, ScrollArea, Toggle } from "bits-ui";
+  import { Pane, PaneGroup, PaneResizer } from "paneforge";
   import "material-symbols/rounded.css";
   import { buildPalette, onForFill, type CodeColor } from "$lib/coding/palette";
   import { useColors } from "$lib/coding/prefs.svelte";
@@ -16,6 +17,9 @@
   import ConfirmDialog from "$lib/coding/ConfirmDialog.svelte";
   import { entryFromOffsets, entryId, lineStarts, offsetsSpan } from "$lib/coding/edit";
   import { buildCatalogView } from "$lib/coding/catalog-view";
+  import { rankDevices, reconcileSlots } from "$lib/coding/quickselect";
+  import { QuickPrefs } from "$lib/coding/quickselect.svelte";
+  import QuickSelect from "$lib/coding/QuickSelect.svelte";
   import { docIcon, displayName } from "$lib/coding/display";
   import { parseCatalogFile } from "$lib/coding/import";
   import { mdExtensions } from "$lib/coding/code-md";
@@ -180,6 +184,28 @@
   let treeOpen = $state(true);
   /** right-side frame-devices sidebar (Bits Collapsible) */
   let catOpen = $state(true);
+  /** resizable workspace panes (PaneForge): sizes are % of the workspace width */
+  const WS_TREE = { def: 16, min: 10, max: 32, collapsed: 3.5 };
+  const WS_DOC = { def: 63, min: 38 };
+  const WS_CAT = { def: 21, min: 12, max: 36, collapsed: 3.5 };
+  /** pane instances: the collapse pills drive them, dragging a pane reports back */
+  let treePane: ReturnType<typeof Pane> | null = $state(null);
+  let catPane: ReturnType<typeof Pane> | null = $state(null);
+
+  /** the collapse pills resize the panes; dragging a pane down to its collapsed
+      size collapses the sidebar, and the Collapsible state follows it back */
+  $effect(() => {
+    const pane = treePane;
+    if (pane === null) return;
+    if (treeOpen) pane.expand();
+    else pane.collapse();
+  });
+  $effect(() => {
+    const pane = catPane;
+    if (pane === null) return;
+    if (catOpen) pane.expand();
+    else pane.collapse();
+  });
   /** all local documents; the sidebar shows only this project's slice */
   let docs = $state<ArticleSummary[]>([]);
   let docsBusy = $state(false);
@@ -360,6 +386,57 @@
     walk(catalog);
     return map;
   });
+
+  // ----- quick select menu (hold the right mouse button) -----
+  /** slot preferences of this project + pins of this document (localStorage) */
+  const quick = new QuickPrefs(
+    () => data.folder,
+    () => key,
+  );
+  const quickNodes = $derived(new SvelteMap(flatten(catalog).map((n) => [n.id, n])));
+  /** entries per catalog node id (the "top used" part of the ranking) */
+  const quickCounts = $derived.by(() => {
+    const counts = new SvelteMap<string, number>();
+    for (const e of entries) {
+      const id = keyToId.get(e.device ?? e.code ?? "");
+      if (id === undefined) continue;
+      counts.set(id, (counts.get(id) ?? 0) + 1);
+    }
+    return counts;
+  });
+  // recency comes from QuickPrefs: RxDB hands out code docs in primary-key order,
+  // so the entries array cannot say which code was coded last
+  const quickRanked = $derived(rankDevices(quickCounts, quick.recent));
+  /** the slots the menu shows: stable positions, pinned ones past the top gate */
+  const quickDisplay = $derived(reconcileSlots(quick.slots, quick.pins, quickRanked, quick.count, quickNodes));
+  // remember what the menu showed: the next reconciliation starts from these slots,
+  // so an ejected item never shifts its neighbours (the write is guarded by equality)
+  $effect(() => quick.sync(quickDisplay));
+  const quickLabel = (id: string) => {
+    const code = displayByDevice.get(id) ?? id;
+    return shortByCode.get(code) ?? code;
+  };
+  const quickStyle = (id: string) => colorVars(displayByDevice.get(id) ?? id);
+  /** release over a tag: arm that device, and code the live selection when there is one */
+  function quickPick(id: string): void {
+    if (!UUID_RE.test(id)) return;
+    if (mode === "edit") setMode("code");
+    const sel = selRange;
+    armed = id;
+    popup = null;
+    saveMsg = "";
+    editMsg = "";
+    if (sel !== null && sel.to > sel.from) addEntryFromOffsets(sel.from, sel.to, true);
+    else flashSaveMsg(`armed ${quickLabel(id)}`);
+  }
+
+  /** left click on a cascade tag: pin it into its slot, else the first free one */
+  function quickPinId(id: string): void {
+    const at = quickDisplay.indexOf(id);
+    const free = quickDisplay.indexOf(null);
+    const slot = at >= 0 ? at : free >= 0 ? free : quick.count - 1;
+    quick.pin(slot, quick.pins[slot] === id ? null : id);
+  }
 
   // ids of the hovered catalog node and its whole subtree (null = no filter)
   const hoverKeys = $derived.by(() => {
@@ -777,7 +854,9 @@
   }
 
   /** chip hover: (re)anchor the popup; leaving a chip closes it after a short grace period
-      (bridges the chip→popup gap so the popup can actually be entered and used) */
+      (bridges the chip→popup gap so the popup can actually be entered and used — the
+      popup sits directly above the chip, so crossing the gap takes far under 100ms) */
+  const POPUP_GRACE_MS = 100;
   let popupTimer: ReturnType<typeof setTimeout> | null = null;
   function chipHover(id: string | null): void {
     if (id !== hoverChip) hoverChip = id;
@@ -786,7 +865,7 @@
         popupTimer = setTimeout(() => {
           popupTimer = null;
           if (!overPopup && hoverChip === null) popup = null;
-        }, 400);
+        }, POPUP_GRACE_MS);
       }
     } else {
       if (popupTimer !== null) {
@@ -803,6 +882,8 @@
   /** shared entry creation: editor mouseup and PdfView selection both land here */
   function addEntryFromOffsets(selFrom: number, selTo: number, fromEditor: boolean): void {
     if (armed === null || mode !== "code") return;
+    // the ranking's recency signal: this device was just used on this document
+    quick.use(keyToId.get(armed) ?? armed);
     const text = docText;
     const s = lineStarts(text);
     // trim whitespace at both ends: a multi-line drag otherwise codes
@@ -846,7 +927,11 @@
     pending = true;
     scheduleCommit();
   }
-  const armedLabel = $derived(armed === null ? "" : (displayByDevice.get(armed) ?? armed));
+  /* the cursor tag + the bar hint show the short tag, not the numeric code */
+  /** palette key of the armed device (numeric display code) */
+  const armedCode = $derived(armed === null ? "" : (displayByDevice.get(armed) ?? armed));
+  /** what the cursor tag shows: the short tag, not the numeric code */
+  const armedLabel = $derived(armed === null ? "" : quickLabel(armed));
 
   // cursor-following ctag while armed (article parity)
   let cursor = $state({ x: 0, y: 0 });
@@ -1202,197 +1287,216 @@
 {:else}
   <main>
     <Dialog.Root bind:open={colorsOpen}>
-      <div class="workspace" class:treeclosed={!treeOpen} class:catclosed={!catOpen}>
-        <aside class="docs" class:closed={!treeOpen}>
-          <Collapsible.Root class="treeroot" bind:open={treeOpen}>
-            <div class="docshead">
-              <Collapsible.Trigger
-                class={`treebtn ${treeOpen ? "" : "closed"}`}
-                aria-label="toggle document tree"
-                title={treeOpen ? "collapse document tree" : "expand document tree"}
-              >
-                <span class="material-symbols-rounded" aria-hidden="true">folder_open</span>
-                {#if treeOpen}{data.folder}{/if}
-              </Collapsible.Trigger>
-              {#if treeOpen}
-                <button
-                  type="button"
-                  class="newdoc"
-                  disabled={docsBusy}
-                  title="new document in {data.folder}"
-                  aria-label="new document in {data.folder}"
-                  onclick={() => void newDoc(data.folder)}
+      <PaneGroup class="workspace" direction="horizontal" autoSaveId={`workspace:${data.folder}`}>
+        <Pane
+          bind:this={treePane}
+          collapsible
+          collapsedSize={WS_TREE.collapsed}
+          minSize={WS_TREE.min}
+          maxSize={WS_TREE.max}
+          defaultSize={WS_TREE.def}
+          onCollapse={() => (treeOpen = false)}
+          onExpand={() => (treeOpen = true)}
+        >
+          <aside class="docs" class:closed={!treeOpen}>
+            <Collapsible.Root class="treeroot" bind:open={treeOpen}>
+              <div class="docshead">
+                <Collapsible.Trigger
+                  class={`treebtn ${treeOpen ? "" : "closed"}`}
+                  aria-label="toggle document tree"
+                  title={treeOpen ? "collapse document tree" : "expand document tree"}
                 >
-                  <span class="material-symbols-rounded" aria-hidden="true">note_add</span>
-                </button>
-              {/if}
-            </div>
-            <Collapsible.Content class="docsbody">
-              <div class="uprow">
-                <div class="upload" {...fileUpload.dropzone} title="upload .txt/.md/.pdf files into {data.folder}/">
-                  <span class="material-symbols-rounded" aria-hidden="true">upload</span>
-                  {fileUpload.isDragging ? `drop → ${data.folder}/` : `file → ${data.folder}/`}
-                </div>
-                <label class="upfolder" title="upload a whole folder of .txt/.md/.pdf files into {data.folder}/">
-                  <span class="material-symbols-rounded" aria-hidden="true">upload</span>folder
-                  <input type="file" webkitdirectory={true} onchange={(e) => void uploadFolder(e)} />
-                </label>
-              </div>
-              <input {...fileUpload.input} />
-              {#if uploadMsg}<span class="upmsg">{uploadMsg}</span>{/if}
-              <div class="fgrow">
-                <button
-                  type="button"
-                  class="fgroup sel"
-                  aria-pressed="true"
-                  title="selected upload target — uploads and new documents land in {data.folder}/"
-                >
-                  <span class="material-symbols-rounded" aria-hidden="true">folder</span>{data.folder}/
-                  <span class="fcodes">{myDocs.length}</span></button
-                >
-              </div>
-              <ul>
-                {#each myDocs as a (a.id)}
-                  <li class:current={a.name === data.name}>
-                    <a href={resolve("/text/[folder]/[name]", { folder: a.project, name: a.name })}>
-                      <span class="material-symbols-rounded docicon" aria-hidden="true">{docIcon(a)}</span>
-                      {displayName(a.name, a.kind)}
-                    </a>
-                    <span class="fcodes">{a.codes}</span>
-                    <button
-                      type="button"
-                      class="fdel"
-                      title="delete document"
-                      aria-label={`delete ${displayName(a.name, a.kind)}`}
-                      onclick={() =>
-                        askDelete(
-                          `Delete "${displayName(a.name, a.kind)}"?`,
-                          `This removes the document and its ${a.codes} code entr${a.codes === 1 ? "y" : "ies"}.`,
-                          () => void doDeleteDoc(a),
-                        )}
-                    >
-                      <span class="material-symbols-rounded" aria-hidden="true">delete</span>
-                    </button>
-                  </li>
-                {/each}
-              </ul>
-            </Collapsible.Content>
-          </Collapsible.Root>
-        </aside>
-        <div class="doccol">
-          <header>
-            {#if renaming}
-              <input
-                class="rename"
-                aria-label="document name"
-                bind:value={renameDraft}
-                spellcheck="false"
-                use:renameCaret
-                onkeydown={(e) => {
-                  if (e.key === "Enter") {
-                    e.stopPropagation();
-                    void commitRename();
-                  } else if (e.key === "Escape") {
-                    e.stopPropagation();
-                    renaming = false;
-                  }
-                }}
-                onblur={() => (renaming = false)}
-              />
-            {:else}
-              <h1>
-                <button type="button" class="title" onclick={startRename} title="rename document">{titleName}</button>
-              </h1>
-            {/if}
-            <div class="bar">
-              <a
-                class="pill back"
-                href={resolve("/project/[folder]", { folder: data.folder })}
-                aria-label="back to project {data.folder}"
-                title="back to {data.folder}/"
-              >
-                <span class="material-symbols-rounded" aria-hidden="true">arrow_back</span>{data.folder}
-              </a>
-              {#if mode === "code"}
-                {#if !isPdf}
-                  <button type="button" class="modebtn" aria-label="edit text" onclick={() => setMode("edit")}>
-                    <span class="material-symbols-rounded" aria-hidden="true">edit_document</span>edit
+                  <span class="material-symbols-rounded" aria-hidden="true">folder_open</span>
+                  {#if treeOpen}{data.folder}{/if}
+                </Collapsible.Trigger>
+                {#if treeOpen}
+                  <button
+                    type="button"
+                    class="newdoc"
+                    disabled={docsBusy}
+                    title="new document in {data.folder}"
+                    aria-label="new document in {data.folder}"
+                    onclick={() => void newDoc(data.folder)}
+                  >
+                    <span class="material-symbols-rounded" aria-hidden="true">note_add</span>
                   </button>
                 {/if}
-                <Toggle.Root
-                  class={`smart ${smart ? "on" : ""}`}
-                  bind:pressed={smart}
-                  title="select by word/quote/sentence instead of raw characters"
-                >
-                  <span class="material-symbols-rounded" aria-hidden="true">wand_shine</span>
-                  Smart Select
-                </Toggle.Root>
-                {#if armed !== null}
-                  <span class="hint"
-                    >armed <span class="tag" style={`--marker:${colorOf(armedLabel)}`}>{armedLabel}</span> — select text to
-                    code it, Esc to stop</span
-                  >
-                {/if}
+              </div>
+              <Collapsible.Content class="docsbody">
+                <ScrollArea.Root class="wsarea" type="hover">
+                  <ScrollArea.Viewport class="wsview treeview">
+                    <div class="uprow">
+                      <div
+                        class="upload"
+                        {...fileUpload.dropzone}
+                        title="upload .txt/.md/.pdf files into {data.folder}/"
+                      >
+                        <span class="material-symbols-rounded" aria-hidden="true">upload</span>
+                        {fileUpload.isDragging ? `drop → ${data.folder}/` : `file → ${data.folder}/`}
+                      </div>
+                      <label class="upfolder" title="upload a whole folder of .txt/.md/.pdf files into {data.folder}/">
+                        <span class="material-symbols-rounded" aria-hidden="true">upload</span>folder
+                        <input type="file" webkitdirectory={true} onchange={(e) => void uploadFolder(e)} />
+                      </label>
+                    </div>
+                    <input {...fileUpload.input} />
+                    {#if uploadMsg}<span class="upmsg">{uploadMsg}</span>{/if}
+                    <div class="fgrow">
+                      <button
+                        type="button"
+                        class="fgroup sel"
+                        aria-pressed="true"
+                        title="selected upload target — uploads and new documents land in {data.folder}/"
+                      >
+                        <span class="material-symbols-rounded" aria-hidden="true">folder</span>{data.folder}/
+                        <span class="fcodes">{myDocs.length}</span></button
+                      >
+                    </div>
+                    <ul>
+                      {#each myDocs as a (a.id)}
+                        <li class:current={a.name === data.name}>
+                          <a href={resolve("/text/[folder]/[name]", { folder: a.project, name: a.name })}>
+                            <span class="material-symbols-rounded docicon" aria-hidden="true">{docIcon(a)}</span>
+                            {displayName(a.name, a.kind)}
+                          </a>
+                          <span class="fcodes">{a.codes}</span>
+                          <button
+                            type="button"
+                            class="fdel"
+                            title="delete document"
+                            aria-label={`delete ${displayName(a.name, a.kind)}`}
+                            onclick={() =>
+                              askDelete(
+                                `Delete "${displayName(a.name, a.kind)}"?`,
+                                `This removes the document and its ${a.codes} code entr${a.codes === 1 ? "y" : "ies"}.`,
+                                () => void doDeleteDoc(a),
+                              )}
+                          >
+                            <span class="material-symbols-rounded" aria-hidden="true">delete</span>
+                          </button>
+                        </li>
+                      {/each}
+                    </ul>
+                  </ScrollArea.Viewport>
+                  <ScrollArea.Scrollbar class="wsbar" orientation="vertical">
+                    <ScrollArea.Thumb class="wsthumb" />
+                  </ScrollArea.Scrollbar>
+                </ScrollArea.Root>
+              </Collapsible.Content>
+            </Collapsible.Root>
+          </aside>
+        </Pane>
+        <PaneResizer class={`wshandle ${treeOpen ? "" : "dim"}`} />
+        <Pane minSize={WS_DOC.min} defaultSize={WS_DOC.def}>
+          <div class="doccol">
+            <header>
+              {#if renaming}
+                <input
+                  class="rename"
+                  aria-label="document name"
+                  bind:value={renameDraft}
+                  spellcheck="false"
+                  use:renameCaret
+                  onkeydown={(e) => {
+                    if (e.key === "Enter") {
+                      e.stopPropagation();
+                      void commitRename();
+                    } else if (e.key === "Escape") {
+                      e.stopPropagation();
+                      renaming = false;
+                    }
+                  }}
+                  onblur={() => (renaming = false)}
+                />
               {:else}
-                <button
-                  type="button"
-                  class="modebtn finish"
-                  aria-label="finish editing"
-                  onclick={() => setMode("code")}
+                <h1>
+                  <button type="button" class="title" onclick={startRename} title="rename document">{titleName}</button>
+                </h1>
+              {/if}
+              <div class="bar">
+                <a
+                  class="pill back"
+                  href={resolve("/project/[folder]", { folder: data.folder })}
+                  aria-label="back to project {data.folder}"
+                  title="back to {data.folder}/"
                 >
-                  <span class="material-symbols-rounded" aria-hidden="true">done</span>finish
-                </button>
-                <span class="hint">editing mode</span>
-                {#if isMd}
-                  <Popover.Root bind:open={mdOpen}>
-                    <Popover.Trigger class="pill mdhelp" title="markdown syntax cheatsheet">
-                      <span class="material-symbols-rounded" aria-hidden="true">format_size</span>Markdown
-                    </Popover.Trigger>
-                    <Popover.Content class="cheatsheet" role="dialog" aria-label="markdown cheatsheet">
-                      <h3>Markdown cheatsheet</h3>
-                      <p class="cheatnote">
-                        This syntax only matters when the file is later converted to HTML or PDF (e.g. with pandoc) —
-                        plain reading ignores the markers.
-                      </p>
-                      <dl>
-                        <dt>YAML header — meta data at the very top</dt>
-                        <dd>
-                          <pre>---
+                  <span class="material-symbols-rounded" aria-hidden="true">arrow_back</span>{data.folder}
+                </a>
+                {#if mode === "code"}
+                  {#if !isPdf}
+                    <button type="button" class="modebtn" aria-label="edit text" onclick={() => setMode("edit")}>
+                      <span class="material-symbols-rounded" aria-hidden="true">edit_document</span>edit
+                    </button>
+                  {/if}
+                  <Toggle.Root
+                    class={`smart ${smart ? "on" : ""}`}
+                    bind:pressed={smart}
+                    title="select by word/quote/sentence instead of raw characters"
+                  >
+                    <span class="material-symbols-rounded" aria-hidden="true">wand_shine</span>
+                    Smart Select
+                  </Toggle.Root>
+                {:else}
+                  <button
+                    type="button"
+                    class="modebtn finish"
+                    aria-label="finish editing"
+                    onclick={() => setMode("code")}
+                  >
+                    <span class="material-symbols-rounded" aria-hidden="true">done</span>finish
+                  </button>
+                  <span class="hint">editing mode</span>
+                  {#if isMd}
+                    <Popover.Root bind:open={mdOpen}>
+                      <Popover.Trigger class="pill mdhelp" title="markdown syntax cheatsheet">
+                        <span class="material-symbols-rounded" aria-hidden="true">format_size</span>Markdown
+                      </Popover.Trigger>
+                      <Popover.Portal>
+                        <Popover.Content class="cheatsheet" role="dialog" aria-label="markdown cheatsheet">
+                          <h3>Markdown cheatsheet</h3>
+                          <p class="cheatnote">
+                            This syntax only matters when the file is later converted to HTML or PDF (e.g. with pandoc)
+                            — plain reading ignores the markers.
+                          </p>
+                          <dl>
+                            <dt>YAML header — meta data at the very top</dt>
+                            <dd>
+                              <pre>---
 title: My document
 author: Me
 date: 2026-02-01
 tags: coding, example
 ---</pre>
-                          Not shown as text: the converter reads it as document meta data (title, author, date on the HTML/PDF
-                          title).
-                        </dd>
-                        <dt>Headers</dt>
-                        <dd>
-                          <pre># Header 1
+                              Not shown as text: the converter reads it as document meta data (title, author, date on the
+                              HTML/PDF title).
+                            </dd>
+                            <dt>Headers</dt>
+                            <dd>
+                              <pre># Header 1
 ## Header 2
 ### Header 3
 #### Header 4
 ##### Header 5
 ###### Header 6</pre>
-                          →<code>&lt;h1&gt;</code>…<code>&lt;h6&gt;</code>: big bold title down to a small heading.
-                        </dd>
-                        <dt>Text</dt>
-                        <dd>
-                          <pre>*italic*  _italic_
+                              →<code>&lt;h1&gt;</code>…<code>&lt;h6&gt;</code>: big bold title down to a small heading.
+                            </dd>
+                            <dt>Text</dt>
+                            <dd>
+                              <pre>*italic*  _italic_
 **strong**  __strong__
 ***italic & strong***  ___i&s___
 ~~strikethrough~~</pre>
-                          →<em>italic</em>, <strong>bold</strong>, both, <del>strikethrough</del>.
-                        </dd>
-                        <dt>Links</dt>
-                        <dd>
-                          <pre>&lt;https://my_link.com&gt;
+                              →<em>italic</em>, <strong>bold</strong>, both, <del>strikethrough</del>.
+                            </dd>
+                            <dt>Links</dt>
+                            <dd>
+                              <pre>&lt;https://my_link.com&gt;
 [MyLinkname](https://my_link.com)</pre>
-                          → clickable link, bare URL or with your own label.
-                        </dd>
-                        <dt>Lists</dt>
-                        <dd>
-                          <pre>* Item 1
+                              → clickable link, bare URL or with your own label.
+                            </dd>
+                            <dt>Lists</dt>
+                            <dd>
+                              <pre>* Item 1
   * Subitem 1
     * Subsubitem 1
 
@@ -1402,234 +1506,269 @@ tags: coding, example
 
 - [x] item done
 - [ ] item todo</pre>
-                          → bulleted list (indent = nesting), numbered list (number items in order), task list → ☑ / ☐.
-                        </dd>
-                      </dl>
-                    </Popover.Content>
-                  </Popover.Root>
-                {/if}
-              {/if}
-              <span class="spacer"></span>
-              {#if isPdf}
-                <RadioGroup.Root class="viewtoggle" bind:value={pdfMode} aria-label="PDF view">
-                  <RadioGroup.Item
-                    class={`seg ${pdfMode === "doc" ? "on" : ""}`}
-                    value="doc"
-                    title="rendered PDF pages"
-                  >
-                    <span class="material-symbols-rounded" aria-hidden="true">newsmode</span>Full
-                  </RadioGroup.Item>
-                  <RadioGroup.Item
-                    class={`seg ${pdfMode === "text" ? "on" : ""}`}
-                    value="text"
-                    title="extracted text (the coded canonical text)"
-                  >
-                    <span class="material-symbols-rounded" aria-hidden="true">convert_to_text</span>Plain Text
-                  </RadioGroup.Item>
-                </RadioGroup.Root>
-              {/if}
-              <Popover.Root bind:open={dlOpen}>
-                <Popover.Trigger class="pill" aria-label="download files" title="download project files">
-                  <span class="material-symbols-rounded" aria-hidden="true">download</span>
-                </Popover.Trigger>
-                <Popover.Content class="downloads" role="dialog" aria-label="download files">
-                  <div class="dlhead">
-                    <span>download from {data.folder}/</span>
-                    <button type="button" class="dlsel" onclick={toggleDlAll}>
-                      {dlSel.size === myDocs.length && myDocs.length > 0 ? "select none" : "select all"}
-                    </button>
-                  </div>
-                  <ul>
-                    {#each myDocs as a (a.id)}
-                      <li>
-                        <label>
-                          <input type="checkbox" checked={dlSel.has(a.id)} onchange={() => toggleDl(a.id)} />
-                          {displayName(a.name, a.kind)}
-                        </label>
-                      </li>
-                    {/each}
-                  </ul>
-                  <button
-                    type="button"
-                    class="dldl"
-                    disabled={dlSel.size === 0}
-                    onclick={() => void downloadSelected()}
-                  >
-                    <span class="material-symbols-rounded" aria-hidden="true">download</span>
-                    download {dlSel.size > 0 ? dlSel.size : ""}
-                  </button>
-                </Popover.Content>
-              </Popover.Root>
-              <Dialog.Trigger class="pill">
-                <span class="material-symbols-rounded" aria-hidden="true">palette</span>colors
-              </Dialog.Trigger>
-              <Popover.Root bind:open={versionsOpen}>
-                <Popover.Trigger class="save ghost vbtn" title="version history">
-                  <span class="material-symbols-rounded" aria-hidden="true">history</span>versions ({versionCount})
-                </Popover.Trigger>
-                <Popover.Content class="versions" role="dialog" aria-label="versions">
-                  <button type="button" class="vsnap" onclick={snapshot}>
-                    <span class="material-symbols-rounded" aria-hidden="true">add</span>snapshot now
-                  </button>
-                  {#each [...(article?.versions ?? [])].reverse() as v, i (i)}
-                    <div class="vrow">
-                      <span class="vat">{new Date(v.savedAt).toLocaleString()}</span>
-                      <span class="vcodes">{v.codes.length} codes</span>
-                      <button type="button" class="vrev" onclick={() => revertTo(v)}>
-                        <span class="material-symbols-rounded" aria-hidden="true">undo</span>revert
-                      </button>
-                    </div>
-                  {:else}
-                    <p class="vempty">No versions yet — snapshot the current state.</p>
-                  {/each}
-                </Popover.Content>
-              </Popover.Root>
-              {#if pending}
-                <button type="button" class="save" onclick={save} disabled={saving}>
-                  {saving ? "saving…" : "save"}
-                </button>
-              {:else}
-                <span class="msg saved">saved</span>
-              {/if}
-              {#if saveMsg}<span class="msg">{saveMsg}</span>{/if}
-              {#if editMsg}<span class="msg err">{editMsg}</span>{/if}
-            </div>
-          </header>
-          {#if isPdf && pdfMode === "doc"}
-            {#if pdfDoc !== null && PdfViewComp !== null}
-              <PdfViewComp
-                data={pdfDoc.data}
-                text={docText}
-                marks={pdfMarks}
-                armed={armed !== null}
-                {smart}
-                preview={previewRange}
-                onadd={(from, to) => addEntryFromOffsets(from, to, false)}
-                onselect={(r) => (selRange = r)}
-                onpreview={(r) => (previewRange = r)}
-                onhovermark={chipHover}
-              />
-            {:else}
-              <div class="pdfmissing">no stored PDF for this document — re-upload it to render the pages</div>
-            {/if}
-          {:else}
-            <div
-              class="editor"
-              class:arm={armed !== null}
-              class:smartsel={smart}
-              style={armed !== null ? markerVars(armedLabel) : ""}
-              bind:this={parent}
-            ></div>
-          {/if}
-        </div>
-        <aside class="catalog" class:closed={!catOpen} data-pal={paletteTick}>
-          <Collapsible.Root class="catroot" bind:open={catOpen}>
-            <Collapsible.Trigger class="catbtn" aria-label="toggle devices codes">
-              <span class="material-symbols-rounded" aria-hidden="true">account_tree</span>
-              {#if catOpen}Devices codes{/if}
-            </Collapsible.Trigger>
-            <Collapsible.Content class="catbody">
-              <div class="cathd">
-                <div class="cathead">
-                  <button
-                    type="button"
-                    class="cattool addcat"
-                    title="add a new code category (top-level device)"
-                    onclick={() => startAdd(null)}
-                  >
-                    <span class="material-symbols-rounded" aria-hidden="true">add</span>new category
-                  </button>
-                  <button
-                    type="button"
-                    class="cattool addcode"
-                    title={armed === null
-                      ? "add a new code (top-level; arm a device first to nest under it)"
-                      : "add a new code under the armed device"}
-                    onclick={() => startAdd(armed)}
-                  >
-                    <span class="material-symbols-rounded" aria-hidden="true">add</span>new code
-                  </button>
-                  {#if !editCat && localCatalog !== null}
-                    <button type="button" class="editcat" aria-label="edit devices" onclick={startEditCat}>
-                      <span class="material-symbols-rounded" aria-hidden="true">edit</span>Edit
-                    </button>
+                              → bulleted list (indent = nesting), numbered list (number items in order), task list → ☑ / ☐.
+                            </dd>
+                          </dl>
+                        </Popover.Content>
+                      </Popover.Portal>
+                    </Popover.Root>
                   {/if}
-                </div>
-                {#if !editCat && localCatalog !== null}
-                  <div class="cattools">
-                    <button type="button" class="cattool" onclick={exportCatJson} title="export frame devices as JSON">
-                      <span class="material-symbols-rounded" aria-hidden="true">file_download</span>json
-                    </button>
-                    <button
-                      type="button"
-                      class="cattool"
-                      onclick={exportCatQdc}
-                      title="export frame devices as .qdc (lossy)"
-                    >
-                      <span class="material-symbols-rounded" aria-hidden="true">file_download</span>.qdc
-                    </button>
-                    <button
-                      type="button"
-                      class="cattool"
-                      onclick={() => catImport?.click()}
-                      title="import frame devices from .json or .qdc"
-                    >
-                      <span class="material-symbols-rounded" aria-hidden="true">file_upload</span>import
-                    </button>
-                    <input
-                      type="file"
-                      accept=".json,.qdc"
-                      class="catfile"
-                      bind:this={catImport}
-                      onchange={(e) => void importCat(e)}
-                    />
-                  </div>
                 {/if}
-                {#if editCat && draft}
-                  <div class="catbar">
-                    <button type="button" class="catfinish" onclick={saveCat} disabled={catBusy}>
-                      {catBusy ? "saving…" : "save catalog"}
-                    </button>
-                    <button type="button" class="catcancel" onclick={cancelCat}>cancel</button>
-                    <button type="button" class="cattool" onclick={() => draftAdd(null)} title="add a top-level device">
-                      <span class="material-symbols-rounded" aria-hidden="true">add</span>new device
-                    </button>
-                    {#if localCatalog !== null}
-                      <button type="button" class="catcancel" onclick={resetCat} title="discard the local catalog"
-                        >remove catalog</button
+                <span class="spacer"></span>
+                {#if isPdf}
+                  <RadioGroup.Root class="viewtoggle" bind:value={pdfMode} aria-label="PDF view">
+                    <RadioGroup.Item
+                      class={`seg ${pdfMode === "doc" ? "on" : ""}`}
+                      value="doc"
+                      title="rendered PDF pages"
+                    >
+                      <span class="material-symbols-rounded" aria-hidden="true">newsmode</span>Full
+                    </RadioGroup.Item>
+                    <RadioGroup.Item
+                      class={`seg ${pdfMode === "text" ? "on" : ""}`}
+                      value="text"
+                      title="extracted text (the coded canonical text)"
+                    >
+                      <span class="material-symbols-rounded" aria-hidden="true">convert_to_text</span>Plain Text
+                    </RadioGroup.Item>
+                  </RadioGroup.Root>
+                {/if}
+                <Popover.Root bind:open={dlOpen}>
+                  <Popover.Trigger class="pill" aria-label="download files" title="download project files">
+                    <span class="material-symbols-rounded" aria-hidden="true">download</span>
+                  </Popover.Trigger>
+                  <Popover.Portal>
+                    <Popover.Content class="downloads" role="dialog" aria-label="download files">
+                      <div class="dlhead">
+                        <span>download from {data.folder}/</span>
+                        <button type="button" class="dlsel" onclick={toggleDlAll}>
+                          {dlSel.size === myDocs.length && myDocs.length > 0 ? "select none" : "select all"}
+                        </button>
+                      </div>
+                      <ul>
+                        {#each myDocs as a (a.id)}
+                          <li>
+                            <label>
+                              <input type="checkbox" checked={dlSel.has(a.id)} onchange={() => toggleDl(a.id)} />
+                              {displayName(a.name, a.kind)}
+                            </label>
+                          </li>
+                        {/each}
+                      </ul>
+                      <button
+                        type="button"
+                        class="dldl"
+                        disabled={dlSel.size === 0}
+                        onclick={() => void downloadSelected()}
                       >
-                    {/if}
-                    {#if catMsg}<span class="msg err">{catMsg}</span>{/if}
-                  </div>
+                        <span class="material-symbols-rounded" aria-hidden="true">download</span>
+                        download {dlSel.size > 0 ? dlSel.size : ""}
+                      </button>
+                    </Popover.Content>
+                  </Popover.Portal>
+                </Popover.Root>
+                <Dialog.Trigger class="pill">
+                  <span class="material-symbols-rounded" aria-hidden="true">palette</span>colors
+                </Dialog.Trigger>
+                <Popover.Root bind:open={versionsOpen}>
+                  <Popover.Trigger class="save ghost vbtn" title="version history">
+                    <span class="material-symbols-rounded" aria-hidden="true">history</span>versions ({versionCount})
+                  </Popover.Trigger>
+                  <Popover.Portal>
+                    <Popover.Content class="versions" role="dialog" aria-label="versions">
+                      <button type="button" class="vsnap" onclick={snapshot}>
+                        <span class="material-symbols-rounded" aria-hidden="true">add</span>snapshot now
+                      </button>
+                      {#each [...(article?.versions ?? [])].reverse() as v, i (i)}
+                        <div class="vrow">
+                          <span class="vat">{new Date(v.savedAt).toLocaleString()}</span>
+                          <span class="vcodes">{v.codes.length} codes</span>
+                          <button type="button" class="vrev" onclick={() => revertTo(v)}>
+                            <span class="material-symbols-rounded" aria-hidden="true">undo</span>revert
+                          </button>
+                        </div>
+                      {:else}
+                        <p class="vempty">No versions yet — snapshot the current state.</p>
+                      {/each}
+                    </Popover.Content>
+                  </Popover.Portal>
+                </Popover.Root>
+                {#if pending}
+                  <button type="button" class="save" onclick={save} disabled={saving}>
+                    {saving ? "saving…" : "save"}
+                  </button>
+                {:else}
+                  <span class="msg saved">saved</span>
                 {/if}
+                {#if saveMsg}<span class="msg">{saveMsg}</span>{/if}
+                {#if editMsg}<span class="msg err">{editMsg}</span>{/if}
               </div>
-              {#if catIoMsg}<p class="catio">{catIoMsg}</p>{/if}
-              {#if editCat && draft}
-                <CatalogTree
-                  catalog={draftView}
-                  selected={armed}
-                  styleFor={(n) => colorVars(n.code)}
-                  onhover={(id) => (hoverDevice = id)}
-                  editing
-                  onrename={draftRename}
-                  ontag={draftTag}
-                  onmove={draftMove}
-                  onadd={draftAdd}
-                  ondelete={askDeleteDevice}
+            </header>
+            {#if isPdf && pdfMode === "doc"}
+              {#if pdfDoc !== null && PdfViewComp !== null}
+                <PdfViewComp
+                  data={pdfDoc.data}
+                  text={docText}
+                  marks={pdfMarks}
+                  armed={armed !== null}
+                  {smart}
+                  preview={previewRange}
+                  onadd={(from, to) => addEntryFromOffsets(from, to, false)}
+                  onselect={(r) => (selRange = r)}
+                  onpreview={(r) => (previewRange = r)}
+                  onhovermark={chipHover}
                 />
               {:else}
-                <CatalogTree
-                  {catalog}
-                  selected={armed}
-                  styleFor={(n) => colorVars(n.code)}
-                  onpick={pick}
-                  onhover={(id) => (hoverDevice = id)}
-                />
+                <div class="pdfmissing">no stored PDF for this document — re-upload it to render the pages</div>
               {/if}
-            </Collapsible.Content>
-          </Collapsible.Root>
-        </aside>
-      </div>
+            {:else}
+              <div
+                class="editor"
+                class:arm={armed !== null}
+                class:smartsel={smart}
+                style={armed !== null ? markerVars(armedCode) : ""}
+                bind:this={parent}
+              ></div>
+            {/if}
+          </div>
+        </Pane>
+        <PaneResizer class={`wshandle ${catOpen ? "" : "dim"}`} />
+        <Pane
+          bind:this={catPane}
+          collapsible
+          collapsedSize={WS_CAT.collapsed}
+          minSize={WS_CAT.min}
+          maxSize={WS_CAT.max}
+          defaultSize={WS_CAT.def}
+          onCollapse={() => (catOpen = false)}
+          onExpand={() => (catOpen = true)}
+        >
+          <aside class="catalog" class:closed={!catOpen} data-pal={paletteTick}>
+            <ScrollArea.Root class="wsarea" type="hover">
+              <ScrollArea.Viewport class="wsview catview">
+                <Collapsible.Root class="catroot" bind:open={catOpen}>
+                  <Collapsible.Trigger class="catbtn" aria-label="toggle devices codes">
+                    <span class="material-symbols-rounded" aria-hidden="true">account_tree</span>
+                    {#if catOpen}Devices codes{/if}
+                  </Collapsible.Trigger>
+                  <Collapsible.Content class="catbody">
+                    <div class="cathd">
+                      <div class="cathead">
+                        <button
+                          type="button"
+                          class="cattool addcat"
+                          title="add a new code category (top-level device)"
+                          onclick={() => startAdd(null)}
+                        >
+                          <span class="material-symbols-rounded" aria-hidden="true">add</span>new category
+                        </button>
+                        <button
+                          type="button"
+                          class="cattool addcode"
+                          title={armed === null
+                            ? "add a new code (top-level; arm a device first to nest under it)"
+                            : "add a new code under the armed device"}
+                          onclick={() => startAdd(armed)}
+                        >
+                          <span class="material-symbols-rounded" aria-hidden="true">add</span>new code
+                        </button>
+                        {#if !editCat && localCatalog !== null}
+                          <button type="button" class="editcat" aria-label="edit devices" onclick={startEditCat}>
+                            <span class="material-symbols-rounded" aria-hidden="true">edit</span>Edit
+                          </button>
+                        {/if}
+                      </div>
+                      {#if !editCat && localCatalog !== null}
+                        <div class="cattools">
+                          <button
+                            type="button"
+                            class="cattool"
+                            onclick={exportCatJson}
+                            title="export frame devices as JSON"
+                          >
+                            <span class="material-symbols-rounded" aria-hidden="true">file_download</span>json
+                          </button>
+                          <button
+                            type="button"
+                            class="cattool"
+                            onclick={exportCatQdc}
+                            title="export frame devices as .qdc (lossy)"
+                          >
+                            <span class="material-symbols-rounded" aria-hidden="true">file_download</span>.qdc
+                          </button>
+                          <button
+                            type="button"
+                            class="cattool"
+                            onclick={() => catImport?.click()}
+                            title="import frame devices from .json or .qdc"
+                          >
+                            <span class="material-symbols-rounded" aria-hidden="true">file_upload</span>import
+                          </button>
+                          <input
+                            type="file"
+                            accept=".json,.qdc"
+                            class="catfile"
+                            bind:this={catImport}
+                            onchange={(e) => void importCat(e)}
+                          />
+                        </div>
+                      {/if}
+                      {#if editCat && draft}
+                        <div class="catbar">
+                          <button type="button" class="catfinish" onclick={saveCat} disabled={catBusy}>
+                            {catBusy ? "saving…" : "save catalog"}
+                          </button>
+                          <button type="button" class="catcancel" onclick={cancelCat}>cancel</button>
+                          <button
+                            type="button"
+                            class="cattool"
+                            onclick={() => draftAdd(null)}
+                            title="add a top-level device"
+                          >
+                            <span class="material-symbols-rounded" aria-hidden="true">add</span>new device
+                          </button>
+                          {#if localCatalog !== null}
+                            <button type="button" class="catcancel" onclick={resetCat} title="discard the local catalog"
+                              >remove catalog</button
+                            >
+                          {/if}
+                          {#if catMsg}<span class="msg err">{catMsg}</span>{/if}
+                        </div>
+                      {/if}
+                    </div>
+                    {#if catIoMsg}<p class="catio">{catIoMsg}</p>{/if}
+                    {#if editCat && draft}
+                      <CatalogTree
+                        catalog={draftView}
+                        selected={armed}
+                        styleFor={(n) => colorVars(n.code)}
+                        onhover={(id) => (hoverDevice = id)}
+                        editing
+                        onrename={draftRename}
+                        ontag={draftTag}
+                        onmove={draftMove}
+                        onadd={draftAdd}
+                        ondelete={askDeleteDevice}
+                      />
+                    {:else}
+                      <CatalogTree
+                        {catalog}
+                        selected={armed}
+                        styleFor={(n) => colorVars(n.code)}
+                        onpick={pick}
+                        onhover={(id) => (hoverDevice = id)}
+                      />
+                    {/if}
+                  </Collapsible.Content>
+                </Collapsible.Root>
+              </ScrollArea.Viewport>
+              <ScrollArea.Scrollbar class="wsbar" orientation="vertical">
+                <ScrollArea.Thumb class="wsthumb" />
+              </ScrollArea.Scrollbar>
+            </ScrollArea.Root>
+          </aside>
+        </Pane>
+      </PaneGroup>
 
       <Dialog.Overlay class="dlg-overlay" />
       <Dialog.Content class="colorsdlg" aria-label="colors">
@@ -1675,7 +1814,7 @@ tags: coding, example
         </div>
       {/if}
       {#if armed !== null && !dragging}
-        <div class="ctag" style={`left: ${cursor.x + 14}px; top: ${cursor.y + 14}px; ${markerVars(armedLabel)}`}>
+        <div class="ctag" style={`left: ${cursor.x + 14}px; top: ${cursor.y + 14}px; ${markerVars(armedCode)}`}>
           {armedLabel}
         </div>
       {/if}
@@ -1686,6 +1825,21 @@ tags: coding, example
       title={confirmAction?.title ?? ""}
       detail={confirmAction?.detail ?? ""}
       onconfirm={() => confirmAction?.run()}
+    />
+
+    <QuickSelect
+      enabled={mode === "code" && mounted && !renaming && !colorsOpen && !confirmOpen}
+      tree={catalog}
+      nodeById={quickNodes}
+      display={quickDisplay}
+      pins={quick.pins}
+      labelOf={quickLabel}
+      nameOf={(id) => nameByDevice.get(id) ?? id}
+      styleFor={quickStyle}
+      onpick={quickPick}
+      oncancel={() => (armed = null)}
+      onpinid={quickPinId}
+      onpin={(i, id) => quick.pin(i, id)}
     />
   </main>
 {/if}
@@ -1724,6 +1878,7 @@ tags: coding, example
     display: inline-flex;
     align-items: center;
     gap: 0.3rem;
+    white-space: nowrap;
     color: var(--on-surface-variant, #666);
     padding: 0.15rem 0.7rem;
     border: 0;
@@ -1770,26 +1925,67 @@ tags: coding, example
     }
   }
 
-  .workspace {
-    display: grid;
-    grid-template-columns: 13rem minmax(0, 1fr) 17rem;
-    gap: 1.5rem;
-    align-items: stretch;
+  /* resizable workspace: PaneForge lays the panes out as a flex row and writes its
+     own inline display/width/height styles, so the overrides here need !important.
+     The group renders its own element → :global (scoped CSS cannot match it) */
+  :global(.workspace) {
+    gap: 0.75rem;
     flex: 1;
     min-height: 0;
-    /* aside collapses slide the grid columns */
-    transition: grid-template-columns 0.22s ease;
+    height: auto !important;
+  }
 
-    &.treeclosed {
-      grid-template-columns: auto minmax(0, 1fr) 17rem;
+  /* the panes render their own divs: they carry the column layout the asides expect */
+  :global([data-pane]) {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+  }
+
+  /* drag handle between two panes: a fixed-width hit area (so thickening never shifts
+     the layout) with a 1px line centered in it; the line thickens + takes the primary
+     color under the pointer, while dragged, and on keyboard focus */
+  :global(.wshandle) {
+    position: relative;
+    flex: 0 0 9px;
+    align-self: stretch;
+    padding: 0;
+    border: none;
+    background: transparent;
+    touch-action: none;
+
+    &::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 50%;
+      width: 1px;
+      margin-left: -0.5px;
+      border-radius: 999px;
+      background: var(--outline, #888);
+      opacity: 0.5;
+      transition:
+        width 0.14s ease,
+        margin-left 0.14s ease,
+        opacity 0.14s ease,
+        background 0.14s ease;
     }
 
-    &.catclosed {
-      grid-template-columns: 13rem minmax(0, 1fr) auto;
+    /* a collapsed sidebar's rail: faint, but it stays draggable — dragging it back
+       out expands the pane and the Collapsible state follows via onExpand */
+    &.dim::before {
+      opacity: 0.22;
     }
 
-    &.treeclosed.catclosed {
-      grid-template-columns: auto minmax(0, 1fr) auto;
+    &:hover::before,
+    &:focus-visible::before,
+    &[data-active]::before {
+      width: 5px;
+      margin-left: -2.5px;
+      opacity: 1;
+      background: var(--primary, #6750a4);
     }
   }
 
@@ -1811,7 +2007,6 @@ tags: coding, example
     display: flex;
     flex-direction: column;
     height: 100%;
-    overflow-y: auto;
 
     .cathd {
       position: sticky;
@@ -1868,16 +2063,7 @@ tags: coding, example
     display: flex;
     flex-direction: column;
     gap: 0.4rem;
-    border-right: 1px solid var(--outline, #ccc);
-    padding-right: 0.75rem;
     height: 100%;
-
-    /* collapsed: the column shrinks to just the toggle button — no padding/border
-       eating space, so the editor content runs close to the edge */
-    &.closed {
-      padding-right: 0;
-      border-right: none;
-    }
   }
   /* Bits Collapsible.Root renders a wrapper div — it carries the column layout */
   :global(.treeroot) {
@@ -1916,10 +2102,8 @@ tags: coding, example
   :global(.docsbody) {
     display: flex;
     flex-direction: column;
-    gap: 0.15rem;
     flex: 1;
     min-height: 0;
-    overflow: auto;
     transition: opacity 0.18s ease;
   }
   /* Bits keeps closed content mounted with [hidden] — restore the UA's display:none
@@ -2140,13 +2324,19 @@ tags: coding, example
       overflow: visible;
     }
 
-    .workspace {
-      grid-template-columns: 1fr;
+    :global(.workspace) {
+      /* stacked: the panes become plain full-width blocks and the rails go away */
+      display: block !important;
+      height: auto !important;
 
-      &.treeclosed,
-      &.catclosed,
-      &.treeclosed.catclosed {
-        grid-template-columns: 1fr;
+      :global([data-pane]) {
+        flex: none !important;
+        width: 100%;
+        overflow: visible !important;
+      }
+
+      :global(.wshandle) {
+        display: none;
       }
     }
 
@@ -2168,14 +2358,98 @@ tags: coding, example
     }
   }
 
+  /* Bits ScrollArea (tree + catalog panes): the Root fills its flex parent, the
+     Viewport is the scroller (Bits sets its overflow inline), and Bits' own content
+     wrapper carries the column layout while staying tall enough to fill the pane */
+  :global(.wsarea) {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+  }
+  :global(.wsview) {
+    /* the app has no global border-box reset: without this the 10px gutter would add
+       to the viewport's width and the rail would sit on top of the rows */
+    box-sizing: border-box;
+    width: 100%;
+    height: 100%;
+    /* gutter for the overlay rail: the content ends before it, so the rail never
+       sits on top of the rows it scrolls */
+    padding-right: 10px;
+  }
+  :global(.wsview > [data-scroll-area-content]) {
+    display: flex;
+    flex-direction: column;
+    min-height: 100%;
+    min-width: 0;
+  }
+  :global(.treeview > [data-scroll-area-content]) {
+    gap: 0.15rem;
+  }
+  :global(.catview > [data-scroll-area-content]) {
+    gap: 0.4rem;
+  }
+  /* hover-fade scrollbar in the theme's colors (Bits fades it via data-state) */
+  :global(.wsbar) {
+    width: 8px;
+    /* Bits pins the rail at right:0 of the Root: nudge it off the pane edge */
+    margin-right: 2px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--surface-variant, #ddd) 55%, transparent);
+    transition: opacity 0.18s ease;
+
+    &[data-state="hidden"] {
+      opacity: 0;
+    }
+
+    &[data-state="visible"] {
+      opacity: 1;
+    }
+  }
+  :global(.wsthumb) {
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--primary, #6750a4) 55%, transparent);
+  }
+
+  /* the editor keeps CodeMirror's own scroller (sticky gutters, decorations and
+     scrollIntoView all anchor to it) — themed to match the panes above */
+  :global(.cm-scroller) {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--primary, #6750a4) 45%, transparent) transparent;
+  }
+  :global(.cm-scroller::-webkit-scrollbar) {
+    width: 10px;
+    height: 10px;
+  }
+  :global(.cm-scroller::-webkit-scrollbar-thumb) {
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--primary, #6750a4) 45%, transparent);
+    background-clip: content-box;
+  }
+  :global(.cm-scroller::-webkit-scrollbar-track) {
+    background: transparent;
+  }
+
   .bar {
     display: flex;
     align-items: center;
-    flex-wrap: wrap;
+    /* the bar never wraps: fixed pills keep their size, the flexible parts shrink */
+    flex-wrap: nowrap;
+    /* narrow window: the pills overflow sideways instead of being clipped away,
+       so every control stays reachable (a hidden overflow also let floating-ui
+       scroll the bar out from under an open popover) */
+    overflow-x: auto;
+    scrollbar-width: none;
     gap: 0.75rem;
     min-height: 1.6rem;
     font-size: 0.8rem;
     margin-bottom: 0.5rem;
+
+    > * {
+      flex: 0 0 auto;
+      /* nowrap bar: a shrinking pill must never break its own label */
+      white-space: nowrap;
+    }
 
     /* back to the project this document belongs to */
     .back {
@@ -2184,6 +2458,11 @@ tags: coding, example
 
     .hint {
       font-style: italic;
+      flex: 0 1 auto;
+      min-width: 0;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
     }
 
     .msg {
@@ -2204,7 +2483,8 @@ tags: coding, example
     }
 
     .spacer {
-      flex: 1;
+      flex: 1 1 0;
+      min-width: 0;
     }
 
     .modebtn {
@@ -2601,6 +2881,8 @@ tags: coding, example
     font: inherit;
     display: inline-flex;
     align-items: center;
+    flex: 0 0 auto;
+    white-space: nowrap;
     gap: 0.3rem;
     padding: 0.15rem 0.6rem;
     border-radius: 999px;
@@ -2620,6 +2902,8 @@ tags: coding, example
   :global(.smart) {
     cursor: pointer;
     user-select: none;
+    flex: 0 0 auto;
+    white-space: nowrap;
     display: inline-flex;
     align-items: center;
     gap: 0.35rem;

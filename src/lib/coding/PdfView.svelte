@@ -585,6 +585,8 @@
   }
 
   function onDown(e: MouseEvent): void {
+    // right button belongs to the quick select menu: no caret placement, no preview
+    if (e.button !== 0) return;
     downX = e.clientX;
     downY = e.clientY;
     moved = false;

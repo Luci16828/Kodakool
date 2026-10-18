@@ -41,6 +41,9 @@ function renderArticle(name = NAME) {
 /** waits until the local article has been handed to CodeMirror */
 async function ready(): Promise<void> {
   await expect.element(page.getByRole("textbox")).toBeInTheDocument();
+  // the icon font arrives asynchronously: every icon width (and with it the bar's
+  // whole layout) jumps when it lands, so a click can straddle the shift
+  await document.fonts.ready;
 }
 
 const editor = () => page.getByRole("textbox").first();
@@ -69,6 +72,30 @@ async function caretAtEnd(): Promise<void> {
     position: { x: Math.max(0, Math.round(l.right - c.left) - 4), y: Math.round(l.top - c.top + l.height / 2) },
   });
 }
+
+/**
+ * Press + release one mouse button at a point inside the editor body.
+ * `detail: 1` matters: CodeMirror reads `detail: 0` as a triple click.
+ */
+function clickWithButton(button: number, x: number, y: number): void {
+  const content = document.querySelector(".cm-content") as HTMLElement;
+  const r = content.getBoundingClientRect();
+  const at = {
+    bubbles: true,
+    cancelable: true,
+    view: window,
+    detail: 1,
+    clientX: r.left + x,
+    clientY: r.top + y,
+    button,
+    buttons: button === 2 ? 2 : 1,
+  };
+  content.dispatchEvent(new MouseEvent("mousedown", at));
+  content.dispatchEvent(new MouseEvent("mouseup", at));
+}
+
+/** the editor's selection text (CodeMirror draws the native DOM selection) */
+const selText = () => window.getSelection()?.toString() ?? "";
 
 /** editor body without the floating code-label widgets */
 function editorText(): string {
@@ -178,11 +205,10 @@ describe("article coding page", () => {
     await ready();
 
     await page.getByRole("treeitem", { name: "Zitat" }).click();
-    await expect.element(page.getByText("armed").first()).toBeInTheDocument();
+    // the cursor tag is the arming indicator (the bar no longer spells it out)
     await expect.poll(() => document.querySelectorAll(".ctag").length).toBe(1);
 
     await userEvent.keyboard("{Escape}");
-    await expect.element(page.getByText("armed").first()).not.toBeInTheDocument();
     await expect.poll(() => document.querySelectorAll(".ctag").length).toBe(0);
   });
 
@@ -205,9 +231,32 @@ describe("article coding page", () => {
     expect(codes.find((c) => c.device === DEVICE_COMMENT)?.excerpt).toBe("Ein Zitat im Text");
   });
 
+  it("keeps the right button out of selection and coding", async () => {
+    const id = await seedArticle({ project: FOLDER, name: NAME, text: TEXT, entries: [quoteEntry] });
+
+    renderArticle();
+    await ready();
+
+    // the quick select menu rides the right button: a right press+release inside the
+    // editor must not select anything ...
+    clickWithButton(2, 5, 30);
+    expect(selText()).toBe("");
+
+    // ... while the same gesture with the left button selects the whole sentence
+    // (the selection text carries the floating `Z` chip of the seeded entry, so compare
+    // the letters only)
+    clickWithButton(0, 5, 30);
+    await expect.poll(() => selText().replace(/\s+/g, "")).toContain("ZitatimText");
+
+    // ... and a right release over a live selection must not code it
+    await page.getByRole("treeitem", { name: "Kommentar" }).click();
+    clickWithButton(2, 5, 30);
+    clickWithButton(2, 5, 30);
+    await expect.poll(async () => (await readCodes(id)).length).toBe(1);
+  });
+
   it("keeps the body read-only until edit mode, and arming returns to coding", async () => {
     await seedArticle({ project: FOLDER, name: NAME, text: TEXT, entries: [quoteEntry] });
-
     renderArticle();
     await ready();
 
@@ -224,7 +273,7 @@ describe("article coding page", () => {
 
     // arming a device auto-exits edit mode
     await page.getByRole("treeitem", { name: "Zitat" }).click();
-    await expect.element(page.getByText("armed").first()).toBeInTheDocument();
+    await expect.poll(() => document.querySelectorAll(".ctag").length).toBe(1);
     await editor().click({ position: { x: 5, y: 30 } });
     await userEvent.keyboard("Y");
     await expect.poll(editorText).not.toMatch(/Y/);
@@ -324,8 +373,8 @@ describe("article coding page", () => {
 
     // change the body, then revert to the snapshot
     await page.getByRole("button", { name: "edit text" }).click();
-    await editor().click({ position: { x: 5, y: 30 } });
-    await userEvent.keyboard("{End} CHANGED");
+    await caretAtEnd();
+    await userEvent.keyboard(" CHANGED");
     await expect.poll(editorText).toMatch(/CHANGED$/);
 
     await page.getByRole("button", { name: "versions (1)" }).click();
@@ -843,7 +892,7 @@ describe("article coding page", () => {
       new MouseEvent("mousemove", { bubbles: true }),
     );
     (document.querySelector(".tpopup") as HTMLElement).dispatchEvent(new MouseEvent("mouseenter"));
-    await new Promise((r) => setTimeout(r, 600)); // past the 400ms grace window
+    await new Promise((r) => setTimeout(r, 600)); // far past the 100ms grace window
     await expect.element(popup).toBeInTheDocument();
 
     // the popup is now usable: the note textarea accepts a selection
