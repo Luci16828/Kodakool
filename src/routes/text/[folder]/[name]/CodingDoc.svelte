@@ -38,6 +38,7 @@
     removeEntry,
     renameArticle,
     saveArticle,
+    setVersionLabel,
     watchArticle,
     watchArticles,
     type ArticleData,
@@ -161,7 +162,7 @@
     if (/^Untitled \d+(?:\.md)?$/i.test(node.value)) node.setSelectionRange(0, len);
     else node.setSelectionRange(len, len);
   }
-  /** snapshot history dialog (Bits Dialog) + the graph's live cursor */
+  /** snapshot history popover (Bits Popover on the versions pill) + the graph's live cursor */
   let versionsOpen = $state(false);
   /** snapshot the live document continues from: the graph node the next snapshot hangs on */
   let headVersion = $state<string | null>(null);
@@ -753,7 +754,6 @@
       const v = await addVersion(key, label, headVersion);
       if (v) headVersion = v.id;
       versionsOpen = false;
-      flashSaveMsg("version saved");
     } catch (e) {
       editMsg = String(e);
     }
@@ -792,8 +792,10 @@
   }
 
   /**
-   * Restore a snapshot: the current state is kept as a version first, and the live
-   * document continues from `v` afterwards — so the next snapshot forks off `v` in the graph.
+   * Restore a snapshot: the live document continues from `v` afterwards — so the next
+   * snapshot forks off `v` in the graph. The current working state is kept as a version
+   * first only when it actually differs from the snapshot it continues from (an
+   * unchanged state would just duplicate the head node).
    */
   async function revertTo(v: ArticleVersion): Promise<void> {
     if (key === "") return;
@@ -801,8 +803,9 @@
       clearTimeout(commitTimer);
       commitTimer = undefined;
     }
+    const dirty = hasPendingChanges();
     await flushCommit();
-    await addVersion(key, undefined, headVersion);
+    if (dirty) await addVersion(key, undefined, headVersion);
     headVersion = v.id;
     livePos.clear();
     if (view) view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: v.text } });
@@ -813,7 +816,45 @@
     pending = true;
     scheduleCommit(0);
     versionsOpen = false;
-    flashSaveMsg("reverted");
+  }
+
+  /** live text + codes differ from the snapshot the document continues from? */
+  function hasPendingChanges(): boolean {
+    const h = article?.versions.find((x) => x.id === headVersion) ?? null;
+    if (h === null) return true;
+    if (h.text !== liveDocText()) return true;
+    return codesKey(deriveCodes()) !== codesKey(h.codes);
+  }
+
+  /**
+   * Canonical coding-state fingerprint for the dirty check: content only (uid is
+   * identity, not content), key order fixed, entries order-independent — stored
+   * snapshots come back from RxDB with different key order than `deriveCodes` writes.
+   */
+  function codesKey(list: CodeEntry[]): string {
+    const items = list.map((e) =>
+      JSON.stringify([
+        e.device ?? null,
+        e.code ?? null,
+        e.line,
+        e.endLine ?? null,
+        e.range[0],
+        e.range[1],
+        e.excerpt,
+        e.note ?? null,
+      ]),
+    );
+    return JSON.stringify(items.sort());
+  }
+
+  /** relabel a snapshot from the graph's editable label inputs */
+  async function renameVersion(v: ArticleVersion, label: string): Promise<void> {
+    if (key === "") return;
+    try {
+      await setVersionLabel(key, v.id, label);
+    } catch (e) {
+      editMsg = String(e);
+    }
   }
 
   function startEditor(): void {
@@ -1119,13 +1160,12 @@
                   bind:open={versionsOpen}
                   onsnapshot={snapshot}
                   onrevert={revertTo}
+                  onrename={renameVersion}
                 />
                 {#if pending}
                   <button type="button" class="save" onclick={save} disabled={saving}>
                     {saving ? "saving…" : "save"}
                   </button>
-                {:else}
-                  <span class="msg saved">saved</span>
                 {/if}
                 {#if saveMsg}<span class="msg">{saveMsg}</span>{/if}
                 {#if editMsg}<span class="msg err">{editMsg}</span>{/if}
@@ -1519,10 +1559,6 @@
         color: #86d9a0;
       }
 
-      &.saved {
-        opacity: 0.6;
-      }
-
       &.err {
         color: #b3261e;
       }
@@ -1618,6 +1654,11 @@
   :global(.bar .save.ghost) {
     border-style: dashed;
     opacity: 0.8;
+
+    /* the history glyph reads oversized next to the pill's 0.8rem label */
+    .material-symbols-rounded {
+      font-size: 0.9rem;
+    }
   }
 
   :global(.smart) {

@@ -8,7 +8,7 @@ import type { ArticleVersion } from "$lib/client/coding-db";
  * that node — the next snapshot then branches off it, exactly like a git branch.
  *
  * This module is the pure translation from that DAG to the ordered list of drawing
- * operations a graph renderer replays (`@gitgraph/js`'s `branch()` / `commit()` API).
+ * operations the graph renderer replays (branch columns, connector lines, dots).
  * No DOM here, so the whole mapping is testable outside a browser.
  */
 

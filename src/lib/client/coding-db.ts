@@ -591,6 +591,25 @@ export async function addVersion(id: string, label?: string, parent?: string | n
   return version;
 }
 
+/**
+ * Rename a snapshot in place — the label input in the history popover writes
+ * through here. The graph identity (id + parent) is untouched; an empty label
+ * clears it back to the timestamp fallback.
+ */
+export async function setVersionLabel(id: string, versionId: string, label: string): Promise<void> {
+  const { articles } = await getDb();
+  const doc = await articles.findOne(id).exec();
+  if (!doc) return;
+  const versions = normalizeVersions(doc.toJSON().versions);
+  const v = versions.find((x) => x.id === versionId);
+  if (!v) return;
+  const clean = label.trim();
+  if (clean === "" ? v.label === undefined : v.label === clean) return;
+  if (clean === "") delete v.label;
+  else v.label = clean;
+  await doc.patch({ versions });
+}
+
 export async function renameArticle(id: string, name: string): Promise<void> {
   const { articles } = await getDb();
   const doc = await articles.findOne(id).exec();

@@ -367,18 +367,18 @@ describe("article coding page", () => {
     await expect.element(page.getByRole("button", { name: "versions (0)" })).toBeInTheDocument();
     await page.getByRole("button", { name: "versions (0)" }).click();
     await expect.element(page.getByText("No versions yet")).toBeInTheDocument();
-    await page.getByRole("button", { name: "snapshot now" }).click();
+    // the dashed pending node is the live working state: its dot snapshots it
+    await page.getByRole("button", { name: "snapshot current state" }).click();
     await expect.element(page.getByRole("button", { name: "versions (1)" })).toBeInTheDocument();
-    await expect.element(page.getByText("version saved")).toBeInTheDocument();
 
-    // change the body, then revert to the snapshot
+    // change the body, then revert via the commit dot: the changed state is kept as a version
     await page.getByRole("button", { name: "edit text" }).click();
     await caretAtEnd();
     await userEvent.keyboard(" CHANGED");
     await expect.poll(editorText).toMatch(/CHANGED$/);
 
     await page.getByRole("button", { name: "versions (1)" }).click();
-    await page.getByRole("button", { name: "revert" }).click();
+    await page.getByRole("button", { name: /revert to/ }).click();
 
     await expect.poll(editorText).toBe(TEXT);
     // the pre-revert state was kept as a new version
@@ -386,55 +386,75 @@ describe("article coding page", () => {
     await expect.poll(async () => (await getArticle(FOLDER, NAME))?.text).toBe(TEXT);
   });
 
-  it("names snapshots and draws the branching history as a graph", async () => {
+  it("names, renames and forks snapshots in the graph", async () => {
     await seedArticle({ project: FOLDER, name: NAME, text: TEXT, entries: [quoteEntry] });
 
     renderArticle();
     await ready();
 
-    // the graph is aria-hidden decoration: read it straight off the DOM
-    const graphDots = () => document.querySelectorAll(".histgraph circle").length;
-    const graphText = () => [...document.querySelectorAll(".histgraph text")].map((t) => t.textContent).join(" ");
-    const nameBox = () => page.getByRole("textbox", { name: "name this snapshot" });
+    // the graph is the whole UI: dots carry the actions, labels are editable inputs
+    const dots = () => document.querySelectorAll(".histgraph .crow:not(.pending) .cdot").length;
+    /** dot column (x offset) per row, newest first — the fork shows as a second column */
+    const columns = () =>
+      [...document.querySelectorAll(".histgraph .crow:not(.pending) .cdot")].map(
+        (el) => (el.getAttribute("style") ?? "").match(/left: (\d+)px/)?.[1],
+      );
+    const snapNow = () => page.getByRole("button", { name: "snapshot current state" });
+    const labelBox = () => page.getByRole("textbox", { name: "snapshot name" }).first();
 
-    // name the first snapshot — the label is stored and shown in the list
+    // the pending node shows the live time + (current); its + dot snapshots with the time as label
     await page.getByRole("button", { name: "versions (0)" }).click();
-    await nameBox().fill("Stand A");
-    await page.getByRole("button", { name: "snapshot now" }).click();
+    await expect.element(page.getByText("(current)")).toBeInTheDocument();
+    await snapNow().click();
     await expect.element(page.getByRole("button", { name: "versions (1)" })).toBeInTheDocument();
     const [a] = (await getArticle(FOLDER, NAME))!.versions;
-    expect(a.label).toBe("Stand A");
+    expect(a.label).toMatch(/\d/); // the live time became the label
     expect(a.parent).toBe(null);
 
+    // the snapshot is drawn as a dot with its label editable in place
     await page.getByRole("button", { name: "versions (1)" }).click();
-    await expect.poll(graphDots).toBe(1);
-    await expect.element(page.getByRole("listitem").filter({ hasText: "Stand A" })).toBeInTheDocument();
+    await expect.poll(dots).toBe(1);
+    await expect.element(labelBox()).toHaveValue(a.label!);
+    await labelBox().fill("Stand A2");
+    await userEvent.keyboard("{Enter}");
+    await expect.poll(async () => (await getArticle(FOLDER, NAME))!.versions[0].label).toBe("Stand A2");
 
     // a second snapshot continues the same line
-    await nameBox().fill("Stand B");
-    await page.getByRole("button", { name: "snapshot now" }).click();
+    await snapNow().click();
     await expect.poll(async () => (await getArticle(FOLDER, NAME))!.versions.length).toBe(2);
     const two = (await getArticle(FOLDER, NAME))!.versions;
     expect(two[1].parent).toBe(a.id);
 
-    // revert to Stand A: the live document continues from A, so the next snapshot forks off it
+    // revert to Stand A2: nothing changed since Stand B, so NO pre-revert version is made
     await page.getByRole("button", { name: "versions (2)" }).click();
-    await page.getByRole("listitem").filter({ hasText: "Stand A" }).getByRole("button", { name: "revert" }).click();
+    await page.getByRole("button", { name: /revert to Stand A2/ }).click();
     await expect.poll(editorText).toBe(TEXT);
+    await expect.poll(async () => (await getArticle(FOLDER, NAME))!.versions.length).toBe(2);
+
+    // going back onto a node that already has a child makes the live state a NEW
+    // branch: the pending node draws in its own column forking off A
+    const pendingLeft = () =>
+      (document.querySelector(".crow.pending .cdot")?.getAttribute("style") ?? "").match(/left: (\d+)px/)?.[1];
+    await page.getByRole("button", { name: "versions (2)" }).click();
+    await expect.poll(pendingLeft).toBe("31");
+
+    // the snapshot lands on that branch — the fork is a second dot column
+    await snapNow().click();
+    await expect.poll(async () => (await getArticle(FOLDER, NAME))!.versions.length).toBe(3);
+    const vers = (await getArticle(FOLDER, NAME))!.versions;
+    expect(vers[2].parent).toBe(a.id); // branched off A, not off B
 
     await page.getByRole("button", { name: "versions (3)" }).click();
-    await nameBox().fill("Stand C");
-    await page.getByRole("button", { name: "snapshot now" }).click();
+    await expect.poll(dots).toBe(3);
+    await expect.poll(columns).toEqual(["34", "12", "12"]); // C on its own line, B + A on main
 
-    await expect.poll(async () => (await getArticle(FOLDER, NAME))!.versions.length).toBe(4);
-    const vers = (await getArticle(FOLDER, NAME))!.versions;
-    expect(vers[2].parent).toBe(two[1].id); // the pre-revert state was kept
-    expect(vers[3].parent).toBe(a.id); // ... and the new snapshot branched off A
-
-    // the drawing shows the fork as a second branch line carrying its own label
-    await page.getByRole("button", { name: "versions (4)" }).click();
-    await expect.poll(graphDots).toBe(4);
-    await expect.poll(graphText).toMatch(/line 2/);
+    // the fork peels off just ABOVE A (y 120) — it must not run down A's column
+    // past B (y 100) before branching sideways
+    const forkPath = () =>
+      [...document.querySelectorAll(".histgraph .glines path")]
+        .map((p) => p.getAttribute("d") ?? "")
+        .find((d) => d.startsWith("M 41 60"));
+    await expect.poll(forkPath).toBe("M 41 60 V 120 H 19 V 140");
   });
 
   it("renames the document and follows to the new url", async () => {

@@ -193,7 +193,7 @@ describe("coding page edge cases", () => {
 
     // snapshot the initial one-entry state (no CodeMirror exists in this view)
     await page.getByRole("button", { name: "versions (0)" }).click();
-    await page.getByRole("button", { name: "snapshot now" }).click();
+    await page.getByRole("button", { name: "snapshot current state" }).click();
     await expect.element(page.getByRole("button", { name: "versions (1)" })).toBeInTheDocument();
 
     // code a second entry on the PDF surface
@@ -203,7 +203,7 @@ describe("coding page edge cases", () => {
 
     // revert must restore the snapshot — the view-less (PDF) commit path
     await page.getByRole("button", { name: "versions (1)" }).click();
-    await page.getByRole("button", { name: "revert" }).click();
+    await page.getByRole("button", { name: /revert to/ }).click();
 
     await expect.poll(async () => (await readCodes(id)).map((c) => c.excerpt)).toEqual(["Hello coding world."]);
     await expect.element(page.getByRole("button", { name: "versions (2)" })).toBeInTheDocument();
