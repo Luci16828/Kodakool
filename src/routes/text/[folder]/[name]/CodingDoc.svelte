@@ -4,51 +4,48 @@
   import { EditorView, keymap } from "@codemirror/view";
   import { Compartment, EditorState } from "@codemirror/state";
   import { history, historyKeymap } from "@codemirror/commands";
-  import { onDestroy, onMount } from "svelte";
+  import { onMount } from "svelte";
   import { SvelteMap, SvelteSet } from "svelte/reactivity";
-  import { FileUpload } from "melt/builders";
-  import { Collapsible, Dialog, Popover, RadioGroup, ScrollArea, Toggle } from "bits-ui";
+  import { Dialog, RadioGroup, Toggle } from "bits-ui";
   import { Pane, PaneGroup, PaneResizer } from "paneforge";
   import "material-symbols/rounded.css";
   import { buildPalette, onForFill, type CodeColor } from "$lib/coding/palette";
   import { useColors } from "$lib/coding/prefs.svelte";
-  import CatalogTree from "$lib/coding/CatalogTree.svelte";
-  import ColorPanel from "$lib/coding/ColorPanel.svelte";
-  import ConfirmDialog from "$lib/coding/ConfirmDialog.svelte";
+  import CatalogAside from "$lib/coding/CatalogAside.svelte";
+  import ColorsDialog from "$lib/coding/ColorsDialog.svelte";
+  import ConfirmHost from "$lib/coding/ConfirmHost.svelte";
+  import DocTree from "$lib/coding/DocTree.svelte";
+  import EntryPopup from "$lib/coding/EntryPopup.svelte";
+  import { EntryPopupCtl } from "$lib/coding/entry-popup.svelte";
+  import MarkdownHelp from "$lib/coding/MarkdownHelp.svelte";
+  import { ConfirmAsk } from "$lib/coding/confirm.svelte";
   import { entryFromOffsets, entryId, lineStarts, offsetsSpan } from "$lib/coding/edit";
   import { buildCatalogView } from "$lib/coding/catalog-view";
-  import { buildSnapshotGraph, listSnapshots, snapshotLabel } from "$lib/coding/history-graph";
+  import HistoryPanel from "$lib/coding/HistoryPanel.svelte";
   import { rankDevices, reconcileSlots } from "$lib/coding/quickselect";
   import { QuickPrefs } from "$lib/coding/quickselect.svelte";
   import QuickSelect from "$lib/coding/QuickSelect.svelte";
-  import { docIcon, displayName } from "$lib/coding/display";
-  import { parseCatalogFile } from "$lib/coding/import";
+  import { displayName } from "$lib/coding/display";
   import { mdExtensions } from "$lib/coding/code-md";
-  import { toQdc } from "$lib/coding/qdc";
-  import type { FrameDevice, Instructions } from "$lib/coding/instructions";
+  import type { Instructions } from "$lib/coding/instructions";
   import type { CatalogView } from "$lib/coding/catalog-view";
   import type { CodeEntry } from "$lib/coding/types";
   import {
     addVersion,
-    base64ToBytes,
-    clearLocalCatalog,
-    createArticle,
-    deleteArticle,
     getArticle,
-    getArticleById,
     getLocalCatalog,
     getPdfData,
     removeEntry,
     renameArticle,
     saveArticle,
-    saveLocalCatalog,
     watchArticle,
     watchArticles,
     type ArticleData,
     type ArticleSummary,
     type ArticleVersion,
   } from "$lib/client/coding-db";
-  import { uploadArticleFile, uploadArticleFolder } from "$lib/client/upload";
+  import DownloadPicker from "$lib/coding/DownloadPicker.svelte";
+  import UploadZone from "$lib/client/UploadZone.svelte";
   import { codingMarks, smartSelect, syncCodingMarks, type CodingMarkSpec } from "$lib/coding/code-mark";
 
   const { data }: { data: { folder: string; name: string } } = $props();
@@ -126,17 +123,17 @@
     mode = m;
     if (m === "edit") {
       armed = null;
-      popup = null;
+      pop.close();
     }
     if (view) view.dispatch({ effects: roComp.reconfigure(EditorState.readOnly.of(m === "code")) });
   }
   /** the app-wide color source (shared via context; the sliders below write to it) */
   const prefs = useColors();
-  /** entry whose detail popup is open (hover) + its anchored viewport position */
-  let popup = $state<{ id: string; x: number; y: number } | null>(null);
-  let popupNote = $state("");
-  /** pointer is over the popup itself (keeps it open across the chip→popup gap) */
-  let overPopup = false;
+  /** entry detail popup (chip-anchored note/delete panel) — state + grace timer in the ctl */
+  const pop = new EntryPopupCtl({
+    entries: () => entries,
+    key: () => key,
+  });
   /** current editor selection (rendered as just another mark) */
   let selRange: { from: number; to: number } | null = $state(null);
   /** span a smart click would select right now (hover preview mark) */
@@ -154,8 +151,6 @@
   let hoverDevice = $state<string | null>(null);
   /** segment id under the editor cursor (heats its narrowest entry) */
   let hoverId = $state<string | null>(null);
-  /** entry id under a hovered label chip (heats the entry everywhere) */
-  let hoverChip = $state<string | null>(null);
   /** inline rename of the document title */
   let renaming = $state(false);
   let renameDraft = $state("");
@@ -170,34 +165,12 @@
   let versionsOpen = $state(false);
   /** snapshot the live document continues from: the graph node the next snapshot hangs on */
   let headVersion = $state<string | null>(null);
-  /** snapshot the history dialog points at (graph ring + preview) */
-  let pickedVersion = $state<string | null>(null);
-  /** name typed for the next snapshot */
-  let snapName = $state("");
-  let HistoryGraphComp = $state<typeof import("$lib/coding/HistoryGraph.svelte").default | null>(null);
-  /** snapshot history as a commit graph — pure mapping, the drawing is HistoryGraph.svelte */
-  const historyGraph = $derived(buildSnapshotGraph(article?.versions ?? [], headVersion));
-  const pickedSnapshot = $derived((article?.versions ?? []).find((v) => v.id === pickedVersion) ?? null);
-  function pickVersion(v: ArticleVersion): void {
-    pickedVersion = v.id;
-  }
-  // the graph library is only needed once the dialog opens: keep it out of the main chunk
-  $effect(() => {
-    if (versionsOpen && HistoryGraphComp === null) {
-      void import("$lib/coding/HistoryGraph.svelte").then((m) => (HistoryGraphComp = m.default));
-    }
-  });
-  /** download picker + markdown cheatsheet popovers (Bits Popover) */
+  /** download picker popover (Bits Popover) */
   let dlOpen = $state(false);
-  let mdOpen = $state(false);
-  /** article ids picked in the download picker */
-  const dlSel = new SvelteSet<string>();
-  /** local frame-device catalog for this folder + edit draft */
+  /** the live editor body for the download picker (falls back to the extracted text) */
+  const liveDocText = () => (view ? view.state.doc.toString() : docText);
+  /** local frame-device catalog for this folder (the aside edits a draft of it) */
   let localCatalog = $state<Instructions | null>(null);
-  let editCat = $state(false);
-  let draft = $state<Instructions | null>(null);
-  let catMsg = $state("");
-  let catBusy = $state(false);
   /** colors customization popup (Bits Dialog) */
   let colorsOpen = $state(false);
   /** right-side document tree sidebar (Bits Collapsible) */
@@ -228,10 +201,8 @@
   });
   /** all local documents; the sidebar shows only this project's slice */
   let docs = $state<ArticleSummary[]>([]);
-  let docsBusy = $state(false);
-  /** shared delete confirmation: pending action + open flag (ConfirmDialog) */
-  let confirmAction = $state<{ title: string; detail: string; run: () => void } | null>(null);
-  let confirmOpen = $state(false);
+  /** shared delete confirmation controller (ConfirmHost renders the countdown dialog) */
+  const confirm = new ConfirmAsk();
 
   /** documents of THIS project only — other projects stay on the project screen */
   const myDocs = $derived.by(() =>
@@ -239,46 +210,6 @@
       .filter((a) => a.project === data.folder)
       .sort((x, y) => x.name.localeCompare(y.name, undefined, { numeric: true })),
   );
-
-  async function newDoc(project: string): Promise<void> {
-    docsBusy = true;
-    try {
-      const a = await createArticle(project);
-      await goto(resolve("/text/[folder]/[name]", { folder: a.project, name: a.name }));
-    } finally {
-      docsBusy = false;
-    }
-  }
-
-  /** open the shared ConfirmDialog for a destructive action */
-  function askDelete(title: string, detail: string, run: () => void): void {
-    confirmAction = { title, detail, run };
-    confirmOpen = true;
-  }
-  async function doDeleteDoc(a: ArticleSummary): Promise<void> {
-    await deleteArticle(a.id);
-    // deleting the document we are looking at returns to its project
-    if (a.project === data.folder && a.name === data.name)
-      await goto(resolve("/project/[folder]", { folder: a.project }));
-  }
-
-  /** Melt FileUpload dropzone: picked/dropped .txt/.md/.pdf files become local articles */
-  let uploadMsg = $state("");
-  const fileUpload = new FileUpload({
-    multiple: true,
-    accept: ".txt,.md,.pdf,text/plain,application/pdf",
-    onAccept: (f) => void uploadFile(f),
-  });
-  async function uploadFile(f: File): Promise<void> {
-    const r = await uploadArticleFile(data.folder, f, (m) => (uploadMsg = m));
-    uploadMsg = r.message;
-  }
-  /** folder picker (webkitdirectory): every .txt/.md/.pdf file inside becomes an article */
-  async function uploadFolder(e: Event): Promise<void> {
-    const input = e.target as HTMLInputElement;
-    const messages = await uploadArticleFolder(data.folder, input);
-    uploadMsg = messages[messages.length - 1] ?? "";
-  }
 
   const entryKeys = $derived(entries.map((e) => e.device ?? e.code ?? "").filter((k) => k !== ""));
   /** effective catalog: the local RxDB copy (seeded, imported, or edited) */
@@ -407,6 +338,10 @@
     return map;
   });
 
+  // catalog aside callbacks (the aside owns the edit draft + catalog IO)
+  const styleFor = (n: CatalogView) => colorVars(n.code);
+  const onhover = (id: string | null) => (hoverDevice = id);
+
   // ----- quick select menu (hold the right mouse button) -----
   /** slot preferences of this project + pins of this document (localStorage) */
   const quick = new QuickPrefs(
@@ -443,7 +378,7 @@
     if (mode === "edit") setMode("code");
     const sel = selRange;
     armed = id;
-    popup = null;
+    pop.close();
     saveMsg = "";
     editMsg = "";
     if (sel !== null && sel.to > sel.from) addEntryFromOffsets(sel.from, sel.to, true);
@@ -569,7 +504,7 @@
       const n = narrowest(seg.cov);
       if (n !== undefined) s.add(n.id);
     }
-    if (hoverChip !== null) s.add(hoverChip);
+    if (pop.hoverChip !== null) s.add(pop.hoverChip);
     return s;
   });
 
@@ -641,263 +576,21 @@
             id: p.id,
             hot: hotIds.has(p.id),
             faded: p.faded,
-            open: hoverChip === p.id,
+            open: pop.hoverChip === p.id,
           })),
         hot,
       });
     }
     return out;
   });
-  /** edit-mode tree built from the draft catalog */
-  const draftView = $derived(draft === null ? [] : buildCatalogView(draft, entryKeys));
-
-  function draftFind(ns: FrameDevice[], id: string): FrameDevice | null {
-    for (const n of ns) {
-      if (n.id === id) return n;
-      const f = draftFind(n.children, id);
-      if (f) return f;
-    }
-    return null;
-  }
-  function draftSiblings(ns: FrameDevice[], id: string): FrameDevice[] | null {
-    if (ns.some((d) => d.id === id)) return ns;
-    for (const n of ns) {
-      const f = draftSiblings(n.children, id);
-      if (f) return f;
-    }
-    return null;
-  }
-  function draftRename(id: string, name: string): void {
-    if (!draft) return;
-    const d = draftFind(draft.devices, id);
-    if (d) d.name = name;
-  }
-  function draftTag(id: string, tag: string): void {
-    if (!draft) return;
-    const d = draftFind(draft.devices, id);
-    if (!d) return;
-    const t = tag.trim();
-    if (t) d.tag = t;
-    else delete d.tag;
-  }
-  /** drop dragId onto targetId: downward moves land after the target, upward before it */
-  function draftMove(dragId: string, targetId: string): void {
-    if (!draft || dragId === targetId) return;
-    const list = draftSiblings(draft.devices, dragId);
-    if (!list || !list.some((d) => d.id === targetId)) return;
-    const from = list.findIndex((d) => d.id === dragId);
-    const to = list.findIndex((d) => d.id === targetId);
-    const [moved] = list.splice(from, 1);
-    const at = list.findIndex((d) => d.id === targetId);
-    list.splice(from <= to ? at + 1 : at, 0, moved);
-  }
-  /** new device under `parentId` (null = top level); fresh UUID, editable name */
-  function draftAdd(parentId: string | null): void {
-    if (!draft) return;
-    const parent = parentId === null ? null : draftFind(draft.devices, parentId);
-    const dev: FrameDevice = {
-      id: crypto.randomUUID(),
-      name: "New device",
-      kind: parent?.kind ?? "device",
-      examples: [],
-      children: [],
-    };
-    if (parent) parent.children.push(dev);
-    else draft.devices.push(dev);
-  }
-  /** remove a device from the draft (entries referencing it survive as orphans) */
-  function draftDelete(id: string): void {
-    if (!draft) return;
-    const list = draftSiblings(draft.devices, id);
-    if (!list) return;
-    const i = list.findIndex((d) => d.id === id);
-    if (i >= 0) list.splice(i, 1);
-  }
-  function askDeleteDevice(id: string): void {
-    if (!draft) return;
-    const d = draftFind(draft.devices, id);
-    if (!d) return;
-    const used = entries.filter((e) => e.device === id).length;
-    askDelete(
-      `Delete device "${d.name}"?`,
-      used > 0
-        ? `${used} code entr${used === 1 ? "y" : "ies"} use this device; they stay in the file as orphaned codes.`
-        : "No code entries use this device.",
-      () => draftDelete(id),
-    );
-  }
-  /** Proxy-safe deep clone: Svelte 5 props/$state are proxies and structuredClone rejects them. */
-  function plainClone<T>(v: T): T {
-    return JSON.parse(JSON.stringify(v)) as T;
-  }
-  function startEditCat(): void {
-    catMsg = "";
-    draft = plainClone(localCatalog);
-    editCat = true;
-  }
-  /** header add buttons: enter edit mode (starting an empty catalog when none exists)
-      and add a device — `new category` at top level, `new code` under the armed device */
-  function startAdd(parentId: string | null): void {
-    if (!editCat) {
-      draft = localCatalog === null ? { version: 1, title: data.folder, devices: [] } : plainClone(localCatalog);
-      editCat = true;
-    }
-    draftAdd(parentId);
-  }
-  function cancelCat(): void {
-    editCat = false;
-    draft = null;
-    catMsg = "";
-  }
-  async function saveCat(): Promise<void> {
-    if (!draft) return;
-    catBusy = true;
-    catMsg = "";
-    try {
-      await saveLocalCatalog(data.folder, draft);
-      localCatalog = plainClone(draft);
-      editCat = false;
-      draft = null;
-    } catch (e) {
-      catMsg = e instanceof Error ? e.message : String(e);
-    } finally {
-      catBusy = false;
-    }
-  }
-  async function resetCat(): Promise<void> {
-    await clearLocalCatalog(data.folder);
-    localCatalog = null;
-    cancelCat();
-  }
-
-  /** Blob download helper shared by document + catalog exports. */
-  function downloadText(filename: string, text: string, mime: string): void {
-    const blob = new Blob([text], { type: mime });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(a.href);
-  }
-
-  /** download picker: toggle one document of this project */
-  function toggleDl(id: string): void {
-    if (dlSel.has(id)) dlSel.delete(id);
-    else dlSel.add(id);
-  }
-  /** "select all" / "select none" for the picker */
-  function toggleDlAll(): void {
-    const all = dlSel.size === myDocs.length && myDocs.length > 0;
-    dlSel.clear();
-    if (!all) for (const a of myDocs) dlSel.add(a.id);
-  }
-  /** download every picked document: PDFs as their original bytes, texts as .md/.txt
-      (the open document uses its live editor body, incl. unsaved edits) */
-  async function downloadSelected(): Promise<void> {
-    for (const a of myDocs) {
-      if (!dlSel.has(a.id)) continue;
-      if (a.kind === "pdf") {
-        const pdf = await getPdfData(a.id);
-        if (pdf !== null) {
-          // .slice() gives a fresh ArrayBuffer-backed view (BlobPart requires it)
-          const blob = new Blob([base64ToBytes(pdf.data).slice()], { type: "application/pdf" });
-          const url = URL.createObjectURL(blob);
-          const link = document.createElement("a");
-          link.href = url;
-          link.download = displayName(a.name, "pdf");
-          link.click();
-          URL.revokeObjectURL(url);
-          continue;
-        }
-      }
-      const text =
-        a.id === key ? (view ? view.state.doc.toString() : docText) : ((await getArticleById(a.id))?.text ?? "");
-      if (text === "") continue;
-      const filename = displayName(a.name, a.kind);
-      downloadText(filename, text, /\.(md|markdown)$/i.test(filename) ? "text/markdown" : "text/plain");
-    }
-    dlOpen = false;
-  }
-
-  // ----- frame-device catalog export / import (local override only) -----
-
-  let catImport = $state<HTMLInputElement | undefined>(undefined);
-  let catIoMsg = $state("");
-
-  function exportCatJson(): void {
-    const instr = localCatalog;
-    if (!instr) return;
-    downloadText(`${data.folder}-devices.json`, JSON.stringify(instr, null, 2), "application/json");
-  }
-  function exportCatQdc(): void {
-    const instr = localCatalog;
-    if (!instr) return;
-    downloadText(
-      `${data.folder}.qdc`,
-      toQdc(instr, { origin: data.folder, options: prefs.options }),
-      "application/xml",
-    );
-  }
-  async function importCat(e: Event): Promise<void> {
-    const input = e.target as HTMLInputElement;
-    const file = input.files?.[0];
-    input.value = "";
-    if (!file) return;
-    try {
-      const parsed = parseCatalogFile(file.name, await file.text());
-      await saveLocalCatalog(data.folder, parsed);
-      localCatalog = parsed;
-      catIoMsg = `imported ${parsed.devices.length} top-level devices`;
-    } catch (err) {
-      catIoMsg = `import failed: ${err instanceof Error ? err.message : String(err)}`;
-    }
-  }
 
   const popupEntry = $derived.by(() => {
-    const id = popup?.id;
+    const id = pop.popup?.id;
     return id === undefined ? undefined : entries.find((e) => entryId(key, e) === id);
   });
-
-  /** (re)anchor the popup to the chip for `id`, resetting the note draft on a new tag */
-  function showPopup(id: string) {
-    // works for editor chips (.cm-tag) and PDF view chips alike
-    const el = document.querySelector(`[data-tag-entry="${CSS.escape(id)}"]`);
-    if (!el) return;
-    const r = el.getBoundingClientRect();
-    const x = Math.max(8, Math.min(r.left, window.innerWidth - 272));
-    if (popup === null || popup.id !== id) {
-      const e = entries.find((x) => entryId(key, x) === id);
-      popupNote = e?.note ?? "";
-    }
-    // anchor the popup ABOVE the chip: y is its distance from the viewport bottom
-    popup = { id, x, y: window.innerHeight - r.top };
-  }
-
-  /** chip hover: (re)anchor the popup; leaving a chip closes it after a short grace period
-      (bridges the chip→popup gap so the popup can actually be entered and used — the
-      popup sits directly above the chip, so crossing the gap takes far under 100ms) */
-  const POPUP_GRACE_MS = 100;
-  let popupTimer: ReturnType<typeof setTimeout> | null = null;
-  function chipHover(id: string | null): void {
-    if (id !== hoverChip) hoverChip = id;
-    if (id === null) {
-      if (!overPopup && popupTimer === null) {
-        popupTimer = setTimeout(() => {
-          popupTimer = null;
-          if (!overPopup && hoverChip === null) popup = null;
-        }, POPUP_GRACE_MS);
-      }
-    } else {
-      if (popupTimer !== null) {
-        clearTimeout(popupTimer);
-        popupTimer = null;
-      }
-      showPopup(id);
-    }
-  }
-  onDestroy(() => {
-    if (popupTimer !== null) clearTimeout(popupTimer);
-  });
+  const popupEntryKey = $derived(popupEntry?.device ?? popupEntry?.code ?? "");
+  const popupFullName = $derived(nameByDevice.get(popupEntryKey) ?? popupEntryKey);
+  const popupTag = $derived(tagFor(displayByDevice.get(popupEntryKey) ?? popupEntryKey));
 
   /** shared entry creation: editor mouseup and PdfView selection both land here */
   function addEntryFromOffsets(selFrom: number, selTo: number, fromEditor: boolean): void {
@@ -939,7 +632,7 @@
   }
 
   function setPopupNote(value: string) {
-    popupNote = value;
+    pop.note = value;
     const e = popupEntry;
     if (e === undefined) return;
     const id = entryId(key, e);
@@ -995,7 +688,7 @@
     if (!UUID_RE.test(id)) return;
     if (mode === "edit") setMode("code"); // any coding action auto-exits edit mode
     armed = armed === id ? null : id;
-    popup = null;
+    pop.close();
     saveMsg = "";
     editMsg = "";
   }
@@ -1051,18 +744,14 @@
     saving = false;
   }
 
-  async function snapshot() {
+  async function snapshot(label: string) {
     if (key === "" || (!view && !mounted)) return;
     await flushCommit();
     try {
       // the live article subscription already reports the new `versions.length`,
       // so counting up here would double-count when its change event lands first
-      const v = await addVersion(key, snapName, headVersion);
-      if (v) {
-        headVersion = v.id;
-        pickedVersion = v.id;
-      }
-      snapName = "";
+      const v = await addVersion(key, label, headVersion);
+      if (v) headVersion = v.id;
       versionsOpen = false;
       flashSaveMsg("version saved");
     } catch (e) {
@@ -1077,7 +766,7 @@
     pending = true;
     scheduleCommit();
     void removeEntry(key, e).catch((err: unknown) => (editMsg = String(err)));
-    popup = null;
+    pop.close();
   }
 
   function startRename(): void {
@@ -1115,7 +804,6 @@
     await flushCommit();
     await addVersion(key, undefined, headVersion);
     headVersion = v.id;
-    pickedVersion = v.id;
     livePos.clear();
     if (view) view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: v.text } });
     // PDF docs have no CodeMirror view: the extracted docText is the body
@@ -1173,7 +861,7 @@
           codingMarks(
             // hovering a chip (re)anchors its popup; leaving it closes the popup
             // unless the pointer moved into the popup itself
-            (id) => chipHover(id),
+            (id) => pop.chipHover(id),
             // marker hover is intentionally off (only tag/chip hover drives the
             // dimming) — kept as a no-op listener so the chip callbacks stay paired
             (id) => {
@@ -1265,6 +953,7 @@
 
     return () => {
       if (msgTimer !== undefined) clearTimeout(msgTimer);
+      pop.destroy();
       // a document switch remounts this component (keyed +page.svelte): flush queued edits first
       if (commitTimer !== undefined) {
         clearTimeout(commitTimer);
@@ -1297,7 +986,7 @@
   onkeydown={(e) => {
     if (e.key === "Escape") {
       armed = null;
-      popup = null;
+      pop.close();
     }
   }}
 />
@@ -1318,7 +1007,7 @@
   </main>
 {:else}
   <main>
-    <Dialog.Root bind:open={colorsOpen}>
+    <ColorsDialog bind:open={colorsOpen}>
       <PaneGroup class="workspace" direction="horizontal" autoSaveId={`workspace:${data.folder}`}>
         <Pane
           bind:this={treePane}
@@ -1330,93 +1019,7 @@
           onCollapse={() => (treeOpen = false)}
           onExpand={() => (treeOpen = true)}
         >
-          <aside class="docs" class:closed={!treeOpen}>
-            <Collapsible.Root class="treeroot" bind:open={treeOpen}>
-              <div class="docshead">
-                <Collapsible.Trigger
-                  class={`treebtn ${treeOpen ? "" : "closed"}`}
-                  aria-label="toggle document tree"
-                  title={treeOpen ? "collapse document tree" : "expand document tree"}
-                >
-                  <span class="material-symbols-rounded" aria-hidden="true">folder_open</span>
-                  {#if treeOpen}{data.folder}{/if}
-                </Collapsible.Trigger>
-                {#if treeOpen}
-                  <button
-                    type="button"
-                    class="newdoc"
-                    disabled={docsBusy}
-                    title="new document in {data.folder}"
-                    aria-label="new document in {data.folder}"
-                    onclick={() => void newDoc(data.folder)}
-                  >
-                    <span class="material-symbols-rounded" aria-hidden="true">note_add</span>
-                  </button>
-                {/if}
-              </div>
-              <Collapsible.Content class="docsbody">
-                <ScrollArea.Root class="wsarea" type="hover">
-                  <ScrollArea.Viewport class="wsview treeview">
-                    <div class="uprow">
-                      <div
-                        class="upload"
-                        {...fileUpload.dropzone}
-                        title="upload .txt/.md/.pdf files into {data.folder}/"
-                      >
-                        <span class="material-symbols-rounded" aria-hidden="true">upload</span>
-                        {fileUpload.isDragging ? `drop → ${data.folder}/` : `file → ${data.folder}/`}
-                      </div>
-                      <label class="upfolder" title="upload a whole folder of .txt/.md/.pdf files into {data.folder}/">
-                        <span class="material-symbols-rounded" aria-hidden="true">upload</span>folder
-                        <input type="file" webkitdirectory={true} onchange={(e) => void uploadFolder(e)} />
-                      </label>
-                    </div>
-                    <input {...fileUpload.input} />
-                    {#if uploadMsg}<span class="upmsg">{uploadMsg}</span>{/if}
-                    <div class="fgrow">
-                      <button
-                        type="button"
-                        class="fgroup sel"
-                        aria-pressed="true"
-                        title="selected upload target — uploads and new documents land in {data.folder}/"
-                      >
-                        <span class="material-symbols-rounded" aria-hidden="true">folder</span>{data.folder}/
-                        <span class="fcodes">{myDocs.length}</span></button
-                      >
-                    </div>
-                    <ul>
-                      {#each myDocs as a (a.id)}
-                        <li class:current={a.name === data.name}>
-                          <a href={resolve("/text/[folder]/[name]", { folder: a.project, name: a.name })}>
-                            <span class="material-symbols-rounded docicon" aria-hidden="true">{docIcon(a)}</span>
-                            {displayName(a.name, a.kind)}
-                          </a>
-                          <span class="fcodes">{a.codes}</span>
-                          <button
-                            type="button"
-                            class="fdel"
-                            title="delete document"
-                            aria-label={`delete ${displayName(a.name, a.kind)}`}
-                            onclick={() =>
-                              askDelete(
-                                `Delete "${displayName(a.name, a.kind)}"?`,
-                                `This removes the document and its ${a.codes} code entr${a.codes === 1 ? "y" : "ies"}.`,
-                                () => void doDeleteDoc(a),
-                              )}
-                          >
-                            <span class="material-symbols-rounded" aria-hidden="true">delete</span>
-                          </button>
-                        </li>
-                      {/each}
-                    </ul>
-                  </ScrollArea.Viewport>
-                  <ScrollArea.Scrollbar class="wsbar" orientation="vertical">
-                    <ScrollArea.Thumb class="wsthumb" />
-                  </ScrollArea.Scrollbar>
-                </ScrollArea.Root>
-              </Collapsible.Content>
-            </Collapsible.Root>
-          </aside>
+          <DocTree folder={data.folder} currentName={data.name} docs={myDocs} {confirm} bind:open={treeOpen} />
         </Pane>
         <PaneResizer class={`wshandle ${treeOpen ? "" : "dim"}`} />
         <Pane minSize={WS_DOC.min} defaultSize={WS_DOC.def}>
@@ -1478,73 +1081,7 @@
                     <span class="material-symbols-rounded" aria-hidden="true">done</span>finish
                   </button>
                   <span class="hint">editing mode</span>
-                  {#if isMd}
-                    <Popover.Root bind:open={mdOpen}>
-                      <Popover.Trigger class="pill mdhelp" title="markdown syntax cheatsheet">
-                        <span class="material-symbols-rounded" aria-hidden="true">format_size</span>Markdown
-                      </Popover.Trigger>
-                      <Popover.Portal>
-                        <Popover.Content class="cheatsheet" role="dialog" aria-label="markdown cheatsheet">
-                          <h3>Markdown cheatsheet</h3>
-                          <p class="cheatnote">
-                            This syntax only matters when the file is later converted to HTML or PDF (e.g. with pandoc)
-                            — plain reading ignores the markers.
-                          </p>
-                          <dl>
-                            <dt>YAML header — meta data at the very top</dt>
-                            <dd>
-                              <pre>---
-title: My document
-author: Me
-date: 2026-02-01
-tags: coding, example
----</pre>
-                              Not shown as text: the converter reads it as document meta data (title, author, date on the
-                              HTML/PDF title).
-                            </dd>
-                            <dt>Headers</dt>
-                            <dd>
-                              <pre># Header 1
-## Header 2
-### Header 3
-#### Header 4
-##### Header 5
-###### Header 6</pre>
-                              →<code>&lt;h1&gt;</code>…<code>&lt;h6&gt;</code>: big bold title down to a small heading.
-                            </dd>
-                            <dt>Text</dt>
-                            <dd>
-                              <pre>*italic*  _italic_
-**strong**  __strong__
-***italic & strong***  ___i&s___
-~~strikethrough~~</pre>
-                              →<em>italic</em>, <strong>bold</strong>, both, <del>strikethrough</del>.
-                            </dd>
-                            <dt>Links</dt>
-                            <dd>
-                              <pre>&lt;https://my_link.com&gt;
-[MyLinkname](https://my_link.com)</pre>
-                              → clickable link, bare URL or with your own label.
-                            </dd>
-                            <dt>Lists</dt>
-                            <dd>
-                              <pre>* Item 1
-  * Subitem 1
-    * Subsubitem 1
-
-1. Item 1
-2. Item 2
-3. Item 21
-
-- [x] item done
-- [ ] item todo</pre>
-                              → bulleted list (indent = nesting), numbered list (number items in order), task list → ☑ / ☐.
-                            </dd>
-                          </dl>
-                        </Popover.Content>
-                      </Popover.Portal>
-                    </Popover.Root>
-                  {/if}
+                  {#if isMd}<MarkdownHelp />{/if}
                 {/if}
                 <span class="spacer"></span>
                 {#if isPdf}
@@ -1565,95 +1102,24 @@ tags: coding, example
                     </RadioGroup.Item>
                   </RadioGroup.Root>
                 {/if}
-                <Popover.Root bind:open={dlOpen}>
-                  <Popover.Trigger class="pill" aria-label="download files" title="download project files">
-                    <span class="material-symbols-rounded" aria-hidden="true">download</span>
-                  </Popover.Trigger>
-                  <Popover.Portal>
-                    <Popover.Content class="downloads" role="dialog" aria-label="download files">
-                      <div class="dlhead">
-                        <span>download from {data.folder}/</span>
-                        <button type="button" class="dlsel" onclick={toggleDlAll}>
-                          {dlSel.size === myDocs.length && myDocs.length > 0 ? "select none" : "select all"}
-                        </button>
-                      </div>
-                      <ul>
-                        {#each myDocs as a (a.id)}
-                          <li>
-                            <label>
-                              <input type="checkbox" checked={dlSel.has(a.id)} onchange={() => toggleDl(a.id)} />
-                              {displayName(a.name, a.kind)}
-                            </label>
-                          </li>
-                        {/each}
-                      </ul>
-                      <button
-                        type="button"
-                        class="dldl"
-                        disabled={dlSel.size === 0}
-                        onclick={() => void downloadSelected()}
-                      >
-                        <span class="material-symbols-rounded" aria-hidden="true">download</span>
-                        download {dlSel.size > 0 ? dlSel.size : ""}
-                      </button>
-                    </Popover.Content>
-                  </Popover.Portal>
-                </Popover.Root>
+                <DownloadPicker
+                  folder={data.folder}
+                  docs={myDocs}
+                  liveId={key}
+                  liveText={liveDocText}
+                  bind:open={dlOpen}
+                />
                 <Dialog.Trigger class="pill">
                   <span class="material-symbols-rounded" aria-hidden="true">palette</span>colors
                 </Dialog.Trigger>
-                <Dialog.Root bind:open={versionsOpen}>
-                  <Dialog.Trigger class="save ghost vbtn" title="snapshot history">
-                    <span class="material-symbols-rounded" aria-hidden="true">history</span>versions ({versionCount})
-                  </Dialog.Trigger>
-                  <Dialog.Overlay class="dlg-overlay" />
-                  <Dialog.Content class="historydlg" aria-label="snapshot history">
-                    <Dialog.Close class="dlgclose" aria-label="close snapshot history">
-                      <span class="material-symbols-rounded" aria-hidden="true">close</span>
-                    </Dialog.Close>
-                    <div class="hsnap">
-                      <input
-                        class="vname"
-                        type="text"
-                        name="snapshot-name"
-                        placeholder="name this snapshot"
-                        maxlength="120"
-                        bind:value={snapName}
-                      />
-                      <button type="button" class="vsnap" onclick={snapshot}>
-                        <span class="material-symbols-rounded" aria-hidden="true">add</span>snapshot now
-                      </button>
-                    </div>
-                    {#if HistoryGraphComp !== null && (article?.versions.length ?? 0) > 0}
-                      <HistoryGraphComp
-                        versions={article?.versions ?? []}
-                        head={headVersion}
-                        selected={pickedVersion}
-                        onpick={pickVersion}
-                      />
-                    {/if}
-                    <ul class="vlist">
-                      {#each listSnapshots(article?.versions ?? []) as v (v.id)}
-                        <li class="vrow" class:live={v.id === headVersion} class:picked={v.id === pickedVersion}>
-                          <button type="button" class="vpick" onclick={() => pickVersion(v)}>
-                            <span class="vlabel">{snapshotLabel(v)}</span>
-                            <span class="vbranch">{historyGraph.branchOf.get(v.id) ?? ""}</span>
-                            <span class="vat">{new Date(v.savedAt).toLocaleString()}</span>
-                            <span class="vcodes">{v.codes.length} codes</span>
-                          </button>
-                          <button type="button" class="vrev" onclick={() => revertTo(v)}>
-                            <span class="material-symbols-rounded" aria-hidden="true">undo</span>revert
-                          </button>
-                        </li>
-                      {:else}
-                        <li class="vempty">No versions yet — name the current state and snapshot it.</li>
-                      {/each}
-                    </ul>
-                    {#if pickedSnapshot}
-                      <pre class="vprev">{pickedSnapshot.text}</pre>
-                    {/if}
-                  </Dialog.Content>
-                </Dialog.Root>
+                <HistoryPanel
+                  count={versionCount}
+                  versions={article?.versions ?? []}
+                  head={headVersion}
+                  bind:open={versionsOpen}
+                  onsnapshot={snapshot}
+                  onrevert={revertTo}
+                />
                 {#if pending}
                   <button type="button" class="save" onclick={save} disabled={saving}>
                     {saving ? "saving…" : "save"}
@@ -1677,7 +1143,7 @@ tags: coding, example
                   onadd={(from, to) => addEntryFromOffsets(from, to, false)}
                   onselect={(r) => (selRange = r)}
                   onpreview={(r) => (previewRange = r)}
-                  onhovermark={chipHover}
+                  onhovermark={(id) => pop.chipHover(id)}
                 />
               {:else}
                 <div class="pdfmissing">no stored PDF for this document — re-upload it to render the pages</div>
@@ -1704,192 +1170,41 @@ tags: coding, example
           onCollapse={() => (catOpen = false)}
           onExpand={() => (catOpen = true)}
         >
-          <aside class="catalog" class:closed={!catOpen} data-pal={paletteTick}>
-            <ScrollArea.Root class="wsarea" type="hover">
-              <ScrollArea.Viewport class="wsview catview">
-                <Collapsible.Root class="catroot" bind:open={catOpen}>
-                  <Collapsible.Trigger class="catbtn" aria-label="toggle devices codes">
-                    <span class="material-symbols-rounded" aria-hidden="true">account_tree</span>
-                    {#if catOpen}Devices codes{/if}
-                  </Collapsible.Trigger>
-                  <Collapsible.Content class="catbody">
-                    <div class="cathd">
-                      <div class="cathead">
-                        <button
-                          type="button"
-                          class="cattool addcat"
-                          title="add a new code category (top-level device)"
-                          onclick={() => startAdd(null)}
-                        >
-                          <span class="material-symbols-rounded" aria-hidden="true">add</span>new category
-                        </button>
-                        <button
-                          type="button"
-                          class="cattool addcode"
-                          title={armed === null
-                            ? "add a new code (top-level; arm a device first to nest under it)"
-                            : "add a new code under the armed device"}
-                          onclick={() => startAdd(armed)}
-                        >
-                          <span class="material-symbols-rounded" aria-hidden="true">add</span>new code
-                        </button>
-                        {#if !editCat && localCatalog !== null}
-                          <button type="button" class="editcat" aria-label="edit devices" onclick={startEditCat}>
-                            <span class="material-symbols-rounded" aria-hidden="true">edit</span>Edit
-                          </button>
-                        {/if}
-                      </div>
-                      {#if !editCat && localCatalog !== null}
-                        <div class="cattools">
-                          <button
-                            type="button"
-                            class="cattool"
-                            onclick={exportCatJson}
-                            title="export frame devices as JSON"
-                          >
-                            <span class="material-symbols-rounded" aria-hidden="true">file_download</span>json
-                          </button>
-                          <button
-                            type="button"
-                            class="cattool"
-                            onclick={exportCatQdc}
-                            title="export frame devices as .qdc (lossy)"
-                          >
-                            <span class="material-symbols-rounded" aria-hidden="true">file_download</span>.qdc
-                          </button>
-                          <button
-                            type="button"
-                            class="cattool"
-                            onclick={() => catImport?.click()}
-                            title="import frame devices from .json or .qdc"
-                          >
-                            <span class="material-symbols-rounded" aria-hidden="true">file_upload</span>import
-                          </button>
-                          <input
-                            type="file"
-                            accept=".json,.qdc"
-                            class="catfile"
-                            bind:this={catImport}
-                            onchange={(e) => void importCat(e)}
-                          />
-                        </div>
-                      {/if}
-                      {#if editCat && draft}
-                        <div class="catbar">
-                          <button type="button" class="catfinish" onclick={saveCat} disabled={catBusy}>
-                            {catBusy ? "saving…" : "save catalog"}
-                          </button>
-                          <button type="button" class="catcancel" onclick={cancelCat}>cancel</button>
-                          <button
-                            type="button"
-                            class="cattool"
-                            onclick={() => draftAdd(null)}
-                            title="add a top-level device"
-                          >
-                            <span class="material-symbols-rounded" aria-hidden="true">add</span>new device
-                          </button>
-                          {#if localCatalog !== null}
-                            <button type="button" class="catcancel" onclick={resetCat} title="discard the local catalog"
-                              >remove catalog</button
-                            >
-                          {/if}
-                          {#if catMsg}<span class="msg err">{catMsg}</span>{/if}
-                        </div>
-                      {/if}
-                    </div>
-                    {#if catIoMsg}<p class="catio">{catIoMsg}</p>{/if}
-                    {#if editCat && draft}
-                      <CatalogTree
-                        catalog={draftView}
-                        selected={armed}
-                        styleFor={(n) => colorVars(n.code)}
-                        onhover={(id) => (hoverDevice = id)}
-                        editing
-                        onrename={draftRename}
-                        ontag={draftTag}
-                        onmove={draftMove}
-                        onadd={draftAdd}
-                        ondelete={askDeleteDevice}
-                      />
-                    {:else}
-                      <CatalogTree
-                        {catalog}
-                        selected={armed}
-                        styleFor={(n) => colorVars(n.code)}
-                        onpick={pick}
-                        onhover={(id) => (hoverDevice = id)}
-                      />
-                    {/if}
-                  </Collapsible.Content>
-                </Collapsible.Root>
-              </ScrollArea.Viewport>
-              <ScrollArea.Scrollbar class="wsbar" orientation="vertical">
-                <ScrollArea.Thumb class="wsthumb" />
-              </ScrollArea.Scrollbar>
-            </ScrollArea.Root>
-          </aside>
+          <CatalogAside
+            folder={data.folder}
+            bind:localCatalog
+            {catalog}
+            {entryKeys}
+            {armed}
+            {confirm}
+            pal={paletteTick}
+            options={prefs.options}
+            bind:open={catOpen}
+            onpick={pick}
+            {onhover}
+            {styleFor}
+          />
         </Pane>
       </PaneGroup>
-
-      <Dialog.Overlay class="dlg-overlay" />
-      <Dialog.Content class="colorsdlg" aria-label="colors">
-        <Dialog.Close class="dlgclose" aria-label="close colors">
-          <span class="material-symbols-rounded" aria-hidden="true">close</span>
-        </Dialog.Close>
-        <ColorPanel />
-      </Dialog.Content>
-
-      {#if popup !== null && popupEntry !== undefined}
-        {@const popupEntryKey = popupEntry.device ?? popupEntry.code ?? ""}
-        {@const fullName = nameByDevice.get(popupEntryKey) ?? popupEntryKey}
-        {@const t = tagFor(displayByDevice.get(popupEntryKey) ?? popupEntryKey)}
-        <div
-          class="tpopup"
-          style={`left: ${popup.x}px; bottom: ${popup.y}px; --tag:${t.marker}; --tag-d:${t.markerD}; --tag-on:${t.on}; --tag-on-d:${t.onD}`}
-          role="dialog"
-          tabindex={-1}
-          aria-label="code entry"
-          onmouseenter={() => {
-            overPopup = true;
-            if (popupTimer !== null) {
-              clearTimeout(popupTimer);
-              popupTimer = null;
-            }
-          }}
-          onmouseleave={() => {
-            overPopup = false;
-            // leaving the popup re-arms the grace close (re-entering cancels it)
-            chipHover(null);
-          }}
-        >
-          <span class="tname">{fullName}</span>
-          <textarea
-            class="tnote"
-            rows={2}
-            placeholder="note"
-            value={popupNote}
-            oninput={(e) => setPopupNote(e.currentTarget.value)}></textarea>
-          <button type="button" class="del" onclick={() => popupEntry !== undefined && removeCode(popupEntry)}>
-            delete
-          </button>
-        </div>
-      {/if}
+      <EntryPopup
+        ctl={pop}
+        entry={popupEntry}
+        fullName={popupFullName}
+        tag={popupTag}
+        onnote={setPopupNote}
+        ondelete={() => popupEntry !== undefined && removeCode(popupEntry)}
+      />
       {#if armed !== null && !dragging}
         <div class="ctag" style={`left: ${cursor.x + 14}px; top: ${cursor.y + 14}px; ${markerVars(armedCode)}`}>
           {armedLabel}
         </div>
       {/if}
-    </Dialog.Root>
+    </ColorsDialog>
 
-    <ConfirmDialog
-      bind:open={confirmOpen}
-      title={confirmAction?.title ?? ""}
-      detail={confirmAction?.detail ?? ""}
-      onconfirm={() => confirmAction?.run()}
-    />
+    <ConfirmHost {confirm} />
 
     <QuickSelect
-      enabled={mode === "code" && mounted && !renaming && !colorsOpen && !confirmOpen}
+      enabled={mode === "code" && mounted && !renaming && !colorsOpen && !confirm.open}
       tree={catalog}
       nodeById={quickNodes}
       display={quickDisplay}
@@ -2036,13 +1351,13 @@ tags: coding, example
 
     /* a collapsed sidebar's rail: faint, but it stays draggable — dragging it back
        out expands the pane and the Collapsible state follows via onExpand */
-    &.dim::before {
+    &:global(.dim)::before {
       opacity: 0.22;
     }
 
     &:hover::before,
     &:focus-visible::before,
-    &[data-active]::before {
+    &:global([data-active])::before {
       width: 5px;
       margin-left: -2.5px;
       opacity: 1;
@@ -2057,323 +1372,6 @@ tags: coding, example
     gap: 0.5rem;
     min-width: 0;
     min-height: 0;
-  }
-
-  aside {
-    min-height: 0;
-  }
-
-  /* frame-devices sidebar: fills the viewport, tree scrolls inside */
-  aside.catalog {
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-
-    .cathd {
-      position: sticky;
-      top: 0;
-      z-index: 1;
-      background: var(--surface, white);
-      padding: 0.2rem 0;
-    }
-  }
-  /* Bits Collapsible.Root wrapper carries the aside's flex column (like .treeroot) */
-  :global(.catroot) {
-    display: flex;
-    flex-direction: column;
-    gap: 0.4rem;
-    flex: 1;
-    min-height: 0;
-  }
-  :global(.catbtn) {
-    font: inherit;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
-    font-size: 0.75rem;
-    color: var(--on-surface-variant, #666);
-    background: var(--surface-variant, #eee);
-    border: 1px solid var(--outline, #888);
-    border-radius: 999px;
-    padding: 0.15rem 0.55rem;
-    cursor: pointer;
-
-    .material-symbols-rounded {
-      font-size: 1rem;
-    }
-  }
-  :global(.catbtn:hover) {
-    color: var(--primary, #6750a4);
-    border-color: var(--primary, #6750a4);
-  }
-  :global(.catbody) {
-    display: flex;
-    flex-direction: column;
-    gap: 0.4rem;
-    flex: 1;
-    min-height: 0;
-    transition: opacity 0.18s ease;
-  }
-  /* Bits keeps closed content mounted with [hidden] — restore the UA's display:none */
-  :global(.catbody[hidden]) {
-    display: none;
-  }
-
-  /* document tree sidebar (collapsible, left of the editor) */
-  .docs {
-    display: flex;
-    flex-direction: column;
-    gap: 0.4rem;
-    height: 100%;
-  }
-  /* Bits Collapsible.Root renders a wrapper div — it carries the column layout */
-  :global(.treeroot) {
-    display: flex;
-    flex-direction: column;
-    gap: 0.4rem;
-    flex: 1;
-    min-height: 0;
-  }
-  :global(.treebtn) {
-    font: inherit;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
-    font-size: 0.75rem;
-    color: var(--on-surface-variant, #666);
-    background: var(--surface-variant, #eee);
-    border: 1px solid var(--outline, #888);
-    border-radius: 999px;
-    padding: 0.15rem 0.55rem;
-    cursor: pointer;
-
-    .material-symbols-rounded {
-      font-size: 1rem;
-    }
-  }
-  :global(.treebtn:hover) {
-    color: var(--primary, #6750a4);
-    border-color: var(--primary, #6750a4);
-  }
-  /* collapsed: the icon fills the narrow column and sits centered in it */
-  :global(.treebtn.closed) {
-    width: 100%;
-    justify-content: center;
-  }
-  :global(.docsbody) {
-    display: flex;
-    flex-direction: column;
-    flex: 1;
-    min-height: 0;
-    transition: opacity 0.18s ease;
-  }
-  /* Bits keeps closed content mounted with [hidden] — restore the UA's display:none
-     (our display:flex would otherwise override it and keep the tree in the a11y tree) */
-  :global(.docsbody[hidden]) {
-    display: none;
-  }
-  /* Bits tags the animating surfaces with data-starting/ending-style; presence waits
-     for these transitions to finish before hiding the content (collapse fade) */
-  :global(.docsbody[data-starting-style]),
-  :global(.docsbody[data-ending-style]),
-  :global(.catbody[data-starting-style]),
-  :global(.catbody[data-ending-style]) {
-    opacity: 0;
-  }
-  .docshead {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.4rem;
-  }
-  .newdoc {
-    font: inherit;
-    display: inline-flex;
-    align-items: center;
-    border: none;
-    background: none;
-    padding: 0.1rem;
-    cursor: pointer;
-    color: var(--on-surface-variant, #666);
-
-    .material-symbols-rounded {
-      font-size: 1.1rem;
-    }
-
-    &:hover {
-      color: var(--primary, #6750a4);
-    }
-
-    &:disabled {
-      opacity: 0.5;
-      cursor: default;
-    }
-  }
-  .fgroup {
-    font: inherit;
-    font-size: 0.8rem;
-    font-weight: 600;
-    color: var(--on-surface-variant, #666);
-    display: inline-flex;
-    align-items: center;
-    gap: 0.15rem;
-    margin: 0.5rem 0 0;
-    padding: 0.1rem 0.3rem;
-    border: none;
-    background: none;
-    cursor: pointer;
-    text-align: left;
-
-    &:hover {
-      color: var(--primary, #6750a4);
-    }
-
-    /* the project header is the selected upload target — marked like a picked document */
-    &.sel {
-      background: var(--primary-container, #e8def8);
-      color: var(--on-primary-container, #21005d);
-      border-radius: 6px;
-    }
-
-    .material-symbols-rounded {
-      font-size: 1.05rem;
-    }
-  }
-  /* folder header row: group button + delete button */
-  .fgrow {
-    display: flex;
-    align-items: center;
-    gap: 0.2rem;
-
-    .fgroup {
-      flex: 1;
-      min-width: 0;
-    }
-  }
-  .fdel {
-    font: inherit;
-    display: inline-flex;
-    align-items: center;
-    border: none;
-    background: none;
-    padding: 0.1rem;
-    cursor: pointer;
-    color: var(--on-surface-variant, #888);
-
-    &:hover {
-      color: #b3261e;
-    }
-
-    .material-symbols-rounded {
-      font-size: 1rem;
-    }
-  }
-  .uprow {
-    display: flex;
-    align-items: center;
-    gap: 0.3rem;
-    margin-top: 0.45rem;
-  }
-  .upload {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    align-items: center;
-    gap: 0.3rem;
-    padding: 0.3rem 0.45rem;
-    border: 1px dashed var(--outline, #888);
-    border-radius: 8px;
-    font-size: 0.65rem;
-    color: var(--on-surface-variant, #666);
-    cursor: pointer;
-
-    &:hover {
-      border-color: var(--primary, #6750a4);
-      color: var(--primary, #6750a4);
-    }
-
-    &[data-dragging] {
-      border-color: var(--primary, #6750a4);
-      background: var(--primary-container, #e8def8);
-      color: var(--on-primary-container, #21005d);
-    }
-
-    .material-symbols-rounded {
-      font-size: 1rem;
-    }
-  }
-  .upmsg {
-    font-size: 0.7rem;
-    color: var(--on-surface-variant, #666);
-  }
-  .upfolder {
-    flex: 0 0 auto;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
-    /* same box metrics as the .upload dropzone so the pair reads as siblings */
-    padding: 0.3rem 0.45rem;
-    border: 1px solid var(--outline, #888);
-    border-radius: 8px;
-    font-size: 0.65rem;
-    color: var(--on-surface-variant, #666);
-    cursor: pointer;
-
-    &:hover {
-      border-color: var(--primary, #6750a4);
-      color: var(--primary, #6750a4);
-    }
-
-    .material-symbols-rounded {
-      font-size: 1rem;
-    }
-
-    input {
-      display: none;
-    }
-  }
-  .docs ul {
-    list-style: none;
-    margin: 0.1rem 0 0;
-    padding: 0 0 0 0.5rem;
-    border-left: 1px solid var(--outline, #ccc);
-    display: flex;
-    flex-direction: column;
-    gap: 0.1rem;
-  }
-  .docs li {
-    display: flex;
-    align-items: baseline;
-    gap: 0.4rem;
-    padding: 0.15rem 0.35rem;
-    border-radius: 4px;
-
-    &:hover {
-      background: var(--surface-variant, #eee);
-    }
-
-    &.current {
-      background: var(--primary-container, #e8def8);
-      color: var(--on-primary-container, #21005d);
-    }
-
-    a {
-      flex: 1;
-      font-size: 0.85rem;
-      text-decoration: none;
-      color: inherit;
-    }
-
-    .docicon {
-      font-size: 1.1rem;
-      vertical-align: -0.25em;
-      color: var(--on-surface-variant, #666);
-    }
-  }
-  .fcodes {
-    font-size: 0.75rem;
-    color: var(--on-surface-variant, #666);
-    font-variant-numeric: tabular-nums;
   }
 
   /* colors customization popup (Melt Dialog) */
@@ -2403,19 +1401,6 @@ tags: coding, example
 
     .editor {
       height: 70vh;
-    }
-
-    aside.catalog {
-      height: auto;
-      overflow: visible;
-    }
-
-    .docs {
-      height: auto;
-    }
-
-    :global(.docsbody) {
-      max-height: 60vh;
     }
   }
 
@@ -2458,11 +1443,11 @@ tags: coding, example
     background: color-mix(in srgb, var(--surface-variant, #ddd) 55%, transparent);
     transition: opacity 0.18s ease;
 
-    &[data-state="hidden"] {
+    &:global([data-state="hidden"]) {
       opacity: 0;
     }
 
-    &[data-state="visible"] {
+    &:global([data-state="visible"]) {
       opacity: 1;
     }
   }
@@ -2575,422 +1560,6 @@ tags: coding, example
       }
     }
   }
-
-  /* snapshot history: commit graph + the accessible list carrying the same actions */
-  :global(.historydlg) {
-    position: fixed;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
-    z-index: 41;
-    width: min(52rem, 94vw);
-    max-height: 86vh;
-    overflow: auto;
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    padding: 1.1rem 1.3rem;
-    background: var(--surface, white);
-    border: 1px solid var(--outline, #888);
-    border-radius: 12px;
-    color: var(--on-surface, #1c1b1f);
-    box-shadow: 0 6px 18px rgb(0 0 0 / 0.18);
-
-    .hsnap {
-      display: flex;
-      align-items: center;
-      gap: 0.4rem;
-    }
-
-    .vname {
-      font: inherit;
-      font-size: 0.85rem;
-      flex: 1 1 8rem;
-      min-width: 0;
-      padding: 0.25rem 0.6rem;
-      border: 1px solid var(--outline, #888);
-      border-radius: 999px;
-      background: var(--surface, white);
-      color: var(--on-surface);
-    }
-
-    .vsnap {
-      font: inherit;
-      font-size: 0.8rem;
-      display: inline-flex;
-      align-items: center;
-      gap: 0.25rem;
-      padding: 0.15rem 0.6rem;
-      border-radius: 999px;
-      border: 1px solid var(--outline, #888);
-      background: var(--surface-variant, #eee);
-      color: var(--on-surface);
-      cursor: pointer;
-
-      .material-symbols-rounded {
-        font-size: 1rem;
-      }
-    }
-
-    .vlist {
-      list-style: none;
-      margin: 0;
-      padding: 0;
-      display: flex;
-      flex-direction: column;
-      gap: 0.2rem;
-    }
-
-    .vrow {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      font-size: 0.78rem;
-      border-radius: 6px;
-
-      /* the snapshot the live document continues from, and the previewed one */
-      &.live {
-        background: color-mix(in srgb, var(--primary, #6750a4) 12%, transparent);
-      }
-
-      &.picked {
-        outline: 1px solid var(--outline, #888);
-      }
-
-      .vpick {
-        font: inherit;
-        flex: 1;
-        min-width: 0;
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        padding: 0.2rem 0.4rem;
-        border: none;
-        background: none;
-        color: inherit;
-        text-align: left;
-        cursor: pointer;
-      }
-
-      .vlabel {
-        flex: 1 1 auto;
-        min-width: 0;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      .vbranch {
-        flex: 0 0 auto;
-        font-size: 0.68rem;
-        padding: 0.02rem 0.4rem;
-        border: 1px solid var(--outline, #888);
-        border-radius: 999px;
-        color: var(--on-surface-variant, #666);
-      }
-
-      .vat {
-        flex: 0 0 auto;
-        color: var(--on-surface-variant, #666);
-      }
-
-      .vcodes {
-        flex: 0 0 auto;
-        color: var(--on-surface-variant, #666);
-        font-variant-numeric: tabular-nums;
-      }
-
-      .vrev {
-        font: inherit;
-        font-size: 0.75rem;
-        display: inline-flex;
-        align-items: center;
-        gap: 0.2rem;
-        padding: 0.05rem 0.55rem;
-        border-radius: 999px;
-        border: 1px solid var(--outline, #888);
-        background: var(--surface, white);
-        color: var(--on-surface);
-        cursor: pointer;
-
-        .material-symbols-rounded {
-          font-size: 0.95rem;
-        }
-      }
-    }
-
-    .vempty {
-      margin: 0;
-      font-size: 0.78rem;
-      color: var(--on-surface-variant, #666);
-    }
-
-    .vprev {
-      margin: 0;
-      max-height: 14rem;
-      overflow: auto;
-      padding: 0.5rem 0.6rem;
-      font-size: 0.75rem;
-      line-height: 1.45;
-      white-space: pre-wrap;
-      background: var(--surface-variant, #eee);
-      border: 1px solid var(--outline, #888);
-      border-radius: 8px;
-    }
-  }
-
-  .editcat {
-    font: inherit;
-    font-size: 0.7rem;
-    color: var(--on-surface-variant, #666);
-    background: var(--surface-variant, #eee);
-    border: none;
-    border-radius: 999px;
-    padding: 0.1rem 0.6rem;
-    margin-left: 0.4rem;
-    cursor: pointer;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.25rem;
-
-    .material-symbols-rounded {
-      font-size: 0.95rem;
-    }
-
-    &:hover {
-      filter: brightness(1.1);
-    }
-  }
-
-  /* devices-codes header row: add buttons left, Edit pushed to the right */
-  .cathead {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    flex-wrap: wrap;
-    margin-bottom: 0.3rem;
-
-    .editcat {
-      margin-left: auto;
-    }
-  }
-
-  /* download picker: pick this project's documents, select all, download */
-  :global(.downloads) {
-    z-index: 20;
-    min-width: 15rem;
-    max-height: 60vh;
-    overflow: auto;
-    display: flex;
-    flex-direction: column;
-    gap: 0.3rem;
-    padding: 0.5rem 0.6rem;
-    background: var(--surface, white);
-    border: 1px solid var(--outline, #888);
-    border-radius: 8px;
-    box-shadow: 0 6px 18px rgb(0 0 0 / 0.18);
-    font-size: 0.8rem;
-
-    .dlhead {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 0.5rem;
-      font-weight: 600;
-    }
-
-    .dlsel {
-      font: inherit;
-      font-size: 0.72rem;
-      padding: 0.05rem 0.55rem;
-      border-radius: 999px;
-      border: 1px solid var(--outline, #888);
-      background: var(--surface, white);
-      color: var(--on-surface-variant, #666);
-      cursor: pointer;
-    }
-
-    ul {
-      list-style: none;
-      margin: 0;
-      padding: 0;
-      display: flex;
-      flex-direction: column;
-      gap: 0.15rem;
-    }
-
-    label {
-      display: flex;
-      align-items: center;
-      gap: 0.4rem;
-      cursor: pointer;
-      padding: 0.1rem 0.2rem;
-      border-radius: 4px;
-
-      &:hover {
-        background: var(--surface-variant, #eee);
-      }
-    }
-
-    .dldl {
-      font: inherit;
-      font-size: 0.8rem;
-      display: inline-flex;
-      align-items: center;
-      gap: 0.3rem;
-      padding: 0.15rem 0.7rem;
-      border-radius: 999px;
-      border: 1px solid var(--primary, #6750a4);
-      background: var(--primary, #6750a4);
-      color: var(--on-primary, white);
-      cursor: pointer;
-      align-self: flex-start;
-
-      &:disabled {
-        opacity: 0.5;
-        cursor: default;
-      }
-
-      .material-symbols-rounded {
-        font-size: 1rem;
-      }
-    }
-  }
-
-  /* markdown cheatsheet popover (edit mode of .md documents) */
-  :global(.cheatsheet) {
-    z-index: 20;
-    width: min(30rem, 90vw);
-    max-height: 70vh;
-    overflow: auto;
-    padding: 0.7rem 0.9rem;
-    background: var(--surface, white);
-    border: 1px solid var(--outline, #888);
-    border-radius: 8px;
-    box-shadow: 0 6px 18px rgb(0 0 0 / 0.18);
-    font-size: 0.78rem;
-
-    h3 {
-      margin: 0 0 0.3rem;
-      font-size: 0.9rem;
-    }
-
-    .cheatnote {
-      margin: 0 0 0.5rem;
-      font-style: italic;
-      color: var(--on-surface-variant, #666);
-    }
-
-    dl {
-      margin: 0;
-      display: flex;
-      flex-direction: column;
-      gap: 0.5rem;
-    }
-
-    dt {
-      font-weight: 700;
-      color: var(--primary, #6750a4);
-    }
-
-    dd {
-      margin: 0.15rem 0 0;
-      display: flex;
-      flex-direction: column;
-      gap: 0.2rem;
-    }
-
-    pre {
-      margin: 0;
-      padding: 0.35rem 0.5rem;
-      background: var(--surface-variant, #eee);
-      border-radius: 6px;
-      font-family: var(--font-mono, monospace);
-      font-size: 0.72rem;
-      line-height: 1.45;
-      overflow-x: auto;
-    }
-
-    code {
-      font-family: var(--font-mono, monospace);
-      font-size: 0.95em;
-    }
-  }
-
-  .cattools {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    flex-wrap: wrap;
-  }
-  .cattool {
-    font: inherit;
-    font-size: 0.72rem;
-    padding: 0.1rem 0.55rem;
-    border-radius: 999px;
-    border: 1px solid var(--outline, #888);
-    background: var(--surface, white);
-    color: var(--on-surface-variant, #666);
-    cursor: pointer;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.25rem;
-
-    .material-symbols-rounded {
-      font-size: 0.9rem;
-    }
-
-    &:hover {
-      filter: brightness(1.1);
-    }
-  }
-  .catfile {
-    display: none;
-  }
-  .catio {
-    font-size: 0.75rem;
-    color: var(--on-surface-variant, #666);
-    margin: 0.3rem 0 0;
-  }
-
-  .catbar {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin: 0.3rem 0 0.1rem;
-    flex-wrap: wrap;
-
-    .catfinish {
-      font: inherit;
-      font-size: 0.8rem;
-      padding: 0.2rem 0.8rem;
-      border-radius: 999px;
-      border: 1px solid var(--primary, #6750a4);
-      background: var(--primary, #6750a4);
-      color: var(--on-primary, white);
-      cursor: pointer;
-    }
-
-    .catcancel {
-      font: inherit;
-      font-size: 0.75rem;
-      padding: 0.1rem 0.6rem;
-      border-radius: 999px;
-      border: 1px solid var(--outline, #888);
-      background: var(--surface, white);
-      color: var(--on-surface-variant, #666);
-      cursor: pointer;
-    }
-  }
-
-  .tag {
-    font-weight: 700;
-    padding: 1px 6px;
-    border-radius: 3px;
-    background: var(--marker, #666);
-    color: white;
-  }
-
   .editor {
     flex: 1;
     min-height: 0;
@@ -3279,50 +1848,6 @@ tags: coding, example
 
   /* entry detail popup: fixed card anchored above its tag, sharing the tag color
      (bottom corners square + borderless bottom so it joins the chip below) */
-  .tpopup {
-    position: fixed;
-    z-index: 30;
-    display: flex;
-    flex-direction: column;
-    gap: 0.4rem;
-    min-width: 16rem;
-    max-width: 22rem;
-    padding: 0.5rem 0.6rem 0.6rem;
-    background: var(--tag, #888);
-    color: var(--tag-on, #fff);
-    border: 1px solid var(--tag, #888);
-    border-bottom: none;
-    border-radius: 8px 8px 0 0;
-    box-shadow: 0 -6px 18px rgb(0 0 0 / 0.18);
-
-    .tname {
-      font-size: 0.8rem;
-      font-weight: 700;
-      color: var(--tag-on, #fff);
-    }
-
-    .tnote {
-      font: inherit;
-      font-size: 0.82rem;
-      padding: 0.3rem 0.4rem;
-      background: var(--surface, #fff);
-      border: 1px solid var(--tag-on, #ccc);
-      border-radius: 6px;
-      resize: vertical;
-    }
-
-    .del {
-      align-self: flex-start;
-      font: inherit;
-      font-size: 0.8rem;
-      color: var(--tag-on, #fff);
-      border: 1px solid var(--tag-on, #ffffff66);
-      border-radius: 999px;
-      background: transparent;
-      padding: 0.1rem 0.6rem;
-      cursor: pointer;
-    }
-  }
 
   .status {
     max-width: 40rem;

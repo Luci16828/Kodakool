@@ -6,15 +6,18 @@
   import "material-symbols/rounded.css";
   import { toQdc } from "$lib/coding/qdc";
   import { useColors } from "$lib/coding/prefs.svelte";
-  import ColorPanel from "$lib/coding/ColorPanel.svelte";
-  import ConfirmDialog from "$lib/coding/ConfirmDialog.svelte";
+  import ColorsDialog from "$lib/coding/ColorsDialog.svelte";
+  import ConfirmHost from "$lib/coding/ConfirmHost.svelte";
+  import { ConfirmAsk } from "$lib/coding/confirm.svelte";
   import { EXAMPLE_PROJECT } from "$lib/client/examples";
+  import { downloadText } from "$lib/client/download";
   import {
     createFolder,
     deleteFolder,
     exportDatabase,
     importDatabase,
     listLocalCatalogs,
+    statsOf,
     watchArticles,
     watchFolders,
     type ArticleSummary,
@@ -36,8 +39,7 @@
   let newProj = $state(false);
   let projName = $state("");
   /** project marked for deletion (ConfirmDialog target) */
-  let deleteProj = $state<string | null>(null);
-  let confirmOpen = $state(false);
+  const confirm = new ConfirmAsk();
 
   onMount(() => {
     const unwatchA = watchArticles((list) => {
@@ -55,12 +57,7 @@
   });
 
   let totals = $derived.by(() => {
-    let codes = 0;
-    let versions = 0;
-    for (const a of articles) {
-      codes += a.codes;
-      versions += a.versions;
-    }
+    const { codes, versions } = statsOf(articles);
     return { projects: projects.length, documents: articles.length, codes, versions };
   });
 
@@ -81,23 +78,8 @@
     return groups;
   });
 
-  function statsOf(items: ArticleSummary[]): { codes: number; versions: number } {
-    let codes = 0;
-    let versions = 0;
-    for (const a of items) {
-      codes += a.codes;
-      versions += a.versions;
-    }
-    return { codes, versions };
-  }
-
   function exportQdc(folder: string, instr: Instructions) {
-    const url = URL.createObjectURL(new Blob([toQdc(instr, { options: prefs.options })], { type: "application/xml" }));
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${folder}.qdc`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadText(`${folder}.qdc`, toQdc(instr, { options: prefs.options }), "application/xml");
   }
 
   async function newProject() {
@@ -129,12 +111,11 @@
     dbMsg = "";
     try {
       const dump = await exportDatabase();
-      const url = URL.createObjectURL(new Blob([JSON.stringify(dump, null, 2)], { type: "application/json" }));
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `kodakool-db-${new Date().toISOString().slice(0, 10)}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
+      downloadText(
+        `kodakool-db-${new Date().toISOString().slice(0, 10)}.json`,
+        JSON.stringify(dump, null, 2),
+        "application/json",
+      );
       dbMsg = `exported ${dump.articles.length} documents, ${dump.catalogs.length} catalogs`;
     } catch (e) {
       dbMsg = `export failed: ${String(e)}`;
@@ -160,8 +141,8 @@
   <title>Projects — Kodakool</title>
 </svelte:head>
 
-<main>
-  <Dialog.Root bind:open={colorsOpen}>
+<main class="page">
+  <ColorsDialog bind:open={colorsOpen}>
     <h1>Kodakool</h1>
     <p class="sub">Projects, documents, coding entries and frame devices live entirely in this browser.</p>
     <p class="nav">
@@ -244,10 +225,12 @@
               type="button"
               class="delproj"
               aria-label="delete project {project}"
-              onclick={() => {
-                deleteProj = project;
-                confirmOpen = true;
-              }}
+              onclick={() =>
+                confirm.ask(
+                  `Delete project ${project}/?`,
+                  "Deletes the project with all its documents, coding entries and its frame-device catalog.",
+                  () => void removeProject(project),
+                )}
             >
               <span class="material-symbols-rounded" aria-hidden="true">delete</span>delete project
             </button>
@@ -261,32 +244,11 @@
       {/each}
     {/if}
 
-    <ConfirmDialog
-      bind:open={confirmOpen}
-      title={deleteProj === null ? "" : `Delete project ${deleteProj}/?`}
-      detail="Deletes the project with all its documents, coding entries and its frame-device catalog."
-      onconfirm={() => {
-        if (deleteProj !== null) void removeProject(deleteProj);
-        deleteProj = null;
-      }}
-    />
-
-    <Dialog.Overlay class="dlg-overlay" />
-    <Dialog.Content class="colorsdlg" aria-label="colors">
-      <Dialog.Close class="dlgclose" aria-label="close colors">
-        <span class="material-symbols-rounded" aria-hidden="true">close</span>
-      </Dialog.Close>
-      <ColorPanel />
-    </Dialog.Content>
-  </Dialog.Root>
+    <ConfirmHost {confirm} />
+  </ColorsDialog>
 </main>
 
 <style>
-  main {
-    max-width: 44rem;
-    margin: 2rem auto;
-    padding: 0 1rem;
-  }
   h1 {
     font-size: 1.4rem;
     margin-bottom: 0.15rem;
@@ -301,13 +263,6 @@
     gap: 0.5rem;
     flex-wrap: wrap;
   }
-  .actions {
-    margin-top: 1rem;
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    flex-wrap: wrap;
-  }
   .nfrow {
     display: inline-flex;
     align-items: center;
@@ -320,25 +275,6 @@
     border-radius: 8px;
     background: var(--surface, white);
     color: var(--on-surface, #111);
-  }
-  .go {
-    font: inherit;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
-    padding: 0.35rem 0.9rem;
-    border-radius: 99px;
-    border: 1px solid var(--primary, #6750a4);
-    background: var(--primary, #6750a4);
-    color: white;
-    cursor: pointer;
-  }
-  .go .material-symbols-rounded {
-    font-size: 1.1rem;
-  }
-  .go:disabled {
-    opacity: 0.6;
-    cursor: default;
   }
   .msg {
     color: #0a6b2d;
@@ -404,45 +340,6 @@
     gap: 0.5rem;
     flex-wrap: wrap;
   }
-  .export {
-    font: inherit;
-    font-size: 0.75rem;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
-    color: var(--on-surface-variant);
-    background: var(--surface-variant);
-    border: none;
-    border-radius: 99px;
-    padding: 0.1rem 0.6rem;
-    cursor: pointer;
-  }
-  .export .material-symbols-rounded {
-    font-size: 1rem;
-  }
-  .export:hover {
-    filter: brightness(1.1);
-  }
-  .delproj {
-    font: inherit;
-    font-size: 0.75rem;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
-    color: #b3261e;
-    background: none;
-    border: 1px solid #b3261e;
-    border-radius: 99px;
-    padding: 0.1rem 0.6rem;
-    cursor: pointer;
-  }
-  .delproj .material-symbols-rounded {
-    font-size: 1rem;
-  }
-  .delproj:hover {
-    background: #b3261e;
-    color: white;
-  }
   .dbfile {
     display: none;
   }
@@ -454,20 +351,5 @@
   .empty {
     margin-top: 0.75rem;
     color: var(--on-surface-variant);
-  }
-  .chip {
-    font-size: 0.75rem;
-    padding: 0.1rem 0.5rem;
-    border-radius: 99px;
-    background: var(--surface-variant);
-    color: var(--on-surface-variant);
-  }
-  .chip.versions {
-    background: var(--primary-container);
-    color: var(--on-primary-container);
-  }
-  .chip.ex {
-    background: var(--primary);
-    color: var(--on-primary);
   }
 </style>
