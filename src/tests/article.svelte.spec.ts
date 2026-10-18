@@ -4,9 +4,11 @@ import { render } from "vitest-browser-svelte";
 import ColorProvider from "./ColorProvider.svelte";
 import ArticlePage from "../routes/text/[folder]/[name]/+page.svelte";
 import {
+  createFolder,
   getArticle,
   getLocalCatalog,
   getPdfData,
+  listFolders,
   readCodes,
   saveLocalCatalog,
   savePdfData,
@@ -646,6 +648,81 @@ describe("article coding page", () => {
     // one project header only, counting this project's documents
     expect(document.querySelectorAll(".fgroup")).toHaveLength(1);
     await expect.element(page.getByRole("button", { name: /test\/ 1/ })).toBeInTheDocument();
+  });
+
+  it("switches to another project from the sidebar's project switcher", async () => {
+    await seedArticle({ project: FOLDER, name: NAME, text: TEXT });
+    await seedArticle({ project: "other", name: "foreign doc", text: "x" });
+    await createFolder("archive");
+
+    renderArticle();
+    await ready();
+
+    const trigger = page.getByRole("button", { name: "switch project" });
+    await expect.element(trigger).toBeInTheDocument();
+    // the trigger shows the current project
+    await expect.element(trigger).toHaveTextContent(FOLDER);
+
+    await trigger.click();
+    await expect.element(page.getByRole("listbox")).toBeInTheDocument();
+    // every OTHER project is offered (registered folders + projects holding documents) and
+    // the open one is not: the chip itself is the current project
+    const list = await page.getByRole("listbox").element();
+    await expect
+      .poll(() => [...list.querySelectorAll("[data-value]")].map((el) => el.getAttribute("data-value")))
+      .toEqual(["archive", "other", "__new__"]);
+
+    await page.getByRole("option", { name: "other" }).click();
+    expect(navigated).toEqual(["/project/other"]);
+  });
+
+  it("creates a project from the dropdown's new-project row and opens it", async () => {
+    await seedArticle({ project: FOLDER, name: NAME, text: TEXT });
+
+    renderArticle();
+    await ready();
+
+    await page.getByRole("button", { name: "switch project" }).click();
+    await page.getByRole("option", { name: "new project" }).click();
+    const input = (await page.getByLabelText("new project name").element()) as HTMLInputElement;
+    // the row focuses its input so typing starts immediately
+    expect(document.activeElement).toBe(input);
+    input.value = "field study";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    await page.getByRole("button", { name: "create" }).click();
+
+    await expect.poll(async () => (await listFolders()).includes("field study")).toBe(true);
+    expect(navigated).toEqual(["/project/field study"]);
+  });
+
+  it("opens an existing project when the new-project name is taken", async () => {
+    await seedArticle({ project: FOLDER, name: NAME, text: TEXT });
+
+    renderArticle();
+    await ready();
+
+    await page.getByRole("button", { name: "switch project" }).click();
+    await page.getByRole("option", { name: "new project" }).click();
+    const input = page.getByLabelText("new project name");
+    await input.fill(FOLDER);
+    await userEvent.keyboard("{Enter}");
+
+    // createFolder is idempotent: the name is registered once, the project opens
+    await expect.poll(async () => (await listFolders()).length).toBe(1);
+    expect(navigated).toEqual([`/project/${FOLDER}`]);
+  });
+
+  it("hides the project switcher while the tree is collapsed", async () => {
+    await seedArticle({ project: FOLDER, name: NAME, text: TEXT });
+
+    renderArticle();
+    await ready();
+
+    await expect.element(page.getByRole("button", { name: "switch project" })).toBeInTheDocument();
+    await page.getByRole("button", { name: "toggle document tree" }).click();
+    await expect.element(page.getByRole("button", { name: "switch project" })).not.toBeInTheDocument();
+    await page.getByRole("button", { name: "toggle document tree" }).click();
+    await expect.element(page.getByRole("button", { name: "switch project" })).toBeInTheDocument();
   });
 
   it("links back to the project page from the coding bar", async () => {

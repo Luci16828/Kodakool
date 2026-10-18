@@ -41,6 +41,7 @@
     setVersionLabel,
     watchArticle,
     watchArticles,
+    watchFolders,
     type ArticleData,
     type ArticleSummary,
     type ArticleVersion,
@@ -179,8 +180,8 @@
   /** right-side frame-devices sidebar (Bits Collapsible) */
   let catOpen = $state(true);
   /** resizable workspace panes (PaneForge): sizes are % of the workspace width */
-  const WS_TREE = { def: 16, min: 10, max: 32, collapsed: 3.5 };
-  const WS_DOC = { def: 63, min: 38 };
+  const WS_TREE = { def: 18, min: 11, max: 32, collapsed: 3.5 };
+  const WS_DOC = { def: 61, min: 38 };
   const WS_CAT = { def: 21, min: 12, max: 36, collapsed: 3.5 };
   /** pane instances: the collapse pills drive them, dragging a pane reports back */
   let treePane: ReturnType<typeof Pane> | null = $state(null);
@@ -202,6 +203,8 @@
   });
   /** all local documents; the sidebar shows only this project's slice */
   let docs = $state<ArticleSummary[]>([]);
+  /** registered local folders (the switcher's base; projects with documents are added) */
+  let folders = $state<string[]>([]);
   /** shared delete confirmation controller (ConfirmHost renders the countdown dialog) */
   const confirm = new ConfirmAsk();
 
@@ -211,6 +214,14 @@
       .filter((a) => a.project === data.folder)
       .sort((x, y) => x.name.localeCompare(y.name, undefined, { numeric: true })),
   );
+
+  /** every project the sidebar can switch to: folders + any project holding documents */
+  const projects = $derived.by(() => {
+    const set = new Set(folders);
+    for (const a of docs) set.add(a.project);
+    set.add(data.folder);
+    return [...set].sort((x, y) => x.localeCompare(y));
+  });
 
   const entryKeys = $derived(entries.map((e) => e.device ?? e.code ?? "").filter((k) => k !== ""));
   /** effective catalog: the local RxDB copy (seeded, imported, or edited) */
@@ -971,6 +982,7 @@
       localCatalog = c;
     });
     const unsubDocs = watchArticles((list) => (docs = list));
+    const unsubFolders = watchFolders((names) => (folders = names));
     unsubscribe = watchArticle(data.folder, data.name, (a, es) => {
       if (a === null) {
         if (!initialLoaded) {
@@ -1002,6 +1014,7 @@
       }
       if (pending) void flushCommit();
       unsubDocs();
+      unsubFolders();
       unsubscribe?.();
       view?.destroy();
     };
@@ -1060,7 +1073,14 @@
           onCollapse={() => (treeOpen = false)}
           onExpand={() => (treeOpen = true)}
         >
-          <DocTree folder={data.folder} currentName={data.name} docs={myDocs} {confirm} bind:open={treeOpen} />
+          <DocTree
+            folder={data.folder}
+            currentName={data.name}
+            docs={myDocs}
+            {projects}
+            {confirm}
+            bind:open={treeOpen}
+          />
         </Pane>
         <PaneResizer class={`wshandle ${treeOpen ? "" : "dim"}`} />
         <Pane minSize={WS_DOC.min} defaultSize={WS_DOC.def}>
