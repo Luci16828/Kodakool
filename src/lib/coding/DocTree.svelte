@@ -2,6 +2,7 @@
   import { resolve } from "$app/paths";
   import { goto } from "$app/navigation";
   import { ScrollArea, Select } from "bits-ui";
+  import { slide } from "svelte/transition";
   import "material-symbols/rounded.css";
   import { docIcon, displayName } from "$lib/coding/display";
   import { openRowMenu } from "$lib/coding/context-menu";
@@ -53,6 +54,9 @@
   let picked = $state("");
 
   /** the dropdown offers every OTHER project (the open one is the chip itself) + creation */
+  /** the project header folds its document list: `folder_open` while it is shown */
+  let open = $state(true);
+
   const others = $derived(projects.filter((name) => name !== folder));
   /** select items so the trigger keeps its label while the menu is closed */
   const items = $derived([
@@ -211,14 +215,22 @@
             {#snippet trigger({ props }: { props: Record<string, unknown> })}
               <!-- role=button div (not a <button>): the menu pill nests inside it -->
               <div
+                {...props}
                 class="fgroup sel"
                 role="button"
                 tabindex="0"
                 aria-pressed="true"
-                title="Selected upload target — uploads and new documents land in {folder}/ · right-click for project actions"
-                {...props}
+                aria-expanded={open}
+                title="Selected upload target — uploads and new documents land in {folder}/ · click folds the document list · right-click for project actions"
+                onclick={() => (open = !open)}
+                onkeydown={(e) => {
+                  if (e.key !== "Enter" && e.key !== " ") return;
+                  e.preventDefault();
+                  open = !open;
+                }}
               >
-                <span class="material-symbols-rounded" aria-hidden="true">folder</span>{folder}/
+                <span class="material-symbols-rounded" aria-hidden="true">{open ? "folder_open" : "folder"}</span
+                >{folder}/
                 <span class="fcodes">{docs.length}</span>
                 <button
                   type="button"
@@ -236,32 +248,34 @@
             {/snippet}
           </RowMenu>
         </div>
-        <ul>
-          {#each docs as a (a.id)}
-            <li class:current={a.name === currentName}>
-              <RowMenu items={docMenu(a)}>
-                {#snippet trigger({ props }: { props: Record<string, unknown> })}
-                  <div class="row" {...props}>
-                    <a href={resolve("/text/[folder]/[name]", { folder: a.project, name: a.name })}>
-                      <span class="material-symbols-rounded docicon" aria-hidden="true">{docIcon(a)}</span>
-                      {displayName(a.name, a.kind)}
-                    </a>
-                    <span class="fcodes">{a.codes}</span>
-                    <button
-                      type="button"
-                      class="menubtn"
-                      title="Document actions"
-                      aria-label={`Menu for ${displayName(a.name, a.kind)}`}
-                      onclick={(e) => openRowMenu(e.currentTarget.closest("[data-rowmenu]") ?? e.currentTarget)}
-                    >
-                      <span class="material-symbols-rounded" aria-hidden="true">more_vert</span>
-                    </button>
-                  </div>
-                {/snippet}
-              </RowMenu>
-            </li>
-          {/each}
-        </ul>
+        {#if open}
+          <ul class="doclist" transition:slide={{ duration: 180 }}>
+            {#each docs as a (a.id)}
+              <li class:current={a.name === currentName}>
+                <RowMenu items={docMenu(a)}>
+                  {#snippet trigger({ props }: { props: Record<string, unknown> })}
+                    <div class="row" {...props}>
+                      <a href={resolve("/text/[folder]/[name]", { folder: a.project, name: a.name })}>
+                        <span class="material-symbols-rounded docicon" aria-hidden="true">{docIcon(a)}</span>
+                        {displayName(a.name, a.kind)}
+                      </a>
+                      <span class="fcodes">{a.codes}</span>
+                      <button
+                        type="button"
+                        class="menubtn"
+                        title="Document actions"
+                        aria-label={`Menu for ${displayName(a.name, a.kind)}`}
+                        onclick={(e) => openRowMenu(e.currentTarget.closest("[data-rowmenu]") ?? e.currentTarget)}
+                      >
+                        <span class="material-symbols-rounded" aria-hidden="true">more_vert</span>
+                      </button>
+                    </div>
+                  {/snippet}
+                </RowMenu>
+              </li>
+            {/each}
+          </ul>
+        {/if}
       </ScrollArea.Viewport>
       <ScrollArea.Scrollbar class="wsbar" orientation="vertical">
         <ScrollArea.Thumb class="wsthumb" />

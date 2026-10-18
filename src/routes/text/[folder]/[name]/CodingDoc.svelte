@@ -150,11 +150,13 @@
     key: () => key,
   });
   // the Edit tab makes the body editable; every other tab keeps it read-only.
-  // The editor stays mounted across tab switches (undo + selection survive),
-  // so the readOnly compartment is reconfigured here
+  // The editor div is never unmounted (CodeMirror owns the DOM inside it), so a
+  // tab switch only reconfigures readOnly — and re-measures when the editor comes
+  // back from the Analysis tab's `display: none`
   $effect(() => {
     if (view === undefined) return;
     view.dispatch({ effects: roComp.reconfigure(EditorState.readOnly.of(tab !== "edit")) });
+    if (tab !== "analysis" && !(isPdf && tab === "preview")) view.requestMeasure();
   });
 
   /** current editor selection (rendered as just another mark) */
@@ -533,6 +535,25 @@
     document.getElementById(`arow-${id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
     analysisScroll = null;
   });
+  /** list row clicked → the Coding tab opens with its caret on that segment */
+  let analysisJump = $state<number | null>(null);
+  $effect(() => {
+    const off = analysisJump;
+    if (off === null) return;
+    analysisJump = null;
+    // next frame: switching to Coding may have to create the editor first (PDFs)
+    requestAnimationFrame(() => {
+      if (view === undefined) return;
+      view.dispatch({ selection: { anchor: off, head: off }, scrollIntoView: true });
+      view.focus();
+    });
+  });
+  function jumpTo(id: string): void {
+    const it = analysis.find((x) => x.id === id);
+    if (it === undefined) return;
+    tab = "coding";
+    analysisJump = it.from;
+  }
 
   // article parity: entry size metric (lines dominate chars) for the narrowest
   // entry of a hovered segment; pseudo coverage (selection/preview) is ignored
@@ -1253,25 +1274,30 @@
                 <AnalysisPanel
                   items={analysis}
                   total={docText.length}
+                  lines={docStarts.length}
                   hover={analysisHover}
                   onhover={(id) => (analysisHover = id)}
                   onpick={(id) => (analysisScroll = id)}
+                  onjump={jumpTo}
                   ondelete={(id) => {
                     const e = entries.find((x) => entryId(key, x) === id);
                     if (e !== undefined) removeCode(e);
                   }}
                 />
               </div>
-            {:else}
-              <div
-                class="editor"
-                transition:fade={{ duration: 140 }}
-                class:arm={armed !== null}
-                class:smartsel={smart}
-                style={armed !== null ? markerVars(armedCode) : ""}
-                bind:this={parent}
-              ></div>
             {/if}
+            <!-- the CodeMirror host is NEVER unmounted: the view owns the DOM inside
+                 this div, so unmounting it would leave the editor detached and every
+                 return from the Analysis tab would show an empty box — the Analysis
+                 tab hides it with `display: none` instead -->
+            <div
+              class="editor"
+              class:hidden={tab === "analysis" || (isPdf && tab === "preview")}
+              class:arm={armed !== null}
+              class:smartsel={smart}
+              style={armed !== null ? markerVars(armedCode) : ""}
+              bind:this={parent}
+            ></div>
           </div>
         </Pane>
         <PaneResizer class="wshandle" />
@@ -1642,6 +1668,12 @@
     flex: 1;
     min-height: 0;
     overflow: hidden;
+
+    /* the Analysis / Preview surfaces take the column: the editor stays mounted
+       (CodeMirror keeps its DOM in here) and only steps out of the layout */
+    &.hidden {
+      display: none;
+    }
 
     /* CodeMirror must fill the box so .cm-scroller scrolls internally —
        otherwise the growing document pushes the whole page into scrolling */

@@ -652,7 +652,7 @@ describe("article coding page", () => {
     expect(iconFor("scan")).toBe("newsmode");
   });
 
-  it("marks the project header as the selected upload target (no project collapse)", async () => {
+  it("marks the project header as the selected upload target and folds its document list", async () => {
     await seedArticle({ project: FOLDER, name: NAME, text: TEXT });
 
     renderArticle();
@@ -661,9 +661,17 @@ describe("article coding page", () => {
     const group = page.getByRole("button", { name: /test\// });
     await expect.element(group).toBeInTheDocument();
     await expect.element(group).toHaveAttribute("aria-pressed", "true");
-    // the document list is not collapsible: clicking the header keeps it visible
+    // expanded: the folder glyph is the open folder and the list is visible
+    const glyph = () => document.querySelector(".fgroup .material-symbols-rounded")?.textContent;
+    expect(glyph()).toBe("folder_open");
+    // fold: the list slides away and the glyph closes
+    await group.click();
+    await expect.poll(() => document.querySelectorAll(".doclist").length).toBe(0);
+    expect(glyph()).toBe("folder");
+    // unfold: the document row is back
     await group.click();
     await expect.element(page.getByRole("link", { name: `${NAME}.txt` })).toBeInTheDocument();
+    expect(glyph()).toBe("folder_open");
   });
 
   it("lists only the current project's documents in the tree", async () => {
@@ -1164,6 +1172,61 @@ describe("article coding page", () => {
     await expect.poll(async () => (await readCodes(id)).length).toBe(0);
     await expect.poll(() => document.querySelectorAll(".astripe").length).toBe(0);
     await expect.element(page.getByText("No coded segments yet")).toBeInTheDocument();
+  });
+
+  it("keeps the diagram a fixed height when segments overlap", async () => {
+    const many: CodeEntry[] = Array.from({ length: 12 }, (_, i) => ({
+      uid: crypto.randomUUID(),
+      device: DEVICE_QUOTE,
+      line: 1,
+      range: [0, 4 + i],
+      excerpt: TEXT.slice(0, 4 + i),
+    }));
+    await seedArticle({ project: FOLDER, name: NAME, text: TEXT, entries: many });
+
+    renderArticle();
+    await ready();
+
+    await page.getByRole("tab", { name: "Analysis" }).click();
+    await expect.poll(() => document.querySelectorAll(".astripe").length).toBe(12);
+    // lanes wrap, so the diagram never grows tall enough to squeeze the list out
+    const diag = document.querySelector(".adiag") as HTMLElement | null;
+    expect(diag).toBeTruthy();
+    expect(parseFloat(diag!.style.height)).toBeLessThanOrEqual(100);
+    await expect.element(page.getByRole("listitem").first()).toBeInTheDocument();
+  });
+
+  it("returns from the Analysis tab with the same editor mounted", async () => {
+    await seedArticle({ project: FOLDER, name: NAME, text: TEXT, entries: [quoteEntry] });
+
+    renderArticle();
+    await ready();
+    await expect.poll(() => document.querySelectorAll(".cm-underline").length).toBeGreaterThan(0);
+
+    await page.getByRole("tab", { name: "Analysis" }).click();
+    await expect.poll(() => document.querySelectorAll(".arow").length).toBe(1);
+    // the editor steps out of the layout, it is never unmounted
+    expect(document.querySelector(".editor")?.classList.contains("hidden")).toBe(true);
+
+    await page.getByRole("tab", { name: "Coding" }).click();
+    await expect.poll(() => document.querySelector(".editor")?.classList.contains("hidden")).toBe(false);
+    // CodeMirror's own DOM is back — the body and its marks are rendered again
+    await expect.poll(() => document.querySelector(".cm-content")?.textContent).toContain("Zitat");
+    await expect.poll(() => document.querySelectorAll(".cm-underline").length).toBeGreaterThan(0);
+  });
+
+  it("jumps from an Analysis row to its segment in the Coding tab", async () => {
+    await seedArticle({ project: FOLDER, name: NAME, text: TEXT, entries: [quoteEntry] });
+
+    renderArticle();
+    await ready();
+
+    await page.getByRole("tab", { name: "Analysis" }).click();
+    await expect.poll(() => document.querySelectorAll(".arow").length).toBe(1);
+    await page.getByRole("button", { name: /Open segment .* Coding tab/ }).click();
+
+    await expect.element(page.getByRole("tab", { name: "Coding" })).toHaveAttribute("aria-selected", "true");
+    await expect.poll(() => document.querySelector(".cm-content")?.textContent).toContain("Zitat");
   });
 
   it("folds and unfolds catalog subtrees with an animated caret", async () => {
