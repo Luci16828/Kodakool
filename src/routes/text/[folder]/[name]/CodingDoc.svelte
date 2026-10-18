@@ -17,6 +17,7 @@
   import ConfirmDialog from "$lib/coding/ConfirmDialog.svelte";
   import { entryFromOffsets, entryId, lineStarts, offsetsSpan } from "$lib/coding/edit";
   import { buildCatalogView } from "$lib/coding/catalog-view";
+  import { buildSnapshotGraph, listSnapshots, snapshotLabel } from "$lib/coding/history-graph";
   import { rankDevices, reconcileSlots } from "$lib/coding/quickselect";
   import { QuickPrefs } from "$lib/coding/quickselect.svelte";
   import QuickSelect from "$lib/coding/QuickSelect.svelte";
@@ -165,8 +166,27 @@
     if (/^Untitled \d+(?:\.md)?$/i.test(node.value)) node.setSelectionRange(0, len);
     else node.setSelectionRange(len, len);
   }
-  /** versions popover open (Bits Popover) */
+  /** snapshot history dialog (Bits Dialog) + the graph's live cursor */
   let versionsOpen = $state(false);
+  /** snapshot the live document continues from: the graph node the next snapshot hangs on */
+  let headVersion = $state<string | null>(null);
+  /** snapshot the history dialog points at (graph ring + preview) */
+  let pickedVersion = $state<string | null>(null);
+  /** name typed for the next snapshot */
+  let snapName = $state("");
+  let HistoryGraphComp = $state<typeof import("$lib/coding/HistoryGraph.svelte").default | null>(null);
+  /** snapshot history as a commit graph — pure mapping, the drawing is HistoryGraph.svelte */
+  const historyGraph = $derived(buildSnapshotGraph(article?.versions ?? [], headVersion));
+  const pickedSnapshot = $derived((article?.versions ?? []).find((v) => v.id === pickedVersion) ?? null);
+  function pickVersion(v: ArticleVersion): void {
+    pickedVersion = v.id;
+  }
+  // the graph library is only needed once the dialog opens: keep it out of the main chunk
+  $effect(() => {
+    if (versionsOpen && HistoryGraphComp === null) {
+      void import("$lib/coding/HistoryGraph.svelte").then((m) => (HistoryGraphComp = m.default));
+    }
+  });
   /** download picker + markdown cheatsheet popovers (Bits Popover) */
   let dlOpen = $state(false);
   let mdOpen = $state(false);
@@ -1037,7 +1057,13 @@
     try {
       // the live article subscription already reports the new `versions.length`,
       // so counting up here would double-count when its change event lands first
-      await addVersion(key);
+      const v = await addVersion(key, snapName, headVersion);
+      if (v) {
+        headVersion = v.id;
+        pickedVersion = v.id;
+      }
+      snapName = "";
+      versionsOpen = false;
       flashSaveMsg("version saved");
     } catch (e) {
       editMsg = String(e);
@@ -1076,7 +1102,10 @@
     await goto(resolve("/text/[folder]/[name]", { folder: data.folder, name }));
   }
 
-  /** restore a version snapshot; the current state is kept as a new version first */
+  /**
+   * Restore a snapshot: the current state is kept as a version first, and the live
+   * document continues from `v` afterwards — so the next snapshot forks off `v` in the graph.
+   */
   async function revertTo(v: ArticleVersion): Promise<void> {
     if (key === "") return;
     if (commitTimer !== undefined) {
@@ -1084,7 +1113,9 @@
       commitTimer = undefined;
     }
     await flushCommit();
-    await addVersion(key);
+    await addVersion(key, undefined, headVersion);
+    headVersion = v.id;
+    pickedVersion = v.id;
     livePos.clear();
     if (view) view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: v.text } });
     // PDF docs have no CodeMirror view: the extracted docText is the body
@@ -1177,6 +1208,8 @@
     article = initial.article;
     entries = initial.entries;
     versionCount = initial.article.versions.length;
+    // a history written before snapshots were graph nodes has no tip id to resume from
+    headVersion = initial.article.versions.at(-1)?.id ?? null;
     docText = initial.article.text;
     initialLoaded = true;
     seedPositions();
@@ -1253,19 +1286,18 @@
   onmousemove={(e) => {
     if (armed !== null) cursor = { x: e.clientX, y: e.clientY };
   }}
-  onmousedown={(e) => {
+  onmousedown={() => {
     dragging = true;
     // Bits debounces its outside-interaction check (~10ms); a target that unmounts itself
     // on click (e.g. the edit pill switching modes) then fails its containment check, so
-    // close the versions popover here too — mousedown fires before any click handler.
-    if (versionsOpen && !(e.target as HTMLElement).closest(".vbtn, .versions")) versionsOpen = false;
+    // the versions popover used to be closed here. It is a modal Dialog now, which Bits
+    // closes on outside click itself, so nothing is left to do on mousedown.
   }}
   onmouseup={() => (dragging = false)}
   onkeydown={(e) => {
     if (e.key === "Escape") {
       armed = null;
       popup = null;
-      versionsOpen = false;
     }
   }}
 />
@@ -1570,29 +1602,58 @@ tags: coding, example
                 <Dialog.Trigger class="pill">
                   <span class="material-symbols-rounded" aria-hidden="true">palette</span>colors
                 </Dialog.Trigger>
-                <Popover.Root bind:open={versionsOpen}>
-                  <Popover.Trigger class="save ghost vbtn" title="version history">
+                <Dialog.Root bind:open={versionsOpen}>
+                  <Dialog.Trigger class="save ghost vbtn" title="snapshot history">
                     <span class="material-symbols-rounded" aria-hidden="true">history</span>versions ({versionCount})
-                  </Popover.Trigger>
-                  <Popover.Portal>
-                    <Popover.Content class="versions" role="dialog" aria-label="versions">
+                  </Dialog.Trigger>
+                  <Dialog.Overlay class="dlg-overlay" />
+                  <Dialog.Content class="historydlg" aria-label="snapshot history">
+                    <Dialog.Close class="dlgclose" aria-label="close snapshot history">
+                      <span class="material-symbols-rounded" aria-hidden="true">close</span>
+                    </Dialog.Close>
+                    <div class="hsnap">
+                      <input
+                        class="vname"
+                        type="text"
+                        name="snapshot-name"
+                        placeholder="name this snapshot"
+                        maxlength="120"
+                        bind:value={snapName}
+                      />
                       <button type="button" class="vsnap" onclick={snapshot}>
                         <span class="material-symbols-rounded" aria-hidden="true">add</span>snapshot now
                       </button>
-                      {#each [...(article?.versions ?? [])].reverse() as v, i (i)}
-                        <div class="vrow">
-                          <span class="vat">{new Date(v.savedAt).toLocaleString()}</span>
-                          <span class="vcodes">{v.codes.length} codes</span>
+                    </div>
+                    {#if HistoryGraphComp !== null && (article?.versions.length ?? 0) > 0}
+                      <HistoryGraphComp
+                        versions={article?.versions ?? []}
+                        head={headVersion}
+                        selected={pickedVersion}
+                        onpick={pickVersion}
+                      />
+                    {/if}
+                    <ul class="vlist">
+                      {#each listSnapshots(article?.versions ?? []) as v (v.id)}
+                        <li class="vrow" class:live={v.id === headVersion} class:picked={v.id === pickedVersion}>
+                          <button type="button" class="vpick" onclick={() => pickVersion(v)}>
+                            <span class="vlabel">{snapshotLabel(v)}</span>
+                            <span class="vbranch">{historyGraph.branchOf.get(v.id) ?? ""}</span>
+                            <span class="vat">{new Date(v.savedAt).toLocaleString()}</span>
+                            <span class="vcodes">{v.codes.length} codes</span>
+                          </button>
                           <button type="button" class="vrev" onclick={() => revertTo(v)}>
                             <span class="material-symbols-rounded" aria-hidden="true">undo</span>revert
                           </button>
-                        </div>
+                        </li>
                       {:else}
-                        <p class="vempty">No versions yet — snapshot the current state.</p>
+                        <li class="vempty">No versions yet — name the current state and snapshot it.</li>
                       {/each}
-                    </Popover.Content>
-                  </Popover.Portal>
-                </Popover.Root>
+                    </ul>
+                    {#if pickedSnapshot}
+                      <pre class="vprev">{pickedSnapshot.text}</pre>
+                    {/if}
+                  </Dialog.Content>
+                </Dialog.Root>
                 {#if pending}
                   <button type="button" class="save" onclick={save} disabled={saving}>
                     {saving ? "saving…" : "save"}
@@ -2515,17 +2576,43 @@ tags: coding, example
     }
   }
 
-  :global(.versions) {
-    z-index: 20;
-    min-width: 17rem;
+  /* snapshot history: commit graph + the accessible list carrying the same actions */
+  :global(.historydlg) {
+    position: fixed;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 41;
+    width: min(52rem, 94vw);
+    max-height: 86vh;
+    overflow: auto;
     display: flex;
     flex-direction: column;
-    gap: 0.3rem;
-    padding: 0.5rem 0.6rem;
+    gap: 0.5rem;
+    padding: 1.1rem 1.3rem;
     background: var(--surface, white);
     border: 1px solid var(--outline, #888);
-    border-radius: 8px;
+    border-radius: 12px;
+    color: var(--on-surface, #1c1b1f);
     box-shadow: 0 6px 18px rgb(0 0 0 / 0.18);
+
+    .hsnap {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .vname {
+      font: inherit;
+      font-size: 0.85rem;
+      flex: 1 1 8rem;
+      min-width: 0;
+      padding: 0.25rem 0.6rem;
+      border: 1px solid var(--outline, #888);
+      border-radius: 999px;
+      background: var(--surface, white);
+      color: var(--on-surface);
+    }
 
     .vsnap {
       font: inherit;
@@ -2545,18 +2632,70 @@ tags: coding, example
       }
     }
 
+    .vlist {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+    }
+
     .vrow {
       display: flex;
       align-items: center;
       gap: 0.5rem;
       font-size: 0.78rem;
+      border-radius: 6px;
+
+      /* the snapshot the live document continues from, and the previewed one */
+      &.live {
+        background: color-mix(in srgb, var(--primary, #6750a4) 12%, transparent);
+      }
+
+      &.picked {
+        outline: 1px solid var(--outline, #888);
+      }
+
+      .vpick {
+        font: inherit;
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.2rem 0.4rem;
+        border: none;
+        background: none;
+        color: inherit;
+        text-align: left;
+        cursor: pointer;
+      }
+
+      .vlabel {
+        flex: 1 1 auto;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .vbranch {
+        flex: 0 0 auto;
+        font-size: 0.68rem;
+        padding: 0.02rem 0.4rem;
+        border: 1px solid var(--outline, #888);
+        border-radius: 999px;
+        color: var(--on-surface-variant, #666);
+      }
 
       .vat {
-        flex: 1;
+        flex: 0 0 auto;
         color: var(--on-surface-variant, #666);
       }
 
       .vcodes {
+        flex: 0 0 auto;
         color: var(--on-surface-variant, #666);
         font-variant-numeric: tabular-nums;
       }
@@ -2584,6 +2723,19 @@ tags: coding, example
       margin: 0;
       font-size: 0.78rem;
       color: var(--on-surface-variant, #666);
+    }
+
+    .vprev {
+      margin: 0;
+      max-height: 14rem;
+      overflow: auto;
+      padding: 0.5rem 0.6rem;
+      font-size: 0.75rem;
+      line-height: 1.45;
+      white-space: pre-wrap;
+      background: var(--surface-variant, #eee);
+      border: 1px solid var(--outline, #888);
+      border-radius: 8px;
     }
   }
 

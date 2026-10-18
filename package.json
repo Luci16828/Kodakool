@@ -47,6 +47,7 @@
     "@codemirror/language": "^6.12.4",
     "@fontsource-variable/source-sans-3": "^5.3.0",
     "@fontsource-variable/source-serif-4": "^5.3.0",
+    "@gitgraph/js": "^1.4.0",
     "@lezer/highlight": "^1.2.5",
     "@material/material-color-utilities": "^0.4.0",
     "bits-ui": "^2.19.5",

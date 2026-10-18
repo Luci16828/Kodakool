@@ -386,6 +386,57 @@ describe("article coding page", () => {
     await expect.poll(async () => (await getArticle(FOLDER, NAME))?.text).toBe(TEXT);
   });
 
+  it("names snapshots and draws the branching history as a graph", async () => {
+    await seedArticle({ project: FOLDER, name: NAME, text: TEXT, entries: [quoteEntry] });
+
+    renderArticle();
+    await ready();
+
+    // the graph is aria-hidden decoration: read it straight off the DOM
+    const graphDots = () => document.querySelectorAll(".histgraph circle").length;
+    const graphText = () => [...document.querySelectorAll(".histgraph text")].map((t) => t.textContent).join(" ");
+    const nameBox = () => page.getByRole("textbox", { name: "name this snapshot" });
+
+    // name the first snapshot — the label is stored and shown in the list
+    await page.getByRole("button", { name: "versions (0)" }).click();
+    await nameBox().fill("Stand A");
+    await page.getByRole("button", { name: "snapshot now" }).click();
+    await expect.element(page.getByRole("button", { name: "versions (1)" })).toBeInTheDocument();
+    const [a] = (await getArticle(FOLDER, NAME))!.versions;
+    expect(a.label).toBe("Stand A");
+    expect(a.parent).toBe(null);
+
+    await page.getByRole("button", { name: "versions (1)" }).click();
+    await expect.poll(graphDots).toBe(1);
+    await expect.element(page.getByRole("listitem").filter({ hasText: "Stand A" })).toBeInTheDocument();
+
+    // a second snapshot continues the same line
+    await nameBox().fill("Stand B");
+    await page.getByRole("button", { name: "snapshot now" }).click();
+    await expect.poll(async () => (await getArticle(FOLDER, NAME))!.versions.length).toBe(2);
+    const two = (await getArticle(FOLDER, NAME))!.versions;
+    expect(two[1].parent).toBe(a.id);
+
+    // revert to Stand A: the live document continues from A, so the next snapshot forks off it
+    await page.getByRole("button", { name: "versions (2)" }).click();
+    await page.getByRole("listitem").filter({ hasText: "Stand A" }).getByRole("button", { name: "revert" }).click();
+    await expect.poll(editorText).toBe(TEXT);
+
+    await page.getByRole("button", { name: "versions (3)" }).click();
+    await nameBox().fill("Stand C");
+    await page.getByRole("button", { name: "snapshot now" }).click();
+
+    await expect.poll(async () => (await getArticle(FOLDER, NAME))!.versions.length).toBe(4);
+    const vers = (await getArticle(FOLDER, NAME))!.versions;
+    expect(vers[2].parent).toBe(two[1].id); // the pre-revert state was kept
+    expect(vers[3].parent).toBe(a.id); // ... and the new snapshot branched off A
+
+    // the drawing shows the fork as a second branch line carrying its own label
+    await page.getByRole("button", { name: "versions (4)" }).click();
+    await expect.poll(graphDots).toBe(4);
+    await expect.poll(graphText).toMatch(/line 2/);
+  });
+
   it("renames the document and follows to the new url", async () => {
     await seedArticle({ project: FOLDER, name: NAME, text: TEXT });
 

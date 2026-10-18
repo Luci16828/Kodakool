@@ -263,6 +263,58 @@ describe("database integrity", () => {
       expect((await getArticle(FOLDER, NAME))?.text).toBe(TEXT);
     });
 
+    it("gives pre-graph snapshots an id and a linear parent chain", async () => {
+      const id = await seedArticle({ project: FOLDER, name: NAME, text: TEXT });
+      const { articles } = await getDb();
+      // a store from before snapshots were graph nodes: no id, no parent
+      await articles
+        .findOne(id)
+        .exec()
+        .then((d) =>
+          d?.patch({
+            versions: [
+              { savedAt: 1, text: "a", codes: [] },
+              { savedAt: 2, text: "b", codes: [] },
+              { savedAt: 3, text: "c", codes: [] },
+            ],
+          }),
+        );
+
+      await integritySweep();
+      const vers = (await getArticle(FOLDER, NAME))!.versions;
+      expect(new Set(vers.map((v) => v.id)).size).toBe(3);
+      expect(vers.map((v) => v.parent)).toEqual([null, vers[0].id, vers[1].id]);
+
+      // the repaired history is addressable: a snapshot hangs on the node it was told to
+      const fork = await addVersion(id, "fork", vers[0].id);
+      expect(fork?.parent).toBe(vers[0].id);
+      expect((await getArticle(FOLDER, NAME))!.versions.at(-1)?.label).toBe("fork");
+    });
+
+    it("roots a snapshot whose parent the version cap dropped", async () => {
+      const id = await seedArticle({ project: FOLDER, name: NAME, text: TEXT });
+      const { articles } = await getDb();
+      await articles
+        .findOne(id)
+        .exec()
+        .then((d) =>
+          d?.patch({
+            versions: [
+              { id: "n1", savedAt: 1, text: "a", codes: [], parent: "dropped-by-the-cap" },
+              { id: "n2", savedAt: 2, text: "b", codes: [], parent: "n1" },
+            ],
+          }),
+        );
+
+      await integritySweep();
+      const vers = (await getArticle(FOLDER, NAME))!.versions;
+      // the dangling link becomes a root, the rest of the chain survives untouched
+      expect(vers.map((v) => [v.id, v.parent])).toEqual([
+        ["n1", null],
+        ["n2", "n1"],
+      ]);
+    });
+
     it("normalizes an article missing versions and kind", async () => {
       // a store written by an older app version: versions/kind are not schema-required
       const { articles } = await getDb();

@@ -12,8 +12,12 @@ import { codeEntrySchema, type CodeEntry } from "$lib/coding/types";
 export const DEFAULT_PROJECT = "default";
 
 export interface ArticleVersion {
+  /** stable snapshot id — the graph node every child links to */
+  id: string;
   savedAt: number;
   label?: string;
+  /** snapshot this one continues from (null = root of a history) */
+  parent: string | null;
   text: string;
   codes: CodeEntry[];
 }
@@ -67,8 +71,10 @@ const CODE_SCHEMA = {
 const VERSION_SCHEMA = {
   type: "object",
   properties: {
+    id: { type: "string", maxLength: 100 },
     savedAt: { type: "number" },
     label: { type: "string" },
+    parent: { type: ["string", "null"], maxLength: 100 },
     text: { type: "string" },
     codes: {
       type: "array",
@@ -136,7 +142,7 @@ const FOLDER_SCHEMA = {
 const ARTICLE_SCHEMA = {
   title: "articles",
   description: "one document per article (local-first, carries its own text + history)",
-  version: 1,
+  version: 2,
   type: "object",
   primaryKey: "id",
   properties: {
@@ -238,7 +244,11 @@ export function getDb(): Promise<Db> {
       articles: {
         schema: structuredClone(ARTICLE_SCHEMA),
         // v0 → v1 added the kind field: pre-existing articles are plain text
-        migrationStrategies: { 1: (oldDoc) => ({ ...oldDoc, kind: "text" as const }) },
+        migrationStrategies: {
+          1: (oldDoc) => ({ ...oldDoc, kind: "text" as const }),
+          // v1 → v2 made every snapshot a graph node (id + parent)
+          2: (oldDoc) => ({ ...oldDoc, versions: normalizeVersions(oldDoc.versions) }),
+        },
       },
       codes: { schema: structuredClone(CODE_SCHEMA) },
       catalogs: { schema: structuredClone(CATALOG_SCHEMA) },
@@ -284,13 +294,9 @@ async function sweep(db: Db): Promise<{ codes: number; pdfs: number }> {
   }
   for (const a of await db.articles.find().exec()) {
     const patch: Record<string, unknown> = {};
-    if (!Array.isArray(a.versions)) patch.versions = [];
-    else {
-      // drop snapshots a hostile import stored: reverting to one would poison the
-      // live entries and make every later save throw
-      const clean = a.versions.filter(versionOk);
-      if (clean.length !== a.versions.length) patch.versions = clean;
-    }
+    // normalizeVersions drops poisoned snapshots and mints the graph identity
+    // (id + parent) a pre-graph store never had
+    if (needsNormalize(a.versions)) patch.versions = normalizeVersions(a.versions);
     if (a.kind !== "text" && a.kind !== "pdf") patch.kind = "text";
     if (Object.keys(patch).length > 0) await a.patch(patch).catch(skipConflict);
   }
@@ -541,23 +547,37 @@ async function sweepCodesOf(codes: Collection<CodeDocData>, articleId: string): 
   }
 }
 
-/** Snapshot the article's current text + entries as a new version (oldest dropped past MAX_VERSIONS). */
-export async function addVersion(id: string, label?: string): Promise<void> {
+/**
+ * Snapshot the article's current text + entries as a new version (oldest dropped past
+ * MAX_VERSIONS).
+ *
+ * `parent` picks the graph node the snapshot hangs on: omit it to continue the newest
+ * snapshot (linear history), pass an older snapshot's id after a revert — the next
+ * snapshot then forks off that node. Returns the stored snapshot (its id becomes the
+ * live HEAD) or null when the article is gone.
+ */
+export async function addVersion(id: string, label?: string, parent?: string | null): Promise<ArticleVersion | null> {
   const { articles, codes } = await getDb();
   const doc = await articles.findOne(id).exec();
-  if (!doc) return;
+  if (!doc) return null;
   const article = doc.toJSON();
+  const history = normalizeVersions(article.versions);
   const entries = (await codes.find({ selector: { articleId: id } }).exec()).map(toEntry);
+  const from = parent === undefined ? (history.at(-1)?.id ?? null) : parent;
   const version: ArticleVersion = {
+    id: crypto.randomUUID(),
     savedAt: Date.now(),
-    ...(label ? { label } : {}),
+    // a parent the store does not know becomes a root: the cap drops the oldest snapshots
+    parent: from !== null && history.some((v) => v.id === from) ? from : null,
+    ...(label !== undefined && label.trim() !== "" ? { label: label.trim() } : {}),
     text: article.text,
     codes: entries,
   };
   // every version stores the full text: cap the history so one article cannot
   // grow the store without bound through repeated snapshots
-  const versions = [...(article.versions ?? []), version];
+  const versions = [...history, version];
   await doc.patch({ versions: versions.slice(-MAX_VERSIONS) });
+  return version;
 }
 
 export async function renameArticle(id: string, name: string): Promise<void> {
@@ -742,7 +762,7 @@ export async function getPdfData(articleId: string): Promise<{ data: string; pag
 
 export interface DatabaseExport {
   kind: "luci-bachelor-db";
-  version: 3;
+  version: 4;
   exportedAt: number;
   articles: ArticleData[];
   codes: CodeDocData[];
@@ -756,7 +776,7 @@ export async function exportDatabase(): Promise<DatabaseExport> {
   const { articles, codes, catalogs, pdfs, folders } = await getDb();
   const out: DatabaseExport = {
     kind: "luci-bachelor-db",
-    version: 3,
+    version: 4,
     exportedAt: Date.now(),
     articles: (await articles.find().exec()).map((d) => d.toJSON()),
     codes: (await codes.find().exec()).map((d) => d.toJSON()),
@@ -815,7 +835,8 @@ export async function importDatabase(
       kind: x.kind ?? "text",
       createdAt: num(x.createdAt, Date.now()),
       updatedAt: num(x.updatedAt, Date.now()),
-      versions: x.versions ?? [],
+      // exports from before versions were graph nodes have no id/parent — chain them
+      versions: normalizeVersions(x.versions ?? []),
     });
   }
   for (const c of rawCodes) {
@@ -876,4 +897,41 @@ function versionOk(v: unknown): boolean {
   if (!x || typeof x.savedAt !== "number" || typeof x.text !== "string" || !Array.isArray(x.codes)) return false;
   if (x.label !== undefined && typeof x.label !== "string") return false;
   return x.codes.every((c) => codeEntrySchema.safeParse(c).success);
+}
+
+/** Cheap "does this history need the repair below?" check (versions carry full text). */
+function needsNormalize(versions: unknown): boolean {
+  if (!Array.isArray(versions)) return true;
+  // a poisoned snapshot must go, exactly like the sweep always removed it
+  if (!versions.every(versionOk)) return true;
+  const ids = new Set(versions.map((v) => (v as ArticleVersion)?.id));
+  return versions.some((v) => {
+    const x = v as ArticleVersion;
+    if (typeof x.id !== "string") return true;
+    return x.parent !== null && (typeof x.parent !== "string" || !ids.has(x.parent));
+  });
+}
+
+/**
+ * Give every snapshot the identity the history graph needs (`id` + `parent`).
+ *
+ * Stores written before versions were graph nodes carry neither: they are chained in
+ * stored order, which is exactly the linear history the app produced for them. Content-
+ * invalid snapshots are dropped (reverting to one would poison the live entries), and a
+ * `parent` left pointing at a dropped or truncated node becomes a root, so a history
+ * that lost its oldest entries to the MAX_VERSIONS cap still draws.
+ */
+function normalizeVersions(versions: unknown): ArticleVersion[] {
+  if (!Array.isArray(versions)) return [];
+  const out: ArticleVersion[] = [];
+  for (const raw of versions) {
+    if (!versionOk(raw)) continue;
+    const v = raw as Partial<ArticleVersion>;
+    const id = typeof v.id === "string" && v.id !== "" ? v.id : crypto.randomUUID();
+    const parent = v.parent === null || typeof v.parent === "string" ? v.parent : (out.at(-1)?.id ?? null);
+    out.push({ ...(v as ArticleVersion), id, parent });
+  }
+  const kept = new Set(out.map((v) => v.id));
+  for (const v of out) if (v.parent !== null && !kept.has(v.parent)) v.parent = null;
+  return out;
 }
