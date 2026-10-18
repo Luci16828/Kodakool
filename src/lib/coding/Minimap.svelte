@@ -81,7 +81,10 @@
       const a = fracOf(m.from);
       const b = fracOf(m.to);
       return {
-        id: m.id,
+        // segments are disjoint intervals, so `from` is a unique key; the coverage
+        // id is NOT (one entry coded at two separate ranges yields two segments
+        // with the same covering-entry set → the same id → duplicate keyed-each key)
+        from: m.from,
         top: a * 100,
         height: Math.max((b - a) * 100, 0.6),
         style: m.style,
@@ -179,7 +182,7 @@
   onpointercancel={onUp}
   onkeydown={onKey}
 >
-  {#each stripes as s (s.id)}
+  {#each stripes as s (s.from)}
     <div class="mstripe" style={`top: ${s.top}%; height: ${s.height}%; ${s.style}`}></div>
   {/each}
   <div class="mview" style={`top: ${viewTop}%; height: ${viewH}%`}></div>

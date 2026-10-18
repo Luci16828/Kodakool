@@ -1375,6 +1375,28 @@ describe("minimap", () => {
     await expect.poll(stripes).toBe(2);
   });
 
+  it("renders nested coverage whose segments share a coverage id", async () => {
+    // entry A spans [0,20]; entry B nests inside [5,10]. A splits into [0,5] and
+    // [10,20], both covered ONLY by A → the same covering-entry set → the same
+    // coverage id. The keyed each must key by segment start, not the coverage id.
+    await seedArticle({
+      project: FOLDER,
+      name: NAME,
+      text: "aaaaaaaaaaaaaaaaaaaa",
+      entries: [
+        { device: DEVICE_QUOTE, line: 1, range: [0, 20], excerpt: "a".repeat(20) },
+        { device: DEVICE_COMMENT, line: 1, range: [5, 10], excerpt: "aaaaa" },
+      ],
+    });
+    renderArticle();
+    await ready();
+
+    await toggle().click();
+    await expect.poll(minimapCount).toBe(1);
+    // [0,5] {A} · [5,10] {A,B} · [10,20] {A} → three segments, two sharing an id
+    await expect.poll(stripes).toBe(3);
+  });
+
   it("persists the toggle across documents", async () => {
     await seedArticle({ project: FOLDER, name: NAME, text: TEXT, entries: [quoteEntry] });
     renderArticle();
