@@ -150,6 +150,7 @@ afterEach(() => {
 
 beforeEach(async () => {
   navigated.length = 0;
+  localStorage.removeItem("luci-minimap");
   await resetArticles();
   // the catalog is local-only now: seed it like the example project does
   await saveLocalCatalog(FOLDER, testInstructions);
@@ -1336,5 +1337,84 @@ describe("article coding page", () => {
     await expect.element(editor()).toBeInTheDocument();
     expect(document.querySelector(".cm-header-1")).toBeNull();
     expect(document.querySelector(".cm-frontmatter")).toBeNull();
+  });
+});
+
+describe("minimap", () => {
+  const stripes = () => document.querySelectorAll(".mstripe").length;
+  const minimapCount = () => document.querySelectorAll(".minimap").length;
+  const toggle = () => page.getByRole("button", { name: "Minimap" });
+
+  it("is off by default and toggles the strip on and off", async () => {
+    await seedArticle({ project: FOLDER, name: NAME, text: TEXT, entries: [quoteEntry] });
+    renderArticle();
+    await ready();
+
+    expect(minimapCount()).toBe(0);
+
+    await toggle().click();
+    await expect.poll(minimapCount).toBe(1);
+
+    await toggle().click();
+    await expect.poll(minimapCount).toBe(0);
+  });
+
+  it("renders one stripe per coded segment", async () => {
+    await seedArticle({
+      project: FOLDER,
+      name: NAME,
+      text: TEXT,
+      entries: [quoteEntry, { device: DEVICE_COMMENT, line: 1, range: [13, 17], excerpt: "Text" }],
+    });
+    renderArticle();
+    await ready();
+
+    await toggle().click();
+    await expect.poll(minimapCount).toBe(1);
+    // two non-overlapping entries → two disjoint coverage segments → two stripes
+    await expect.poll(stripes).toBe(2);
+  });
+
+  it("persists the toggle across documents", async () => {
+    await seedArticle({ project: FOLDER, name: NAME, text: TEXT, entries: [quoteEntry] });
+    renderArticle();
+    await ready();
+
+    await toggle().click();
+    await expect.poll(() => localStorage.getItem("luci-minimap")).toBe("1");
+
+    // a fresh mount reads the persisted flag: the strip is already on
+    lastRender?.unmount();
+    lastRender = undefined;
+    renderArticle();
+    await ready();
+    await expect.poll(minimapCount).toBe(1);
+  });
+
+  it("scrolls the editor when the minimap track is clicked", async () => {
+    const long = Array.from({ length: 200 }, (_, i) => `line ${i}`).join("\n");
+    await seedArticle({ project: FOLDER, name: NAME, text: long, entries: [] });
+    renderArticle();
+    await ready();
+
+    await toggle().click();
+    await expect.poll(minimapCount).toBe(1);
+
+    const scroller = document.querySelector(".cm-scroller") as HTMLElement;
+    expect(scroller.scrollTop).toBe(0);
+
+    const mm = document.querySelector(".minimap") as HTMLElement;
+    const r = mm.getBoundingClientRect();
+    // click near the bottom of the strip: the viewport jumps toward the document end
+    mm.dispatchEvent(
+      new PointerEvent("pointerdown", {
+        bubbles: true,
+        cancelable: true,
+        pointerId: 1,
+        clientX: Math.round(r.left + r.width / 2),
+        clientY: Math.round(r.top + r.height - 4),
+      }),
+    );
+    await expect.poll(() => (document.querySelector(".cm-scroller") as HTMLElement).scrollTop).toBeGreaterThan(0);
   });
 });

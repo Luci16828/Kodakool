@@ -27,6 +27,8 @@
   import { rankDevices, reconcileSlots } from "$lib/coding/quickselect";
   import { QuickPrefs } from "$lib/coding/quickselect.svelte";
   import QuickSelect from "$lib/coding/QuickSelect.svelte";
+  import Minimap from "$lib/coding/Minimap.svelte";
+  import { ViewPrefs } from "$lib/coding/view.svelte";
   import { displayName } from "$lib/coding/display";
   import { mdExtensions } from "$lib/coding/code-md";
   import type { Instructions } from "$lib/coding/instructions";
@@ -209,6 +211,8 @@
   let folders = $state<string[]>([]);
   /** shared delete confirmation controller (ConfirmHost renders the countdown dialog) */
   const confirm = new ConfirmAsk();
+  /** persisted view toggles (minimap), shared across documents and sessions */
+  const vprefs = new ViewPrefs();
 
   /** documents of THIS project only — other projects stay on the project screen */
   const myDocs = $derived.by(() =>
@@ -673,6 +677,12 @@
     }
     return out;
   });
+
+  // ----- minimap: the coded segments as a slim overview beside the editor -----
+  /** the minimap shows exactly when the editor is visible (Coding / Edit tabs) */
+  const showMinimap = $derived(vprefs.minimap && view !== undefined && (tab === "coding" || tab === "edit"));
+  /** the disjoint coverage segments as minimap bars: offset + the bar's hatch gradient */
+  const minimapMarks = $derived(specs.map((s) => ({ id: s.id, from: s.from, to: s.to, style: s.style })));
 
   const popupEntry = $derived.by(() => {
     const id = pop.popup?.id;
@@ -1218,6 +1228,16 @@
                 {:else if tab === "edit" && isMd}
                   <MarkdownHelp />
                 {/if}
+                {#if tab === "coding" || tab === "edit"}
+                  <Toggle.Root
+                    class={`smart ${vprefs.minimap ? "on" : ""}`}
+                    bind:pressed={vprefs.minimap}
+                    title="Show a minimap of the coded segments beside the editor"
+                  >
+                    <span class="material-symbols-rounded" aria-hidden="true">map</span>
+                    Minimap
+                  </Toggle.Root>
+                {/if}
                 <span class="spacer"></span>
                 <DownloadPicker
                   folder={data.folder}
@@ -1289,15 +1309,22 @@
             <!-- the CodeMirror host is NEVER unmounted: the view owns the DOM inside
                  this div, so unmounting it would leave the editor detached and every
                  return from the Analysis tab would show an empty box — the Analysis
-                 tab hides it with `display: none` instead -->
-            <div
-              class="editor"
-              class:hidden={tab === "analysis" || (isPdf && tab === "preview")}
-              class:arm={armed !== null}
-              class:smartsel={smart}
-              style={armed !== null ? markerVars(armedCode) : ""}
-              bind:this={parent}
-            ></div>
+                 tab hides it with `display: none` instead. The minimap rides beside the
+                 editor in the same row and collapses with it. -->
+            <div class="editorrow" class:hidden={tab === "analysis" || (isPdf && tab === "preview")}>
+              <div
+                id="editor"
+                class="editor"
+                class:hidden={tab === "analysis" || (isPdf && tab === "preview")}
+                class:arm={armed !== null}
+                class:smartsel={smart}
+                style={armed !== null ? markerVars(armedCode) : ""}
+                bind:this={parent}
+              ></div>
+              {#if showMinimap}
+                <Minimap {view} marks={minimapMarks} total={docText.length} />
+              {/if}
+            </div>
           </div>
         </Pane>
         <PaneResizer class="wshandle" />
@@ -1664,8 +1691,24 @@
       min-width: 0;
     }
   }
+  /* editor + minimap share a row: the editor fills it, the minimap is a fixed strip
+     on the right. The row collapses (display:none) on the Analysis / Preview tabs,
+     exactly like the editor did, so those surfaces take the whole column */
+  .editorrow {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    min-width: 0;
+    gap: 0.5rem;
+
+    &.hidden {
+      display: none;
+    }
+  }
+
   .editor {
     flex: 1;
+    min-width: 0;
     min-height: 0;
     overflow: hidden;
 
