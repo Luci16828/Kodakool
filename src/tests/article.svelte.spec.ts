@@ -16,7 +16,7 @@ import {
 import { extractPdfDoc } from "$lib/coding/pdf";
 import { buildPdf } from "$lib/coding/pdf-sample";
 import type { CodeEntry } from "$lib/coding/types";
-import { DEVICE_COMMENT, DEVICE_QUOTE, resetArticles, seedArticle, testInstructions } from "./fixtures";
+import { DEVICE_COMMENT, DEVICE_FRAME, DEVICE_QUOTE, resetArticles, seedArticle, testInstructions } from "./fixtures";
 
 const navigated = vi.hoisted(() => [] as string[]);
 vi.mock("$app/navigation", () => ({
@@ -195,7 +195,7 @@ describe("article coding page", () => {
     await expect.poll(() => treeCount("Rahmen")).toBe("1");
   });
 
-  it("covers faded marks solidly when hovering a frame device", async () => {
+  it("fades unrelated marks by device color when hovering a frame device", async () => {
     await seedArticle({
       project: FOLDER,
       name: NAME,
@@ -210,16 +210,65 @@ describe("article coding page", () => {
     await expect.poll(marks).toBe(3);
     await expect.poll(hatchedMarks).toBe(1);
 
-    // hovering `Zitat` fades the comment entry: the quote mark covers the
-    // overlap solidly — no hatching against faded coverage
+    const markByTitle = (title: string) =>
+      [...document.querySelectorAll(".cm-underline")].find((el) => el.getAttribute("title") === title) as
+        HTMLElement | undefined;
+    const alpha = (title: string, device: string) => {
+      const el = markByTitle(title);
+      return el ? getComputedStyle(el).getPropertyValue(`--a-${device}`).trim() : "";
+    };
+
+    // hovering `Zitat` fades the comment mark's color variable; the quote stays full
     const row = page.getByRole("treeitem", { name: "Zitat" });
     await expect.element(row).toBeInTheDocument();
     const el = await row.element();
     el.dispatchEvent(new Event("mouseenter"));
-    await expect.poll(hatchedMarks).toBe(0);
+
+    await expect.poll(() => alpha("2", DEVICE_COMMENT)).toBe("32%");
+    await expect.poll(() => alpha("1.1", DEVICE_QUOTE)).toBe("100%");
+    // the shared segment keeps the hovered device opaque and fades the other stop
+    await expect.poll(() => alpha("1.1 · 2", DEVICE_QUOTE)).toBe("100%");
+    await expect.poll(() => alpha("1.1 · 2", DEVICE_COMMENT)).toBe("32%");
+    // the viewport overlay paints the hovered coverage solid over the hatch
+    await expect.poll(() => document.querySelectorAll(".cm-hover").length).toBe(2);
+    const overlay = [...document.querySelectorAll<HTMLElement>(".cm-hover")].find(
+      (el) => el.getAttribute("title") === "1.1 · 2",
+    );
+    expect(overlay?.style.getPropertyValue("--bars")).toContain("linear-gradient");
+    expect(overlay?.style.getPropertyValue("--bars")).not.toContain("repeating-linear-gradient");
 
     el.dispatchEvent(new Event("mouseleave"));
-    await expect.poll(hatchedMarks).toBe(1);
+    await expect.poll(() => alpha("2", DEVICE_COMMENT)).toBe("100%");
+  });
+
+  it("keeps the whole subtree of a hovered catalog category visible", async () => {
+    await seedArticle({
+      project: FOLDER,
+      name: NAME,
+      text: TEXT,
+      entries: [quoteEntry, { device: DEVICE_COMMENT, line: 1, range: [13, 17], excerpt: "im T" }],
+    });
+
+    renderArticle();
+    await ready();
+    await expect.poll(marks).toBe(2);
+
+    const alpha = (title: string, device: string) => {
+      const el = [...document.querySelectorAll(".cm-underline")].find((x) => x.getAttribute("title") === title);
+      return el ? getComputedStyle(el).getPropertyValue(`--a-${device}`).trim() : "";
+    };
+
+    const row = page.getByRole("treeitem", { name: "Rahmen" });
+    await expect.element(row).toBeInTheDocument();
+    const el = await row.element();
+    el.dispatchEvent(new Event("mouseenter"));
+
+    // `Zitat` is inside `Rahmen`, `Kommentar` is not
+    await expect.poll(() => alpha("1.1", DEVICE_QUOTE)).toBe("100%");
+    await expect.poll(() => alpha("2", DEVICE_COMMENT)).toBe("32%");
+
+    el.dispatchEvent(new Event("mouseleave"));
+    await expect.poll(() => alpha("2", DEVICE_COMMENT)).toBe("100%");
   });
 
   it("arms a frame device on click and disarms it with Escape", async () => {
@@ -1341,6 +1390,8 @@ describe("article coding page", () => {
 
 describe("minimap", () => {
   const stripes = () => document.querySelectorAll(".mstripe").length;
+  const baseStripes = () => document.querySelectorAll(".mstripe:not(.mhover)").length;
+  const hoverStripes = () => document.querySelectorAll(".mstripe.mhover").length;
   const minimapCount = () => document.querySelectorAll(".minimap").length;
 
   it("shows the minimap whenever the editor is visible", async () => {
@@ -1372,6 +1423,33 @@ describe("minimap", () => {
     await expect.poll(minimapCount).toBe(1);
     // two non-overlapping entries → two disjoint coverage segments → two stripes
     await expect.poll(stripes).toBe(2);
+  });
+
+  it("paints the hovered device's minimap stripes solid", async () => {
+    await seedArticle({
+      project: FOLDER,
+      name: NAME,
+      text: TEXT,
+      entries: [quoteEntry, { device: DEVICE_COMMENT, line: 1, range: [13, 17], excerpt: "Text" }],
+    });
+    renderArticle();
+    await ready();
+
+    await expect.poll(baseStripes).toBe(2);
+    expect(hoverStripes()).toBe(0);
+
+    const row = page.getByRole("treeitem", { name: "Zitat" });
+    await expect.element(row).toBeInTheDocument();
+    const el = await row.element();
+    el.dispatchEvent(new Event("mouseenter"));
+
+    await expect.poll(hoverStripes).toBe(1);
+    const stripe = document.querySelector(".mstripe.mhover") as HTMLElement;
+    expect(stripe.style.getPropertyValue("--bars")).toContain("linear-gradient");
+    expect(stripe.style.getPropertyValue("--bars")).not.toContain("repeating-linear-gradient");
+
+    el.dispatchEvent(new Event("mouseleave"));
+    await expect.poll(hoverStripes).toBe(0);
   });
 
   it("renders nested coverage whose segments share a coverage id", async () => {

@@ -53,12 +53,19 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v
  * Readable text color for a solid background `hex`: whichever of near-white or
  * near-black has the higher WCAG contrast against it. Used to keep the text on a
  * highlight bar legible as its fill is re-tinted by the chroma/tone sliders.
+ * Memoized per hex: the palette's hex set is small and stable, and the mark
+ * pipeline calls this for every segment style.
  */
+const onFillCache = new Map<string, string>();
 export function onForFill(hex: string): string {
+  const hit = onFillCache.get(hex);
+  if (hit !== undefined) return hit;
   const t = toneOf(hex);
   const white = Contrast.ratioOfTones(t, toneOf("#ffffff"));
   const black = Contrast.ratioOfTones(t, toneOf("#101010"));
-  return white >= black ? "#ffffff" : "#101010";
+  const res = white >= black ? "#ffffff" : "#101010";
+  onFillCache.set(hex, res);
+  return res;
 }
 
 function markerFor(hue: number, spec: typeof LIGHT, min: number, chroma: number, tone0: number): string {
@@ -77,8 +84,44 @@ function markerFor(hue: number, spec: typeof LIGHT, min: number, chroma: number,
  * the dot, e.g. `6.2`/`6.3`) get similar hues within `categorySpread`. Unrelated
  * categories are pushed apart to `minHueSeparation` when that is geometrically
  * achievable, maximizing separation otherwise. Preferred hues are used as anchors.
+ *
+ * Memoized by input: the HCT marker search below is the most expensive color
+ * computation in the app, and the coding page rebuilds the palette on every
+ * entry change. An unchanged input returns the SAME Map instance, so downstream
+ * deriveds (mark styles, sidebar, minimap) keep their identity and skip rebuilds.
+ * The returned map must be treated as read-only.
  */
+const paletteCache = new Map<string, Map<string, CodeColor>>();
+
+function paletteKey(codes: string[], opts: PaletteOptions): string {
+  const prefer = opts.prefer
+    ? [...opts.prefer]
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([c, h]) => `${c}=${h}`)
+        .join(",")
+    : "";
+  return [
+    [...new Set(codes)].sort((a, b) => a.localeCompare(b)).join("\u0000"),
+    opts.minHueSeparation ?? 30,
+    opts.categorySpread ?? 40,
+    opts.minMarkerContrast ?? 4.5,
+    opts.chromaAdj ?? 0,
+    opts.toneAdj ?? 0,
+    prefer,
+  ].join("\u0001");
+}
+
 export function buildPalette(codes: string[], opts: PaletteOptions = {}): Map<string, CodeColor> {
+  const key = paletteKey(codes, opts);
+  const hit = paletteCache.get(key);
+  if (hit !== undefined) return hit;
+  const out = computePalette(codes, opts);
+  if (paletteCache.size > 32) paletteCache.clear();
+  paletteCache.set(key, out);
+  return out;
+}
+
+function computePalette(codes: string[], opts: PaletteOptions): Map<string, CodeColor> {
   const minSep = opts.minHueSeparation ?? 30;
   const maxSpread = opts.categorySpread ?? 40;
   const minContrast = opts.minMarkerContrast ?? 4.5;

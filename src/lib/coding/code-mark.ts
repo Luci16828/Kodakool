@@ -7,6 +7,8 @@ export interface CodingMarkTag {
   label: string;
   /** entry id the chip belongs to (hover lookup) */
   id: string;
+  /** catalog id of the device this chip codes (sidebar hover fade) */
+  device?: string;
   /** brighten (entry hot under the mouse or as narrowest of its segment) */
   hot?: boolean;
   /** dim this chip's color (a selection elsewhere fades unrelated marks + tags) */
@@ -29,6 +31,8 @@ export interface CodingMarkSpec {
   id: string;
   /** deterministic entry ids (entryId()) covered by this segment */
   ids: string[];
+  /** catalog ids covering this segment (the sidebar hover fade matches on these) */
+  devices: string[];
   from: number;
   to: number;
   /** display code labels joined with " · ", shown as tooltip */
@@ -45,6 +49,10 @@ const setCodingMarks = StateEffect.define<CodingMarkSpec[]>({
   map: (specs, change) => specs.map((s) => ({ ...s, from: change.mapPos(s.from), to: change.mapPos(s.to) })),
 });
 
+const setCodingHover = StateEffect.define<CodingMarkSpec[]>({
+  map: (specs, change) => specs.map((s) => ({ ...s, from: change.mapPos(s.from), to: change.mapPos(s.to) })),
+});
+
 const marksField = StateField.define<DecorationSet>({
   create: () => Decoration.none,
   update(marks, tr) {
@@ -55,7 +63,13 @@ const marksField = StateField.define<DecorationSet>({
         marks = Decoration.set(
           sorted.map((s) => {
             const cls = s.hot ? "cm-underline cm-hot" : "cm-underline";
-            const attributes = { style: s.style, "data-entry": s.ids.join(" "), "data-seg": s.id, title: s.code };
+            const attributes = {
+              style: s.style,
+              "data-entry": s.ids.join(" "),
+              "data-seg": s.id,
+              "data-devices": s.devices.join(" "),
+              title: s.code,
+            };
             return Decoration.mark({ class: cls, attributes }).range(s.from, s.to);
           }),
           true,
@@ -81,6 +95,7 @@ class LabelWidget extends WidgetType {
       a.every(
         (t, i) =>
           t.label === b[i].label &&
+          t.device === b[i].device &&
           t.marker === b[i].marker &&
           t.hot === b[i].hot &&
           t.faded === b[i].faded &&
@@ -104,6 +119,7 @@ class LabelWidget extends WidgetType {
       chip.style.cssText = `--tag:${t.marker}; --tag-d:${t.markerD}; --tag-on:${t.on}; --tag-on-d:${t.onD}`;
       chip.setAttribute("data-entry", this.spec.ids.join(" "));
       chip.setAttribute("data-tag-entry", t.id);
+      if (t.device) chip.setAttribute("data-device", t.device);
       chip.appendChild(document.createTextNode(t.label));
       row.appendChild(chip);
     }
@@ -135,9 +151,46 @@ const labelsField = StateField.define<DecorationSet>({
   provide: (f) => EditorView.decorations.from(f),
 });
 
+/**
+ * Sidebar-hover overlay: only the segments in the editor's current viewport get a
+ * focus decoration (solid highlighted coverage over the faded hatch). Keeping this
+ * in its own field means a hover change never rebuilds the base marks.
+ */
+const hoverMarksField = StateField.define<DecorationSet>({
+  create: () => Decoration.none,
+  update(marks, tr) {
+    marks = marks.map(tr.changes);
+    for (const e of tr.effects)
+      if (e.is(setCodingHover)) {
+        const sorted = [...e.value].sort((a, b) => a.from - b.from || b.to - a.to);
+        marks = Decoration.set(
+          sorted.map((s) => {
+            const cls = `cm-underline cm-hover${s.hot ? " cm-hot" : ""}`;
+            const attributes = {
+              style: s.style,
+              "data-entry": s.ids.join(" "),
+              "data-seg": s.id,
+              "data-devices": s.devices.join(" "),
+              title: s.code,
+            };
+            return Decoration.mark({ class: cls, attributes }).range(s.from, s.to);
+          }),
+          true,
+        );
+      }
+    return marks;
+  },
+  provide: (f) => EditorView.decorations.from(f),
+});
+
 /** Replace the full mark set (called whenever the entry list changes). */
 export function syncCodingMarks(view: EditorView, specs: CodingMarkSpec[]): void {
   view.dispatch({ effects: setCodingMarks.of(specs) });
+}
+
+/** Replace the viewport-only sidebar-hover overlay. */
+export function syncCodingHover(view: EditorView, specs: CodingMarkSpec[]): void {
+  view.dispatch({ effects: setCodingHover.of(specs) });
 }
 
 // resolve hover from the element under the pointer, not posAtCoords: with the
@@ -167,6 +220,7 @@ export function codingMarks(
   return [
     marksField,
     labelsField,
+    hoverMarksField,
     EditorView.domEventHandlers({
       mouseup(_event, view) {
         // the quick select menu rides the right button: releasing it must not code
@@ -212,6 +266,14 @@ export interface SmartOptions {
 /** px a pointer may travel between down and up and still count as a click */
 const CLICK_SLOP = 5;
 
+/** chars of context sliced around the pointer for logical spans: sentences and
+ * quote pairs never approach this size, so the paragraph bounds always clamp
+ * inside the window in practice — and sliceDoc() never copies the whole doc */
+const LOGICAL_WINDOW = 4000;
+/** chars of context sliced around a pointer selection for word snapping:
+ * snapWords only expands over one word + a bounded punctuation/whitespace run */
+const SNAP_WINDOW = 512;
+
 /**
  * Logical selection: drags snap to whole words (transactionFilter on
  * select.pointer), plain clicks select the element (quotes/brackets) containing
@@ -223,9 +285,13 @@ export function smartSelect(o: SmartOptions) {
   let downY = 0;
   let last: Span | null = null;
   const logicalAt = (view: EditorView, pos: number): Span | null => {
-    const text = view.state.sliceDoc();
+    const doc = view.state.doc;
+    // windowed slice: sliceDoc() would copy the whole document on every mousemove
+    const lo = Math.max(0, pos - LOGICAL_WINDOW);
+    const text = doc.sliceString(lo, Math.min(doc.length, pos + LOGICAL_WINDOW));
     const hard = o.hard?.() ?? false;
-    return elementSpan(text, pos, hard) ?? sentenceSpan(text, pos, hard);
+    const s = elementSpan(text, pos - lo, hard) ?? sentenceSpan(text, pos - lo, hard);
+    return s === null ? null : { from: s.from + lo, to: s.to + lo };
   };
   const report = (s: Span | null) => {
     if (last === s) return;
@@ -238,10 +304,17 @@ export function smartSelect(o: SmartOptions) {
       if (!o.enabled() || !tr.selection || !tr.isUserEvent("select.pointer")) return tr;
       const main = tr.selection.main;
       if (main.empty) return tr;
-      const s = snapWords(tr.state.sliceDoc(), main.from, main.to);
-      if (s.from === main.from && s.to === main.to) return tr;
+      // windowed slice: a pointer drag dispatches a selection transaction per
+      // mousemove, so sliceDoc() here would copy the whole document per pixel
+      const doc = tr.state.doc;
+      const lo = Math.max(0, main.from - SNAP_WINDOW);
+      const text = doc.sliceString(lo, Math.min(doc.length, main.to + SNAP_WINDOW));
+      const s = snapWords(text, main.from - lo, main.to - lo);
+      const from = s.from + lo;
+      const to = s.to + lo;
+      if (from === main.from && to === main.to) return tr;
       return {
-        selection: main.head < main.anchor ? { anchor: s.to, head: s.from } : { anchor: s.from, head: s.to },
+        selection: main.head < main.anchor ? { anchor: to, head: from } : { anchor: from, head: to },
         userEvent: "select.pointer",
       };
     }),

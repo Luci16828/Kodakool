@@ -10,6 +10,7 @@ function mk(id: string, from: number, to: number, label: string, color = "#ff000
     id,
     from,
     to,
+    devices: [id],
     faded: false,
     hot: false,
     color,
@@ -348,7 +349,9 @@ describe("PdfView", () => {
     await expect.poll(() => document.querySelectorAll(".pdfmark").length).toBe(3);
     const both = [...document.querySelectorAll(".pdfmark")].some((el) => {
       const bg = getComputedStyle(el).backgroundImage;
-      return bg.includes("255, 0, 0") && bg.includes("0, 255, 0");
+      // the stops are color-mix() expressions, so Chromium serializes them as
+      // color(srgb r g b / a) — 1 0 0 / 0 1 0 are the two fixture colors
+      return bg.includes("1 0 0") && bg.includes("0 1 0");
     });
     expect(both).toBe(true);
   });

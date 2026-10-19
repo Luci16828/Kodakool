@@ -51,7 +51,14 @@
   } from "$lib/client/coding-db";
   import DownloadPicker from "$lib/coding/DownloadPicker.svelte";
   import UploadZone from "$lib/client/UploadZone.svelte";
-  import { codingMarks, smartSelect, syncCodingMarks, type CodingMarkSpec } from "$lib/coding/code-mark";
+  import {
+    codingMarks,
+    smartSelect,
+    syncCodingHover,
+    syncCodingMarks,
+    type CodingMarkSpec,
+  } from "$lib/coding/code-mark";
+  import { alphaVar, cssVar, hoverFadeCss } from "$lib/coding/css-var";
 
   const { data }: { data: { folder: string; name: string } } = $props();
 
@@ -97,6 +104,8 @@
 
   let parent = $state<HTMLDivElement | undefined>(undefined);
   let view = $state.raw<EditorView | undefined>(undefined);
+  /** editor offsets currently rendered in the viewport (the sidebar-hover overlay's scope) */
+  let visibleRange = $state({ from: 0, to: 0 });
   let unsubscribe: (() => void) | undefined;
 
   let loading = $state(true);
@@ -357,6 +366,53 @@
   const styleFor = (n: CatalogView) => colorVars(n.code);
   const onhover = (id: string | null) => (hoverDevice = id);
 
+  /** every key a mark can carry (catalog ids + entry keys) gets a fade alpha variable */
+  const fadeIds = $derived.by(() => {
+    const seen = new SvelteSet<string>();
+    const out: string[] = [];
+    const add = (id: string): void => {
+      const v = cssVar(id);
+      if (seen.has(v)) return;
+      seen.add(v);
+      out.push(id);
+    };
+    for (const n of nodes) add(n.id);
+    for (const k of entryKeys) add(k);
+    return out;
+  });
+  /** the hover-fade stylesheet (injected once per catalog/entry-key set) */
+  const hoverCss = $derived(hoverFadeCss(fadeIds, catalog));
+  /** selection/preview fade stays in JS (the CSS hover rules switch off under data-fade) */
+  const fadeAll = $derived(selRange !== null || previewRange !== null);
+  /** catalog ids of the hovered node and its whole subtree (null = no filter) */
+  const hoverKeys = $derived.by(() => {
+    if (hoverDevice === null) return null;
+    const find = (ns: CatalogView[]): CatalogView | null => {
+      for (const n of ns) {
+        if (n.id === hoverDevice) return n;
+        const f = find(n.children);
+        if (f) return f;
+      }
+      return null;
+    };
+    const node = find(catalog);
+    if (!node) return null;
+    const ids = new SvelteSet<string>();
+    const collect = (n: CatalogView): void => {
+      ids.add(n.id);
+      for (const c of n.children) collect(c);
+    };
+    collect(node);
+    return ids;
+  });
+  /** stable empty results: a scroll with no sidebar hover must not re-trigger the
+      hover-overlay deriveds (new array identities would dispatch per scroll event) */
+  const EMPTY_SPECS: CodingMarkSpec[] = [];
+  const EMPTY_BARS: { id: string; from: number; to: number; style: string }[] = [];
+  const EMPTY_IDS: string[] = [];
+  /** the same subtree as an array (PdfView's viewport overlay prop) */
+  const hoverDevices = $derived(hoverKeys ? [...hoverKeys] : EMPTY_IDS);
+
   // ----- quick select menu (hold the right mouse button) -----
   /**
    * The document surface the right press is listened for on: the editor div for
@@ -416,32 +472,11 @@
     quick.pin(slot, quick.pins[slot] === id ? null : id);
   }
 
-  // ids of the hovered catalog node and its whole subtree (null = no filter)
-  const hoverKeys = $derived.by(() => {
-    if (hoverDevice === null) return null;
-    const find = (ns: CatalogView[]): CatalogView | null => {
-      for (const n of ns) {
-        if (n.id === hoverDevice) return n;
-        const f = find(n.children);
-        if (f) return f;
-      }
-      return null;
-    };
-    const node = find(catalog);
-    if (!node) return null;
-    const ids = new SvelteSet<string>();
-    const collect = (n: CatalogView): void => {
-      ids.add(n.id);
-      for (const c of n.children) collect(c);
-    };
-    collect(node);
-    return ids;
-  });
-
   interface Placed {
     entry?: CodeEntry;
     id: string;
     code: string;
+    devices: string[];
     from: number;
     to: number;
     faded: boolean;
@@ -460,20 +495,25 @@
         entry: e,
         id: entryId(key, e),
         code: displayByDevice.get(entryKey) ?? entryKey,
+        devices: [keyToId.get(entryKey) ?? entryKey],
         from,
         to,
-        faded:
-          selRange !== null ||
-          previewRange !== null ||
-          (hoverKeys !== null && !hoverKeys.has(keyToId.get(entryKey) ?? entryKey)),
+        faded: selRange !== null || previewRange !== null,
       });
     }
     // selection & preview are coverage pseudo-entries: they split segments and
     // cover the faded real marks instead of sitting as a separate overlay
     if (selRange !== null && selRange.to > selRange.from)
-      out.push({ id: SEL_CODE, code: SEL_CODE, from: selRange.from, to: selRange.to, faded: false });
+      out.push({ id: SEL_CODE, code: SEL_CODE, devices: [], from: selRange.from, to: selRange.to, faded: false });
     if (previewRange !== null && previewRange.to > previewRange.from)
-      out.push({ id: PREVIEW_CODE, code: PREVIEW_CODE, from: previewRange.from, to: previewRange.to, faded: false });
+      out.push({
+        id: PREVIEW_CODE,
+        code: PREVIEW_CODE,
+        devices: [],
+        from: previewRange.from,
+        to: previewRange.to,
+        faded: false,
+      });
     return out;
   });
 
@@ -567,15 +607,47 @@
       .filter((p) => p.entry !== undefined)
       .reduce<Placed | undefined>((a, b) => (a === undefined || spanOf(b) < spanOf(a) ? b : a), undefined);
   // split overlapping entries into disjoint segments (article token parity):
-  // maximal intervals with identical coverage, independent of any hover state
+  // maximal intervals with identical coverage, independent of any hover state.
+  // Sweep line over the boundary points: `active` holds the placed entries covering
+  // the current interval (indices into `placed`, ascending, so cov keeps placed
+  // order) — the old per-interval filter over all placements was O(P²) per recompute,
+  // and placed changes on every keystroke, selection change and preview crossing.
   const segments = $derived.by(() => {
     const points = [...new SvelteSet(placed.flatMap((p) => [p.from, p.to]))].sort((a, b) => a - b);
+    const startsAt = new Map<number, number[]>();
+    const endsAt = new Map<number, number[]>();
+    placed.forEach((p, i) => {
+      const s = startsAt.get(p.from);
+      if (s) s.push(i);
+      else startsAt.set(p.from, [i]);
+      const e = endsAt.get(p.to);
+      if (e) e.push(i);
+      else endsAt.set(p.to, [i]);
+    });
     const out: { id: string; ids: string[]; from: number; to: number; cov: Placed[] }[] = [];
+    let active: number[] = [];
     for (let i = 0; i + 1 < points.length; i++) {
       const from = points[i];
       const to = points[i + 1];
-      const cov = placed.filter((p) => p.from <= from && to <= p.to);
-      if (cov.length === 0) continue;
+      // a placement ending exactly at `from` covers the previous interval, not this one
+      const end = endsAt.get(from);
+      if (end !== undefined) {
+        const drop = new SvelteSet(end);
+        active = active.filter((idx) => !drop.has(idx));
+      }
+      const start = startsAt.get(from);
+      if (start !== undefined) {
+        // merge the new indices into the ascending active list
+        const merged: number[] = [];
+        let a = 0;
+        let b = 0;
+        while (a < active.length && b < start.length) merged.push(active[a] < start[b] ? active[a++] : start[b++]);
+        while (a < active.length) merged.push(active[a++]);
+        while (b < start.length) merged.push(start[b++]);
+        active = merged;
+      }
+      if (active.length === 0) continue;
+      const cov = active.map((idx) => placed[idx]);
       const ids = cov.map((p) => p.id);
       out.push({ id: [...ids].sort().join("|"), ids, from, to, cov });
     }
@@ -606,6 +678,7 @@
       id: p.id,
       from: p.from,
       to: p.to,
+      devices: p.devices,
       faded: p.faded,
       hot: hotEntries.has(p.id),
       color: fillOf(p.code, false, false),
@@ -621,40 +694,80 @@
     })),
   );
 
+  const mix = (col: string, faded: boolean) => (faded ? `color-mix(in srgb, ${col} 32%, transparent)` : col);
+  const itemFill = (p: Placed, dark: boolean, hotFor: boolean) =>
+    hotFor ? fillOf(p.code, dark, true) : mix(fillOf(p.code, dark, false), p.faded);
+  // the sidebar hover fade is a per-device alpha variable (see css-var.ts):
+  // the gradient stays the same, only the alpha variables animate
+  const stop = (p: Placed, hotIds: SvelteSet<string>, dark: boolean, hotVariant: boolean) => {
+    const col = itemFill(p, dark, hotVariant && hotIds.has(p.id));
+    const dev = p.devices[0];
+    return dev ? `color-mix(in srgb, ${col} ${alphaVar(dev)}, transparent)` : col;
+  };
+  const gradFor = (
+    cov: Placed[],
+    hotIds: SvelteSet<string>,
+    dark: boolean,
+    hotVariant: boolean,
+    focus: boolean,
+  ): string => {
+    // focus mode (selection/preview/hover): highlighted markers fully cover
+    // the faded ones below them — no hatching against faded coverage; same
+    // color highlights merge into one solid fill
+    const vis = focus ? cov.filter((p) => !p.faded || hotIds.has(p.id)) : cov;
+    const stops = vis.map((p) => stop(p, hotIds, dark, hotVariant));
+    const uniq = focus ? [...new Set(stops)] : stops;
+    return uniq.length === 1 ? `linear-gradient(${uniq[0]}, ${uniq[0]})` : hatch(uniq);
+  };
+  const computeStyleForCov = (cov: Placed[], hotIds: SvelteSet<string>, focus: boolean): string => {
+    // dominant code for the bar text: the first visible (non-faded) coverage
+    const dom = cov.find((p) => !p.faded || hotIds.has(p.id)) ?? cov[0];
+    return [
+      `--bars:${gradFor(cov, hotIds, false, false, focus)}`,
+      `--bars-d:${gradFor(cov, hotIds, true, false, focus)}`,
+      `--bars-hot:${gradFor(cov, hotIds, false, true, focus)}`,
+      `--bars-hot-d:${gradFor(cov, hotIds, true, true, focus)}`,
+      // text on the bar: contrast against the dominant code's fill (per scheme/variant)
+      `--on-bars:${onForFill(fillOf(dom.code, false, false))}`,
+      `--on-bars-d:${onForFill(fillOf(dom.code, true, false))}`,
+      `--on-bars-hot:${onForFill(fillOf(dom.code, false, true))}`,
+      `--on-bars-hot-d:${onForFill(fillOf(dom.code, true, true))}`,
+    ].join("; ");
+  };
+  // memoized style strings: the gradient is a pure function of the coverage
+  // (ids, fade flags, hot flags, device alphas) + focus mode, so a hover/preview
+  // crossing — which changes only a handful of segments — re-strings only those;
+  // every other segment hits the cache. The generation resets it on palette
+  // (chroma/tone/theme) and armed-device changes, which move the fills.
+  const styleCache = new Map<string, string>();
+  let styleGen = "";
+  const styleForCov = (cov: Placed[], hotIds: SvelteSet<string>, focus: boolean): string => {
+    const gen = `${paletteTick}|${armedCode}`;
+    if (gen !== styleGen) {
+      styleCache.clear();
+      styleGen = gen;
+    }
+    let key = focus ? "f|" : "n|";
+    for (const p of cov) key += `${p.id}:${p.faded ? 1 : 0}${hotIds.has(p.id) ? 1 : 0}:${p.devices[0] ?? ""}|`;
+    const hit = styleCache.get(key);
+    if (hit !== undefined) return hit;
+    const style = computeStyleForCov(cov, hotIds, focus);
+    if (styleCache.size > 4000) styleCache.clear();
+    styleCache.set(key, style);
+    return style;
+  };
+
   const specs = $derived.by<CodingMarkSpec[]>(() => {
     const out: CodingMarkSpec[] = [];
     for (const { id, ids, from, to, cov } of segments) {
       const hotIds = new SvelteSet(ids.filter((x) => hotEntries.has(x)));
       const hot = hotIds.size > 0;
-      const mix = (col: string, faded: boolean) => (faded ? `color-mix(in srgb, ${col} 32%, transparent)` : col);
-      const itemFill = (p: Placed, dark: boolean, hotFor: boolean) =>
-        hotFor ? fillOf(p.code, dark, true) : mix(fillOf(p.code, dark, false), p.faded);
-      const grad = (dark: boolean, hotVariant: boolean): string => {
-        // focus mode (selection/preview/hover): highlighted markers fully cover
-        // the faded ones below them — no hatching against faded coverage; same
-        // color highlights merge into one solid fill
-        const focus = cov.some((p) => p.faded) && cov.some((p) => !p.faded || hotIds.has(p.id));
-        const vis = focus ? cov.filter((p) => !p.faded || hotIds.has(p.id)) : cov;
-        const stops = vis.map((p) => itemFill(p, dark, hotVariant && hotIds.has(p.id)));
-        const uniq = focus ? [...new Set(stops)] : stops;
-        return uniq.length === 1 ? `linear-gradient(${uniq[0]}, ${uniq[0]})` : hatch(uniq);
-      };
-      // dominant code for the bar text: the first visible (non-faded) coverage
-      const dom = cov.find((p) => !p.faded || hotIds.has(p.id)) ?? cov[0];
-      const style = [
-        `--bars:${grad(false, false)}`,
-        `--bars-d:${grad(true, false)}`,
-        `--bars-hot:${grad(false, true)}`,
-        `--bars-hot-d:${grad(true, true)}`,
-        // text on the bar: contrast against the dominant code's fill (per scheme/variant)
-        `--on-bars:${onForFill(fillOf(dom.code, false, false))}`,
-        `--on-bars-d:${onForFill(fillOf(dom.code, true, false))}`,
-        `--on-bars-hot:${onForFill(fillOf(dom.code, false, true))}`,
-        `--on-bars-hot-d:${onForFill(fillOf(dom.code, true, true))}`,
-      ].join("; ");
+      const focus = cov.some((p) => p.faded) && cov.some((p) => !p.faded || hotIds.has(p.id));
+      const style = styleForCov(cov, hotIds, focus);
       out.push({
         id,
         ids,
+        devices: [...new SvelteSet(cov.flatMap((p) => p.devices))],
         from,
         to,
         code: [...new SvelteSet(cov.filter((p) => p.entry !== undefined).map((p) => p.code))].sort().join(" · "),
@@ -665,6 +778,7 @@
           .map((p) => ({
             ...tagFor(p.code),
             id: p.id,
+            device: p.devices[0],
             hot: hotIds.has(p.id),
             faded: p.faded,
             open: pop.hoverChip === p.id,
@@ -675,11 +789,113 @@
     return out;
   });
 
+  /** sidebar-hover overlay: only the segments in the current viewport get the
+      solid focus gradient (the hovered device covers the faded hatch) */
+  const hoverSpecs = $derived.by<CodingMarkSpec[]>(() => {
+    const keys = hoverKeys;
+    if (keys === null || fadeAll) return EMPTY_SPECS;
+    const out: CodingMarkSpec[] = [];
+    // segments are sorted by `from`; binary-search the first one that reaches
+    // into the viewport, then stop as soon as the segments pass its bottom edge
+    let lo = 0;
+    let hi = segments.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (segments[mid].to < visibleRange.from) lo = mid + 1;
+      else hi = mid;
+    }
+    for (let i = lo; i < segments.length && segments[i].from <= visibleRange.to; i++) {
+      const { id, ids, from, cov } = segments[i];
+      const lit = cov.filter(
+        (p) => (p.entry !== undefined && p.devices[0] && keys.has(p.devices[0])) || hotEntries.has(p.id),
+      );
+      if (lit.length === 0) continue;
+      const hotIds = new SvelteSet(ids.filter((x) => hotEntries.has(x)));
+      out.push({
+        id,
+        ids,
+        devices: [...new SvelteSet(cov.flatMap((p) => p.devices))],
+        from,
+        to: segments[i].to,
+        code: [...new SvelteSet(cov.filter((p) => p.entry !== undefined).map((p) => p.code))].sort().join(" · "),
+        style: styleForCov(lit, hotIds, true),
+        tags: [],
+        hot: hotIds.size > 0,
+      });
+    }
+    return out;
+  });
+
+  // the hover-fade stylesheet rides the catalog/entry-key set: hovering a sidebar
+  // row only flips `data-hover-device` on the surface, so no mark is rebuilt
+  $effect(() => {
+    const css = hoverCss;
+    if (css === "") return;
+    const el = document.createElement("style");
+    el.setAttribute("data-coding-hover", "");
+    el.textContent = css;
+    document.head.appendChild(el);
+    return () => el.remove();
+  });
+
+  // viewport tracking for the sidebar-hover overlay: CodeMirror's own viewport
+  // blocks are the cheapest visible-range source (wrapping-aware)
+  function measureVisible(): void {
+    if (view === undefined) return;
+    const blocks = view.viewportLineBlocks;
+    if (blocks.length === 0) return;
+    visibleRange = { from: blocks[0].from, to: blocks[blocks.length - 1].to };
+  }
+
+  $effect(() => {
+    if (view === undefined) return;
+    measureVisible();
+    const dom = view.scrollDOM;
+    const onScroll = () => measureVisible();
+    dom.addEventListener("scroll", onScroll, { passive: true });
+    let raf = 0;
+    // rAF-deferred: a synchronous state write inside ResizeObserver re-triggers it
+    const ro = new ResizeObserver(() => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => measureVisible());
+    });
+    ro.observe(dom);
+    return () => {
+      cancelAnimationFrame(raf);
+      dom.removeEventListener("scroll", onScroll);
+      ro.disconnect();
+    };
+  });
+
+  $effect(() => {
+    if (view === undefined) return;
+    try {
+      syncCodingHover(view, hoverSpecs);
+    } catch (e) {
+      editMsg = `hover marks: ${String(e)}`;
+    }
+  });
+
   // ----- minimap: the coded segments as a slim overview beside the editor -----
   /** the minimap shows whenever the editor is visible (Coding / Edit tabs) */
   const showMinimap = $derived(view !== undefined && (tab === "coding" || tab === "edit"));
   /** the disjoint coverage segments as minimap bars: offset + the bar's hatch gradient */
   const minimapMarks = $derived(specs.map((s) => ({ id: s.id, from: s.from, to: s.to, style: s.style })));
+  /** the minimap's solid hover bars: every segment the hovered catalog subtree covers */
+  const minimapHoverMarks = $derived.by(() => {
+    const keys = hoverKeys;
+    if (keys === null || fadeAll) return EMPTY_BARS;
+    const out: { id: string; from: number; to: number; style: string }[] = [];
+    for (const { id, ids, from, to, cov } of segments) {
+      const lit = cov.filter(
+        (p) => (p.entry !== undefined && p.devices[0] && keys.has(p.devices[0])) || hotEntries.has(p.id),
+      );
+      if (lit.length === 0) continue;
+      const hotIds = new SvelteSet(ids.filter((x) => hotEntries.has(x)));
+      out.push({ id, from, to, style: styleForCov(lit, hotIds, true) });
+    }
+    return out;
+  });
 
   const popupEntry = $derived.by(() => {
     const id = pop.popup?.id;
@@ -1265,6 +1481,9 @@
                     armed={armed !== null}
                     {smart}
                     preview={previewRange}
+                    {hoverDevice}
+                    {hoverDevices}
+                    {fadeAll}
                     onadd={(from, to) => addEntryFromOffsets(from, to, false)}
                     onselect={(r) => (selRange = r)}
                     onpreview={(r) => (previewRange = r)}
@@ -1298,7 +1517,12 @@
                  return from the Analysis tab would show an empty box — the Analysis
                  tab hides it with `display: none` instead. The minimap rides beside the
                  editor in the same row and collapses with it. -->
-            <div class="editorrow" class:hidden={tab === "analysis" || (isPdf && tab === "preview")}>
+            <div
+              class="editorrow"
+              class:hidden={tab === "analysis" || (isPdf && tab === "preview")}
+              data-hover-device={hoverDevice ?? undefined}
+              data-fade={fadeAll ? "all" : undefined}
+            >
               <div
                 id="editor"
                 class="editor"
@@ -1310,7 +1534,7 @@
                 bind:this={parent}
               ></div>
               {#if showMinimap}
-                <Minimap {view} marks={minimapMarks} total={docText.length} />
+                <Minimap {view} marks={minimapMarks} hoverMarks={minimapHoverMarks} total={docText.length} />
               {/if}
             </div>
           </div>

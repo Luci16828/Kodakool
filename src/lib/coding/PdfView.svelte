@@ -8,7 +8,9 @@
    * below the text layer; label chips carry `data-tag-entry` so the CodingDoc
    * popup anchors to them like editor chips.
    */
+  import { SvelteSet } from "svelte/reactivity";
   import { base64ToBytes } from "$lib/client/coding-db";
+  import { alphaVar } from "$lib/coding/css-var";
   import type { PdfSpan } from "$lib/coding/pdf";
   import { elementSpan, sentenceSpan, snapWords } from "$lib/coding/segment";
 
@@ -16,6 +18,8 @@
     id: string;
     from: number;
     to: number;
+    /** catalog ids this mark codes (the sidebar hover fade animates these alphas) */
+    devices: string[];
     faded: boolean;
     hot: boolean;
     color: string;
@@ -44,6 +48,12 @@
     smart: boolean;
     /** smart-click preview span (rendered by the parent as pseudo coverage) */
     preview: Range | null;
+    /** catalog id under the sidebar cursor (CSS-only fade, see css-var.ts) */
+    hoverDevice?: string | null;
+    /** catalog ids of the hovered node's subtree (the solid focus overlay) */
+    hoverDevices?: string[];
+    /** selection/preview fade (the CSS hover rules switch off under it) */
+    fadeAll?: boolean;
     onadd: (from: number, to: number) => void;
     onselect: (r: Range | null) => void;
     onpreview: (r: Range | null) => void;
@@ -60,6 +70,8 @@
   let host = $state<HTMLDivElement | null>(null);
   let pages = $state<PageState[]>([]);
   let scale = $state(1);
+  /** rect keys currently inside the PDF viewport (the hover overlay's scope) */
+  const visibleRectKeys = new SvelteSet<string>();
   let pdfDoc: {
     numPages: number;
     getPage(n: number): Promise<{
@@ -240,46 +252,67 @@
   function measureSpans(sc: number): void {
     const pageEls = host ? host.querySelectorAll<HTMLElement>(".pdfpage") : [];
     spanMetrics.clear();
+    // batched writes and reads: interleaving a transform write with rect reads
+    // forces a synchronous layout per span; four passes flush the layout only at
+    // the write→read switches
+    interface Pending {
+      s: PdfSpan;
+      el: HTMLSpanElement;
+      tn: Node;
+      len: number;
+      pageEl: HTMLElement;
+      pr: DOMRect;
+      natural: number;
+    }
+    const pend: Pending[] = [];
     pages.forEach((pg, i) => {
       const pageEl = pageEls[i];
       if (!pageEl) return;
-      const pr = pageEl.getBoundingClientRect();
       for (const s of pg.spans) {
         const el = spanEls.get(s.start);
         const tn = el?.firstChild;
         if (!el || !tn || tn.nodeType !== Node.TEXT_NODE || s.width <= 0) continue;
         const len = s.end - s.start;
         if (len <= 0) continue;
-        const r = document.createRange();
         // clear any previous stretch before measuring the natural width, otherwise
         // re-measuring after a scale change compounds the old factor into "natural"
         el.style.transform = "";
-        r.selectNodeContents(tn);
-        const natural = r.getBoundingClientRect().width;
-        const target = s.width * sc;
-        // stretch even tiny/whitespace spans: an unstretched gap span leaves a
-        // seam between the marks of its neighbours
-        const f = natural > 0.01 ? target / natural : 1;
-        // stretch even for small factors: 0.5% on a 400px line is already 2px drift
-        el.style.transform = Math.abs(f - 1) > 0.001 ? `scaleX(${f.toFixed(4)})` : "";
-        // char boundary x positions (page-relative PDF units) after the stretch
-        const xs: number[] = [];
-        for (let k = 0; k < len; k++) {
-          r.setStart(tn, k);
-          r.setEnd(tn, k + 1);
-          const cr = r.getBoundingClientRect();
-          if (k === 0) xs.push((cr.left - pr.left) / sc);
-          xs.push((cr.right - pr.left) / sc);
-        }
-        r.selectNodeContents(tn);
-        const fr = r.getBoundingClientRect();
-        spanMetrics.set(s.start, {
-          xs,
-          bottom: (pr.bottom - fr.bottom) / sc,
-          h: fr.height / sc,
-        });
+        pend.push({ s, el, tn, len, pageEl, pr: null as unknown as DOMRect, natural: 0 });
       }
     });
+    const r = document.createRange();
+    // read pass: page rects + natural widths (no writes in between)
+    for (const p of pend) {
+      p.pr = p.pageEl.getBoundingClientRect();
+      r.selectNodeContents(p.tn);
+      p.natural = r.getBoundingClientRect().width;
+    }
+    // write pass: stretch every span so its text occupies exactly the PDF box width
+    // (stretch even tiny/whitespace spans: an unstretched gap span leaves a seam
+    // between the marks of its neighbours; 0.5% on a 400px line is already 2px drift)
+    for (const p of pend) {
+      const target = p.s.width * sc;
+      const f = p.natural > 0.01 ? target / p.natural : 1;
+      p.el.style.transform = Math.abs(f - 1) > 0.001 ? `scaleX(${f.toFixed(4)})` : "";
+    }
+    // read pass: char boundary x positions (page-relative PDF units) after the stretch
+    for (const p of pend) {
+      const xs: number[] = [];
+      for (let k = 0; k < p.len; k++) {
+        r.setStart(p.tn, k);
+        r.setEnd(p.tn, k + 1);
+        const cr = r.getBoundingClientRect();
+        if (k === 0) xs.push((cr.left - p.pr.left) / sc);
+        xs.push((cr.right - p.pr.left) / sc);
+      }
+      r.selectNodeContents(p.tn);
+      const fr = r.getBoundingClientRect();
+      spanMetrics.set(p.s.start, {
+        xs,
+        bottom: (p.pr.bottom - fr.bottom) / sc,
+        h: fr.height / sc,
+      });
+    }
   }
 
   // measure after the DOM settled (rAF coalesces resize-driven scale changes)
@@ -335,9 +368,20 @@
   interface Rect {
     key: string;
     page: number;
+    geo: string;
     style: string;
+    cov: PdfMark[];
     chipBase: string;
-    chips: { id: string; label: string; hot: boolean; on: string; onD: string; col: string; colD: string }[];
+    chips: {
+      id: string;
+      label: string;
+      device: string | null;
+      hot: boolean;
+      on: string;
+      onD: string;
+      col: string;
+      colD: string;
+    }[];
   }
 
   /** x of a text offset inside a span: measured char boundaries once the text
@@ -360,7 +404,10 @@
     // stripes behave like a real highlighter (dark glyphs stay readable)
     const fill = (m: PdfMark, dark: boolean) => {
       const col = dark ? (m.hot ? m.colorHotD : m.colorD) : m.hot ? m.colorHot : m.color;
-      return m.faded && !m.hot ? `color-mix(in srgb, ${col} 32%, transparent)` : col;
+      const base = m.faded && !m.hot ? `color-mix(in srgb, ${col} 32%, transparent)` : col;
+      // the sidebar hover fade is a per-device alpha variable (see css-var.ts)
+      const dev = m.devices[0];
+      return dev ? `color-mix(in srgb, ${base} ${alphaVar(dev)}, transparent)` : base;
     };
     const grad = (dark: boolean): string => {
       if (cov.length === 0) return "none";
@@ -383,8 +430,16 @@
 
   const rects = $derived.by<Rect[]>(() => {
     const out: Rect[] = [];
+    // mark indices sorted by `from`: per span the covering set is maintained by a
+    // sweep (the old per-span filter over all marks was O(spans × marks) per recompute,
+    // and marks change on every drag mousemove)
+    const order = props.marks
+      .map((_: PdfMark, i: number) => i)
+      .sort((a: number, b: number) => props.marks[a].from - props.marks[b].from || a - b);
     for (const pg of pages) {
       let run: (Run & { key: string }) | null = null;
+      let active: number[] = []; // mark indices, ascending (cov keeps props.marks order)
+      let cursor = 0;
       const flush = () => {
         const r = run;
         if (!r) return;
@@ -394,6 +449,7 @@
           .map((m) => ({
             id: m.id,
             label: m.label,
+            device: m.devices[0] ?? null,
             hot: m.hot,
             on: m.on,
             onD: m.onD,
@@ -404,7 +460,9 @@
         out.push({
           key: `${pg.page}:${r.from}:${r.to}`,
           page: pg.page,
+          geo,
           style: `${geo}; ${vars}`,
+          cov: r.cov,
           // chip row anchored just above the mark's top edge (editor tagline parity)
           chipBase: `left:${r.x0 * scale}px; bottom:${(r.y + r.h) * scale + 1}px`,
           chips,
@@ -412,7 +470,21 @@
         run = null;
       };
       for (const s of pg.spans) {
-        const cov = props.marks.filter((m: PdfMark) => m.from < s.end && s.start < m.to);
+        // spans are in ascending start order, so the from-cursor only moves forward
+        const add: number[] = [];
+        while (cursor < order.length && props.marks[order[cursor]].from < s.end) add.push(order[cursor++]);
+        if (add.length > 0) {
+          add.sort((a, b) => a - b);
+          const merged: number[] = [];
+          let a = 0;
+          let b = 0;
+          while (a < active.length && b < add.length) merged.push(active[a] < add[b] ? active[a++] : add[b++]);
+          while (a < active.length) merged.push(active[a++]);
+          while (b < add.length) merged.push(add[b++]);
+          active = merged;
+        }
+        if (active.length > 0) active = active.filter((i) => props.marks[i].to > s.start);
+        const cov = active.map((i) => props.marks[i]);
         if (cov.length === 0) {
           flush();
           continue;
@@ -457,6 +529,98 @@
       flush();
     }
     return out;
+  });
+
+  // rects grouped by page once: the template used to filter the full rect list
+  // per page on every render (O(pages × rects) per marks change)
+  const rectsByPage = $derived.by(() => {
+    const m = new Map<number, Rect[]>();
+    for (const r of rects) {
+      const arr = m.get(r.page);
+      if (arr) arr.push(r);
+      else m.set(r.page, [r]);
+    }
+    return m;
+  });
+
+  // ----- sidebar-hover overlay (viewport only) -----
+  function pdfFill(m: PdfMark, dark: boolean): string {
+    const col = dark ? (m.hot ? m.colorHotD : m.colorD) : m.hot ? m.colorHot : m.color;
+    const base = m.faded && !m.hot ? `color-mix(in srgb, ${col} 32%, transparent)` : col;
+    const dev = m.devices[0];
+    return dev ? `color-mix(in srgb, ${base} ${alphaVar(dev)}, transparent)` : base;
+  }
+  function pdfFocusStyle(cov: PdfMark[]): string {
+    const grad = (dark: boolean): string => {
+      const stops = cov.map((m) => pdfFill(m, dark));
+      const uniq = [...new Set(stops)];
+      return uniq.length === 1 ? `linear-gradient(${uniq[0]}, ${uniq[0]})` : hatch(uniq);
+    };
+    return `--m:${grad(false)}; --m-d:${grad(true)}`;
+  }
+
+  const hoverRects = $derived.by(() => {
+    const devices = props.hoverDevices ?? [];
+    if (devices.length === 0 || props.fadeAll) return [];
+    const litIds = new SvelteSet(devices);
+    const out: { key: string; page: number; style: string }[] = [];
+    for (const r of rects) {
+      if (!visibleRectKeys.has(r.key)) continue;
+      const lit = r.cov.filter((m) => (!m.tagless && m.devices[0] && litIds.has(m.devices[0])) || m.hot);
+      if (lit.length === 0) continue;
+      out.push({ key: r.key, page: r.page, style: `${r.geo}; ${pdfFocusStyle(lit)}` });
+    }
+    return out;
+  });
+
+  const hoverByPage = $derived.by(() => {
+    const m = new Map<number, { key: string; page: number; style: string }[]>();
+    for (const r of hoverRects) {
+      const arr = m.get(r.page);
+      if (arr) arr.push(r);
+      else m.set(r.page, [r]);
+    }
+    return m;
+  });
+
+  function measureVisibleRects(): void {
+    if (host === null) return;
+    const hr = host.getBoundingClientRect();
+    const keys: string[] = [];
+    for (const el of host.querySelectorAll<HTMLElement>(".pdfmark[data-key]")) {
+      const r = el.getBoundingClientRect();
+      if (r.bottom >= hr.top && r.top <= hr.bottom && r.right >= hr.left && r.left <= hr.right) {
+        keys.push(el.dataset.key as string);
+      }
+    }
+    visibleRectKeys.clear();
+    for (const k of keys) visibleRectKeys.add(k);
+  }
+
+  $effect(() => {
+    void rects;
+    const root = host;
+    if (root === null) return;
+    let raf = requestAnimationFrame(measureVisibleRects);
+    // coalesce scroll bursts into one measurement per frame (the observer path below
+    // is already rAF-deferred; the scroll path ran a full DOM scan per scroll event)
+    let scrollRaf = 0;
+    const onScroll = () => {
+      cancelAnimationFrame(scrollRaf);
+      scrollRaf = requestAnimationFrame(measureVisibleRects);
+    };
+    root.addEventListener("scroll", onScroll, { passive: true });
+    const ro = new ResizeObserver(() => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(measureVisibleRects);
+    });
+    ro.observe(root);
+    return () => {
+      cancelAnimationFrame(raf);
+      cancelAnimationFrame(scrollRaf);
+      root.removeEventListener("scroll", onScroll);
+      ro.disconnect();
+    };
   });
 
   // ----- selection / caret → canonical text offsets -----
@@ -636,12 +800,20 @@
   }
 </script>
 
-<div class="pdfview" bind:this={host}>
+<div
+  class="pdfview"
+  bind:this={host}
+  data-hover-device={props.hoverDevice ?? undefined}
+  data-fade={props.fadeAll ? "all" : undefined}
+>
   {#each pages as pg (pg.page)}
     <div class="pdfpage" style="width:{pg.w * scale}px; height:{pg.h * scale}px">
       <div class="pdfmarks" aria-hidden="true">
-        {#each rects.filter((r) => r.page === pg.page) as r (r.key)}
-          <div class="pdfmark" style={r.style}></div>
+        {#each rectsByPage.get(pg.page) ?? [] as r (r.key)}
+          <div class="pdfmark" data-key={r.key} style={r.style}></div>
+        {/each}
+        {#each hoverByPage.get(pg.page) ?? [] as r (r.key)}
+          <div class="pdfmark pdfhover" data-key={r.key} style={r.style}></div>
         {/each}
       </div>
       <div
@@ -669,7 +841,7 @@
         {/each}
       </div>
       <div class="pdfchips">
-        {#each rects.filter((r) => r.page === pg.page) as r (r.key)}
+        {#each rectsByPage.get(pg.page) ?? [] as r (r.key)}
           {#if r.chips.length > 0}
             <div class="pdfchipline" style={r.chipBase}>
               {#each r.chips as c (c.id)}
@@ -678,6 +850,7 @@
                   class:hot={c.hot}
                   role="presentation"
                   data-tag-entry={c.id}
+                  data-device={c.device ?? undefined}
                   style="--tag:{c.col}; --tag-d:{c.colD}; --tag-on:{c.on}; --tag-on-d:{c.onD};"
                   onmouseenter={() => props.onhovermark(c.id)}
                   onmouseleave={() => props.onhovermark(null)}>{c.label}</span

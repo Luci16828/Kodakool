@@ -310,10 +310,15 @@ describe("quick select menu", () => {
 
     // the cursor tag carries the short tag, colored like the catalog sidebar's selection
     await expect.poll(ctag).toBe("K");
-    const sel = document.querySelector<HTMLElement>(".tnode.sel")!;
-    expect(getComputedStyle(document.querySelector(".ctag")!).backgroundColor).toBe(
-      getComputedStyle(sel).backgroundColor,
-    );
+    // the sidebar row fades into its marker color, so compare after the transition
+    await expect
+      .poll(() => {
+        const sel = document.querySelector<HTMLElement>(".tnode.sel");
+        const tag = document.querySelector<HTMLElement>(".ctag");
+        if (!sel || !tag) return false;
+        return getComputedStyle(tag).backgroundColor === getComputedStyle(sel).backgroundColor;
+      })
+      .toBe(true);
 
     // Esc disarms again
     await userEvent.keyboard("{Escape}");

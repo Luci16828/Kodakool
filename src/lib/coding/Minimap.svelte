@@ -5,12 +5,15 @@
   let {
     view,
     marks,
+    hoverMarks = [],
     total,
   }: {
     /** live CodeMirror view — the minimap reads its scroll geometry and scrolls it */
     view: EditorView | undefined;
     /** coded segments in editor offsets (the disjoint coverage segments) */
     marks: { id: string; from: number; to: number; style: string }[];
+    /** sidebar-hover overlay: the hovered device's segments, painted solid (not hatched) */
+    hoverMarks?: { id: string; from: number; to: number; style: string }[];
     /** canonical text length — the fallback scale when no view geometry exists */
     total: number;
   } = $props();
@@ -25,13 +28,19 @@
   function measure(): void {
     if (view === undefined) return;
     const dom = view.scrollDOM;
-    scrollH = Math.max(1, dom.scrollHeight);
-    clientH = Math.max(1, dom.clientHeight);
+    const sh = Math.max(1, dom.scrollHeight);
+    const ch = Math.max(1, dom.clientHeight);
     top = dom.scrollTop;
+    // the bar-position cache is keyed by document offset: only a real geometry
+    // change (content/viewport height) invalidates it — a style-only marks change
+    // (hover, preview) must not re-measure every bar
+    const geomChanged = sh !== scrollH || ch !== clientH;
+    scrollH = sh;
+    clientH = ch;
     // bump the tick WITHOUT reading it reactively: measure() runs inside an effect,
     // and `geomTick = geomTick + 1` would make that effect read + write the same
     // state → effect_update_depth_exceeded. untrack keeps it a pure write.
-    geomTick = untrack(() => geomTick) + 1;
+    if (geomChanged) geomTick = untrack(() => geomTick) + 1;
   }
 
   // (re)attach to the view's scroller whenever the view changes: a scroll listener
@@ -66,18 +75,36 @@
     measure();
   });
 
-  /** fraction of the document a rendered offset sits at (wrapping-aware via CodeMirror) */
+  /** fraction of the document a rendered offset sits at (wrapping-aware via CodeMirror).
+      Memoized per offset: the stripes derived re-runs on every style change, but the
+      rendered geometry only moves with the document/layout (geomTick) or its length. */
+  const fracCache = new Map<number, number>();
+  let fracGen = "";
   function fracOf(offset: number): number {
     if (view === undefined) return total > 0 ? offset / total : 0;
+    const gen = `${geomTick}|${total}`;
+    if (gen !== fracGen) {
+      fracCache.clear();
+      fracGen = gen;
+    }
+    const hit = fracCache.get(offset);
+    if (hit !== undefined) return hit;
     const h = view.contentHeight;
     if (h <= 0) return 0;
     const pos = Math.min(Math.max(offset, 0), view.state.doc.length);
-    return view.lineBlockAt(pos).top / h;
+    const f = view.lineBlockAt(pos).top / h;
+    fracCache.set(offset, f);
+    return f;
   }
 
-  const stripes = $derived.by(() => {
+  function stripesOf(list: { from: number; to: number; style: string }[]): {
+    from: number;
+    top: number;
+    height: number;
+    style: string;
+  }[] {
     void geomTick;
-    return marks.map((m) => {
+    return list.map((m) => {
       const a = fracOf(m.from);
       const b = fracOf(m.to);
       return {
@@ -90,7 +117,10 @@
         style: m.style,
       };
     });
-  });
+  }
+
+  const stripes = $derived(stripesOf(marks));
+  const hoverStripes = $derived(stripesOf(hoverMarks));
 
   const viewTop = $derived(scrollH > 0 ? Math.min((top / scrollH) * 100, 100) : 0);
   const viewH = $derived(scrollH > 0 ? Math.min((clientH / scrollH) * 100, 100) : 100);
@@ -186,6 +216,9 @@
 >
   {#each stripes as s (s.from)}
     <div class="mstripe" style={`top: ${s.top}%; height: ${s.height}%; ${s.style}`}></div>
+  {/each}
+  {#each hoverStripes as s (`hover:${s.from}`)}
+    <div class="mstripe mhover" style={`top: ${s.top}%; height: ${s.height}%; ${s.style}`}></div>
   {/each}
   <div class="mview" style={`top: ${viewTop}%; height: ${viewH}%`}></div>
 </div>

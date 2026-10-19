@@ -292,6 +292,9 @@
     color: var(--on-surface);
     outline: none;
     cursor: pointer;
+    transition:
+      background-color 180ms ease,
+      color 180ms ease;
   }
   .tnode.group {
     cursor: pointer;
@@ -342,6 +345,7 @@
     font-weight: 600;
     font-variant-numeric: tabular-nums;
     color: var(--marker);
+    transition: color 180ms ease;
   }
   :root[data-theme="dark"] .tnum {
     color: var(--marker-d);
@@ -413,6 +417,10 @@
     border: none;
     border-bottom: 1px dashed color-mix(in srgb, var(--marker, #888) 55%, transparent);
     border-radius: 0;
+    transition:
+      color 180ms ease,
+      background-color 180ms ease,
+      border-bottom-color 180ms ease;
   }
   :root[data-theme="dark"] .ttag {
     color: var(--marker-d, inherit);
