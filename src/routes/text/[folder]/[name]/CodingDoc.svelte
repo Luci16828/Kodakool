@@ -1316,13 +1316,20 @@
                 id="editor"
                 class="editor"
                 class:hidden={tab === "analysis" || (isPdf && tab === "preview")}
+                class:minimapon={showMinimap}
                 class:arm={armed !== null}
                 class:smartsel={smart}
                 style={armed !== null ? markerVars(armedCode) : ""}
                 bind:this={parent}
               ></div>
               {#if showMinimap}
-                <Minimap {view} marks={minimapMarks} total={docText.length} />
+                <Minimap
+                  {view}
+                  marks={minimapMarks}
+                  total={docText.length}
+                  width={vprefs.minimapWidth}
+                  onwidth={(px) => (vprefs.minimapWidth = px)}
+                />
               {/if}
             </div>
           </div>
@@ -1645,6 +1652,16 @@
   }
   :global(.cm-scroller::-webkit-scrollbar-track) {
     background: transparent;
+  }
+
+  /* with the minimap on, the strip IS the scrollbar: hide CodeMirror's native one
+     (Firefox `scrollbar-width` + the WebKit pseudo-element) so there is no second rail */
+  .editor.minimapon :global(.cm-scroller) {
+    scrollbar-width: none;
+  }
+  .editor.minimapon :global(.cm-scroller::-webkit-scrollbar) {
+    width: 0;
+    height: 0;
   }
 
   .bar {

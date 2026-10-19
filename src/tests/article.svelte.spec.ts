@@ -1439,4 +1439,99 @@ describe("minimap", () => {
     );
     await expect.poll(() => (document.querySelector(".cm-scroller") as HTMLElement).scrollTop).toBeGreaterThan(0);
   });
+
+  it("dragging the viewport thumb scrolls the editor", async () => {
+    const long = Array.from({ length: 200 }, (_, i) => `line ${i}`).join("\n");
+    await seedArticle({ project: FOLDER, name: NAME, text: long, entries: [] });
+    renderArticle();
+    await ready();
+
+    await toggle().click();
+    await expect.poll(minimapCount).toBe(1);
+
+    const mm = document.querySelector(".minimap") as HTMLElement;
+    const thumb = document.querySelector(".mview") as HTMLElement;
+    const mr = mm.getBoundingClientRect();
+    const tr = thumb.getBoundingClientRect();
+    const x = Math.round(mr.left + mr.width / 2);
+    const y0 = Math.round(tr.top + tr.height / 2);
+    const dy = 100;
+    const pev = (type: string, y: number) =>
+      mm.dispatchEvent(
+        new PointerEvent(type, { bubbles: true, cancelable: true, pointerId: 1, clientX: x, clientY: y, buttons: 1 }),
+      );
+    pev("pointerdown", y0);
+    pev("pointermove", y0 + dy);
+    pev("pointerup", y0 + dy);
+
+    // the thumb follows the cursor downward: the editor scrolls down
+    await expect.poll(() => (document.querySelector(".cm-scroller") as HTMLElement).scrollTop).toBeGreaterThan(0);
+  });
+
+  it("resizes the strip by dragging its left edge", async () => {
+    await seedArticle({ project: FOLDER, name: NAME, text: TEXT, entries: [quoteEntry] });
+    renderArticle();
+    await ready();
+
+    await toggle().click();
+    await expect.poll(minimapCount).toBe(1);
+
+    const mm = document.querySelector(".minimap") as HTMLElement;
+    const grip = document.querySelector(".mmresize") as HTMLElement;
+    const before = mm.getBoundingClientRect().width;
+    const gr = grip.getBoundingClientRect();
+    const y = Math.round(gr.top + gr.height / 2);
+    const dx = 50;
+    const gx = Math.round(gr.left + 2);
+    grip.dispatchEvent(
+      new PointerEvent("pointerdown", {
+        bubbles: true,
+        cancelable: true,
+        pointerId: 2,
+        clientX: gx,
+        clientY: y,
+        buttons: 1,
+      }),
+    );
+    // the strip owns the move (pointer capture routes it there)
+    mm.dispatchEvent(
+      new PointerEvent("pointermove", {
+        bubbles: true,
+        cancelable: true,
+        pointerId: 2,
+        clientX: gx - dx,
+        clientY: y,
+        buttons: 1,
+      }),
+    );
+    mm.dispatchEvent(
+      new PointerEvent("pointerup", {
+        bubbles: true,
+        cancelable: true,
+        pointerId: 2,
+        clientX: gx - dx,
+        clientY: y,
+        buttons: 1,
+      }),
+    );
+
+    // dragging the edge leftwards widens the strip, and the width persists
+    await expect
+      .poll(() => (document.querySelector(".minimap") as HTMLElement).getBoundingClientRect().width)
+      .toBeGreaterThan(before + 20);
+    await expect.poll(() => localStorage.getItem("luci-minimap-width")).not.toBeNull();
+  });
+
+  it("hides the native scrollbar while the minimap is on", async () => {
+    await seedArticle({ project: FOLDER, name: NAME, text: TEXT, entries: [quoteEntry] });
+    renderArticle();
+    await ready();
+
+    const sw = () => getComputedStyle(document.querySelector(".cm-scroller") as HTMLElement).scrollbarWidth;
+    expect(sw()).not.toBe("none");
+
+    await toggle().click();
+    await expect.poll(minimapCount).toBe(1);
+    await expect.poll(sw).toBe("none");
+  });
 });
