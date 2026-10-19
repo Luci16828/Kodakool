@@ -150,7 +150,6 @@ afterEach(() => {
 
 beforeEach(async () => {
   navigated.length = 0;
-  localStorage.removeItem("luci-minimap");
   await resetArticles();
   // the catalog is local-only now: seed it like the example project does
   await saveLocalCatalog(FOLDER, testInstructions);
@@ -1343,20 +1342,21 @@ describe("article coding page", () => {
 describe("minimap", () => {
   const stripes = () => document.querySelectorAll(".mstripe").length;
   const minimapCount = () => document.querySelectorAll(".minimap").length;
-  const toggle = () => page.getByRole("button", { name: "Minimap" });
 
-  it("is off by default and toggles the strip on and off", async () => {
+  it("shows the minimap whenever the editor is visible", async () => {
     await seedArticle({ project: FOLDER, name: NAME, text: TEXT, entries: [quoteEntry] });
     renderArticle();
     await ready();
 
-    expect(minimapCount()).toBe(0);
-
-    await toggle().click();
+    // the Coding tab shows the editor → the minimap rides beside it
     await expect.poll(minimapCount).toBe(1);
 
-    await toggle().click();
+    // the Analysis tab has no editor → the strip collapses with it
+    await page.getByRole("tab", { name: "Analysis" }).click();
     await expect.poll(minimapCount).toBe(0);
+
+    await page.getByRole("tab", { name: "Coding" }).click();
+    await expect.poll(minimapCount).toBe(1);
   });
 
   it("renders one stripe per coded segment", async () => {
@@ -1369,7 +1369,6 @@ describe("minimap", () => {
     renderArticle();
     await ready();
 
-    await toggle().click();
     await expect.poll(minimapCount).toBe(1);
     // two non-overlapping entries → two disjoint coverage segments → two stripes
     await expect.poll(stripes).toBe(2);
@@ -1391,26 +1390,9 @@ describe("minimap", () => {
     renderArticle();
     await ready();
 
-    await toggle().click();
     await expect.poll(minimapCount).toBe(1);
     // [0,5] {A} · [5,10] {A,B} · [10,20] {A} → three segments, two sharing an id
     await expect.poll(stripes).toBe(3);
-  });
-
-  it("persists the toggle across documents", async () => {
-    await seedArticle({ project: FOLDER, name: NAME, text: TEXT, entries: [quoteEntry] });
-    renderArticle();
-    await ready();
-
-    await toggle().click();
-    await expect.poll(() => localStorage.getItem("luci-minimap")).toBe("1");
-
-    // a fresh mount reads the persisted flag: the strip is already on
-    lastRender?.unmount();
-    lastRender = undefined;
-    renderArticle();
-    await ready();
-    await expect.poll(minimapCount).toBe(1);
   });
 
   it("scrolls the editor when the minimap track is clicked", async () => {
@@ -1419,7 +1401,6 @@ describe("minimap", () => {
     renderArticle();
     await ready();
 
-    await toggle().click();
     await expect.poll(minimapCount).toBe(1);
 
     const scroller = document.querySelector(".cm-scroller") as HTMLElement;
@@ -1446,7 +1427,6 @@ describe("minimap", () => {
     renderArticle();
     await ready();
 
-    await toggle().click();
     await expect.poll(minimapCount).toBe(1);
 
     const mm = document.querySelector(".minimap") as HTMLElement;
@@ -1468,70 +1448,15 @@ describe("minimap", () => {
     await expect.poll(() => (document.querySelector(".cm-scroller") as HTMLElement).scrollTop).toBeGreaterThan(0);
   });
 
-  it("resizes the strip by dragging its left edge", async () => {
-    await seedArticle({ project: FOLDER, name: NAME, text: TEXT, entries: [quoteEntry] });
-    renderArticle();
-    await ready();
-
-    await toggle().click();
-    await expect.poll(minimapCount).toBe(1);
-
-    const mm = document.querySelector(".minimap") as HTMLElement;
-    const grip = document.querySelector(".mmresize") as HTMLElement;
-    const before = mm.getBoundingClientRect().width;
-    const gr = grip.getBoundingClientRect();
-    const y = Math.round(gr.top + gr.height / 2);
-    const dx = 50;
-    const gx = Math.round(gr.left + 2);
-    grip.dispatchEvent(
-      new PointerEvent("pointerdown", {
-        bubbles: true,
-        cancelable: true,
-        pointerId: 2,
-        clientX: gx,
-        clientY: y,
-        buttons: 1,
-      }),
-    );
-    // the strip owns the move (pointer capture routes it there)
-    mm.dispatchEvent(
-      new PointerEvent("pointermove", {
-        bubbles: true,
-        cancelable: true,
-        pointerId: 2,
-        clientX: gx - dx,
-        clientY: y,
-        buttons: 1,
-      }),
-    );
-    mm.dispatchEvent(
-      new PointerEvent("pointerup", {
-        bubbles: true,
-        cancelable: true,
-        pointerId: 2,
-        clientX: gx - dx,
-        clientY: y,
-        buttons: 1,
-      }),
-    );
-
-    // dragging the edge leftwards widens the strip, and the width persists
-    await expect
-      .poll(() => (document.querySelector(".minimap") as HTMLElement).getBoundingClientRect().width)
-      .toBeGreaterThan(before + 20);
-    await expect.poll(() => localStorage.getItem("luci-minimap-width")).not.toBeNull();
-  });
-
   it("hides the native scrollbar while the minimap is on", async () => {
     await seedArticle({ project: FOLDER, name: NAME, text: TEXT, entries: [quoteEntry] });
     renderArticle();
     await ready();
 
-    const sw = () => getComputedStyle(document.querySelector(".cm-scroller") as HTMLElement).scrollbarWidth;
-    expect(sw()).not.toBe("none");
-
-    await toggle().click();
+    // the minimap is always on with the editor, so the native rail is hidden
     await expect.poll(minimapCount).toBe(1);
-    await expect.poll(sw).toBe("none");
+    await expect
+      .poll(() => getComputedStyle(document.querySelector(".cm-scroller") as HTMLElement).scrollbarWidth)
+      .toBe("none");
   });
 });

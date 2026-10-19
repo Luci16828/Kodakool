@@ -1,14 +1,11 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import type { EditorView } from "@codemirror/view";
-  import { MINIMAP_W, MINIMAP_W_MAX, MINIMAP_W_MIN } from "$lib/coding/view.svelte";
 
   let {
     view,
     marks,
     total,
-    width = MINIMAP_W,
-    onwidth = () => {},
   }: {
     /** live CodeMirror view — the minimap reads its scroll geometry and scrolls it */
     view: EditorView | undefined;
@@ -16,10 +13,6 @@
     marks: { id: string; from: number; to: number; style: string }[];
     /** canonical text length — the fallback scale when no view geometry exists */
     total: number;
-    /** strip width in px (persisted by the page) */
-    width?: number;
-    /** report a new width while the left edge is dragged */
-    onwidth: (px: number) => void;
   } = $props();
 
   /** rendered-height geometry of the editor, refreshed on scroll / resize / content change */
@@ -28,9 +21,6 @@
   let top = $state(0);
   /** bump on every measure so the stripes derived re-read the (non-reactive) layout */
   let geomTick = $state(0);
-  /** live strip width: the persisted prop, overridden while/after dragging the edge */
-  let wOverride = $state<number | null>(null);
-  const w = $derived(wOverride ?? width);
 
   function measure(): void {
     if (view === undefined) return;
@@ -106,12 +96,9 @@
   const viewH = $derived(scrollH > 0 ? Math.min((clientH / scrollH) * 100, 100) : 100);
 
   let strip = $state<HTMLDivElement | undefined>(undefined);
-  /** what the current pointer gesture is doing */
-  let mode: "idle" | "scroll" | "resize" = "idle";
   /** pointer offset within the viewport thumb, as a document fraction (kept while dragging) */
   let grab = 0;
-  let resizeStartX = 0;
-  let resizeStartW = 0;
+  let dragging = false;
 
   function fracAt(clientY: number): number {
     if (strip === undefined) return 0;
@@ -128,21 +115,6 @@
     top = dom.scrollTop;
   }
 
-  function capture(e: PointerEvent): void {
-    try {
-      strip?.setPointerCapture(e.pointerId);
-    } catch {
-      // a synthetic pointer (test) has no active capture target — the drag still works
-    }
-  }
-  function release(e: PointerEvent): void {
-    try {
-      if (strip !== undefined && strip.hasPointerCapture(e.pointerId)) strip.releasePointerCapture(e.pointerId);
-    } catch {
-      // ignore: capture was never taken
-    }
-  }
-
   function onDown(e: PointerEvent): void {
     if (view === undefined || strip === undefined) return;
     const f = fracAt(e.clientY);
@@ -154,33 +126,27 @@
       setViewportTop(f - vh / 2); // clicked the track: jump, centering the viewport on the click
       grab = vh / 2;
     }
-    mode = "scroll";
-    capture(e);
+    dragging = true;
+    try {
+      strip.setPointerCapture(e.pointerId);
+    } catch {
+      // a synthetic pointer (test) has no active capture target — the drag still works
+    }
     measure();
   }
 
-  function onResizeDown(e: PointerEvent): void {
-    e.stopPropagation(); // the strip's own scroll drag must not start
-    mode = "resize";
-    resizeStartX = e.clientX;
-    resizeStartW = w;
-    capture(e);
-  }
-
   function onMove(e: PointerEvent): void {
-    if (mode === "scroll") {
-      setViewportTop(fracAt(e.clientY) - grab);
-    } else if (mode === "resize") {
-      // dragging the left edge leftwards widens the strip
-      const next = Math.min(MINIMAP_W_MAX, Math.max(MINIMAP_W_MIN, resizeStartW + (resizeStartX - e.clientX)));
-      wOverride = next;
-      onwidth(next);
-    }
+    if (!dragging) return;
+    setViewportTop(fracAt(e.clientY) - grab);
   }
 
   function onUp(e: PointerEvent): void {
-    mode = "idle";
-    release(e);
+    dragging = false;
+    try {
+      if (strip !== undefined && strip.hasPointerCapture(e.pointerId)) strip.releasePointerCapture(e.pointerId);
+    } catch {
+      // ignore: capture was never taken
+    }
   }
 
   /** keyboard scrolling: arrows nudge the viewport, Page keys jump a screen, Home/End jump the ends */
@@ -212,7 +178,6 @@
   aria-valuemin={0}
   aria-valuemax={100}
   aria-valuenow={Math.round(viewTop)}
-  style={`width: ${w}px`}
   onpointerdown={onDown}
   onpointermove={onMove}
   onpointerup={onUp}
@@ -223,25 +188,18 @@
     <div class="mstripe" style={`top: ${s.top}%; height: ${s.height}%; ${s.style}`}></div>
   {/each}
   <div class="mview" style={`top: ${viewTop}%; height: ${viewH}%`}></div>
-  <div
-    class="mmresize"
-    role="separator"
-    aria-orientation="vertical"
-    aria-label="Resize minimap"
-    title="Drag to resize the minimap"
-    onpointerdown={onResizeDown}
-  ></div>
 </div>
 
 <style lang="scss">
-  /* the whole document as a slim vertical overview: coded segments as hatched bars
-     at their true rendered position, plus a viewport thumb you click/drag to scroll */
+  /* the whole document as a slim fixed-width overview rail: coded segments as hatched
+     bars at their true rendered position, plus a viewport band you click/drag to scroll */
   .minimap {
     position: relative;
     flex: 0 0 auto;
-    border: 1px solid var(--outline, #888);
+    width: 12px;
     border-radius: 8px;
-    background: var(--surface-variant, #eee);
+    /* a neutral, low-contrast trough — no border, so it reads as a quiet rail */
+    background: color-mix(in srgb, var(--outline, #888) 10%, transparent);
     overflow: hidden;
     cursor: pointer;
     touch-action: none;
@@ -271,43 +229,13 @@
     }
   }
 
-  /* the currently visible region: click it to drag, click the track to jump */
+  /* the currently visible region: a borderless translucent band — click to jump, drag to scroll */
   .mview {
     position: absolute;
     left: 0;
     right: 0;
-    border: 1px solid var(--primary, #6750a4);
-    background: color-mix(in srgb, var(--primary, #6750a4) 12%, transparent);
-    border-radius: 4px;
+    background: color-mix(in srgb, var(--primary, #6750a4) 22%, transparent);
+    border-radius: 8px;
     pointer-events: none;
-  }
-
-  /* the left edge is the resize grip: dragging it widens/narrows the strip */
-  .mmresize {
-    position: absolute;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    width: 7px;
-    cursor: col-resize;
-    touch-action: none;
-
-    /* a faint grip line so the edge reads as draggable */
-    &::after {
-      content: "";
-      position: absolute;
-      left: 2px;
-      top: 50%;
-      transform: translateY(-50%);
-      width: 2px;
-      height: 22px;
-      border-radius: 999px;
-      background: color-mix(in srgb, var(--outline, #888) 55%, transparent);
-    }
-
-    &:hover::after,
-    &:active::after {
-      background: var(--primary, #6750a4);
-    }
   }
 </style>
