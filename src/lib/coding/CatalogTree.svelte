@@ -120,7 +120,9 @@
             : [{ label: "Code with this device", icon: "edit_note", onSelect: () => onpick?.(n.item.id) }]),
           ...(onadd ? [{ label: "New child code", icon: "tab_new_right", onSelect: () => onadd(n.item.id) }] : []),
           ...(onaddbelow ? [{ label: "New below", icon: "add_row_below", onSelect: () => onaddbelow(n.item.id) }] : []),
-          ...(ondelete ? [{ label: "Delete", icon: "delete", danger: true, onSelect: () => ondelete(n.item.id) }] : []),
+          ...(ondelete
+            ? [{ label: "Delete", icon: "delete", danger: true, sep: true, onSelect: () => ondelete(n.item.id) }]
+            : []),
         ]}
       >
         {#snippet trigger({ props }: { props: Record<string, unknown> })}

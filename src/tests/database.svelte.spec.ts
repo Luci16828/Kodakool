@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   createFolder,
   exportDatabase,
+  exportProject,
   getArticle,
   getLocalCatalog,
   getPdfData,
@@ -44,6 +45,36 @@ describe("database export/import", () => {
     expect(dump.catalogs).toEqual([{ folder: FOLDER, instructions: testInstructions }]);
     expect(dump.pdfs).toHaveLength(1);
     expect(dump.folders.map((f) => f.name)).toEqual(["archive"]);
+  });
+
+  it("exports only the requested project's documents, entries, PDFs, catalog and folder", async () => {
+    const id = await seedArticle({
+      project: FOLDER,
+      name: NAME,
+      text: TEXT,
+      entries: [quoteEntry],
+      versions: ["snap"],
+    });
+    await saveLocalCatalog(FOLDER, testInstructions);
+    await savePdfData(id, new TextEncoder().encode("%PDF-1.4 fake"), 1);
+    await seedArticle({ project: "other", name: "foreign doc", text: "x" });
+    await createFolder(FOLDER);
+    await createFolder("archive");
+
+    const dump = await exportProject(FOLDER);
+    expect(dump.kind).toBe("luci-bachelor-db");
+    expect(dump.articles.map((a) => a.project)).toEqual([FOLDER]);
+    expect(dump.codes).toHaveLength(1);
+    expect(dump.catalogs).toEqual([{ folder: FOLDER, instructions: testInstructions }]);
+    expect(dump.pdfs).toHaveLength(1);
+    expect(dump.folders.map((f) => f.name)).toEqual([FOLDER]);
+
+    // a project blob is a valid DatabaseExport subset: importDatabase accepts it unchanged
+    await resetArticles();
+    const counts = await importDatabase(dump);
+    expect(counts).toEqual({ articles: 1, codes: 1, catalogs: 1, pdfs: 1, folders: 1 });
+    expect(await getArticle(FOLDER, NAME)).toBeTruthy();
+    expect(await getArticle("other", "foreign doc")).toBeNull();
   });
 
   it("re-imports a dump into a wiped database", async () => {

@@ -12,9 +12,9 @@ export function openDoc(project: string, name: string): Promise<void> {
   return goto(resolve("/text/[folder]/[name]", { folder: project, name }));
 }
 
-/** Create a fresh document in the project and open its coding page. */
-export async function openNewDoc(project: string): Promise<void> {
-  const a = await createArticle(project);
+/** Create a fresh document in the project (optionally in a subfolder) and open its coding page. */
+export async function openNewDoc(project: string, folder = ""): Promise<void> {
+  const a = await createArticle(project, "text", folder);
   await openDoc(a.project, a.name);
 }
 

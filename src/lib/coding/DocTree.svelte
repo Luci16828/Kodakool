@@ -2,6 +2,7 @@
   import { resolve } from "$app/paths";
   import { goto } from "$app/navigation";
   import { ScrollArea, Select } from "bits-ui";
+  import { SvelteSet } from "svelte/reactivity";
   import { slide } from "svelte/transition";
   import "material-symbols/rounded.css";
   import { compareNames, docIcon, displayName } from "$lib/coding/display";
@@ -9,12 +10,26 @@
   import { toQdc } from "$lib/coding/qdc";
   import { useColors } from "$lib/coding/prefs.svelte";
   import RowMenu from "$lib/coding/RowMenu.svelte";
+  import { buildTree, flattenRows, type TreeRow } from "$lib/coding/tree";
   import type { ConfirmAsk } from "$lib/coding/confirm.svelte";
   import type { Instructions } from "$lib/coding/instructions";
-  import { deleteArticle, deleteFolder, type ArticleSummary } from "$lib/client/coding-db";
+  import {
+    createSubfolder,
+    deleteArticle,
+    deleteFolder,
+    deleteSubfolder,
+    duplicateArticle,
+    moveArticle,
+    moveArticleProject,
+    renameArticle,
+    renameSubfolder,
+    watchSubfolders,
+    type ArticleSummary,
+  } from "$lib/client/coding-db";
   import DatabaseControls from "$lib/client/DatabaseControls.svelte";
   import { createProjectDoc, openDoc, openNewDoc } from "$lib/client/open-doc";
   import { downloadArticle, downloadText } from "$lib/client/download";
+  import { uploadArticleFile, uploadArticleFolder } from "$lib/client/upload";
   import UploadZone from "$lib/client/UploadZone.svelte";
 
   /**
@@ -23,9 +38,16 @@
    * open project + a dropdown of every OTHER project, ending with the "new project"
    * row; picking one opens that project's first document, creating one when it is
    * empty), the collapsible project header (the selected upload target) whose menu
-   * offers new document / .qdc export / project deletion, the compact upload row,
-   * one row per document of THIS project (other projects never appear), and the
-   * database export/import row at the bottom. New documents open their coding page;
+   * offers new document / new folder / upload file / upload folder / .qdc export /
+   * project deletion, the compact upload row, the nested subfolder tree (folders
+   * fold, docs live in folders or at the project root) and the database
+   * export/import row below the project switcher.
+   *
+   * Document rows carry the full file menu: open / download / rename (inline) /
+   * duplicate / move (into a subfolder, to the root, or to another project) /
+   * delete. Subfolder rows carry: new document / new folder (nested) / upload file
+   * / upload folder (into that subfolder) / rename (inline) / delete (contained
+   * documents move to the project root). New documents open their coding page;
    * deleting the open document returns to the root, which reopens the last document.
    *
    * Rows and the project header carry right-click context menus (Bits ContextMenu,
@@ -73,6 +95,55 @@
   /** the project header folds its document list: `folder_open` while it is shown */
   let open = $state(true);
 
+  /** selected upload target: a subfolder path inside this project ("" = project root) */
+  let target = $state("");
+  /** registered subfolder paths of THIS project (live) */
+  let subs = $state<string[]>([]);
+  /** folded subfolders (everything not listed here is open) */
+  const closed = new SvelteSet<string>();
+  /** inline "new folder" input: the parent path it creates under (null = closed) */
+  let newSubAt = $state<string | null>(null);
+  let subName = $state("");
+  /** inline rename: the document id / subfolder path being renamed + its input value */
+  let renamingId = $state<string | null>(null);
+  let renameName = $state("");
+  let renamingSub = $state<string | null>(null);
+  let subRenameName = $state("");
+  /** rename/move collision feedback (name already taken) */
+  let treeErr = $state("");
+  /**
+   * Hidden file/folder pickers driven by the context menus' upload items:
+   * the menu sets `menuSub` (the target subfolder) and clicks the input,
+   * the change handler uploads into it. `menuMsg` reports the last result.
+   */
+  let menuFile: HTMLInputElement | undefined = $state();
+  let menuDir: HTMLInputElement | undefined = $state();
+  let menuSub = $state("");
+  let menuMsg = $state("");
+  function pickFiles(path: string): void {
+    menuSub = path;
+    menuFile?.click();
+  }
+  function pickFolder(path: string): void {
+    menuSub = path;
+    menuDir?.click();
+  }
+  async function menuFilesChange(e: Event): Promise<void> {
+    const input = e.target as HTMLInputElement;
+    const files = [...(input.files ?? [])];
+    input.value = "";
+    menuMsg = "";
+    for (const f of files) {
+      const r = await uploadArticleFile(folder, f, (m) => (menuMsg = m), menuSub);
+      if (r.message !== "") menuMsg = r.message;
+    }
+  }
+  async function menuDirChange(e: Event): Promise<void> {
+    const input = e.target as HTMLInputElement;
+    const messages = await uploadArticleFolder(folder, input, menuSub);
+    menuMsg = messages[messages.length - 1] ?? "";
+  }
+
   const others = $derived(projects.filter((name) => name !== folder));
   /** select items so the trigger keeps its label while the menu is closed */
   const items = $derived([
@@ -80,15 +151,24 @@
     { value: NEW_PROJECT, label: "New project" },
   ]);
 
+  const tree = $derived(buildTree(docs, subs));
+  const rows = $derived(flattenRows(tree, new Set(subs.filter((p) => !closed.has(p)))));
+  /** documents at the project root render after the folder rows */
+  const rootDocs = $derived(docs.filter((a) => a.folder === ""));
+
+  /** every subfolder path, parents first (for "Move to" menus) */
+  const subPaths = $derived([...subs].sort((a, b) => a.split("/").length - b.split("/").length || compareNames(a, b)));
+
   function focusFirst(node: HTMLInputElement): void {
     node.focus();
+    node.select();
   }
 
   /** open a document of THIS project */
   async function newDoc(): Promise<void> {
     busy = true;
     try {
-      await openNewDoc(folder);
+      await openNewDoc(folder, target);
     } finally {
       busy = false;
     }
@@ -101,20 +181,151 @@
     // deleting the document we are looking at returns to the root, which reopens the last document
     if (a.project === folder && a.name === currentName) await goto(resolve("/"));
   }
-  /** the tree row's context menu: open / download / delete (replaces the old per-row trash) */
-  function docMenu(a: ArticleSummary): { label: string; icon: string; danger?: boolean; onSelect: () => void }[] {
+  async function duplicateDoc(a: ArticleSummary): Promise<void> {
+    busy = true;
+    try {
+      await duplicateArticle(a.id);
+    } finally {
+      busy = false;
+    }
+  }
+  function startRename(a: ArticleSummary): void {
+    renamingSub = null;
+    renamingId = a.id;
+    renameName = a.name;
+    treeErr = "";
+  }
+  async function commitRename(a: ArticleSummary): Promise<void> {
+    const name = renameName.trim();
+    renamingId = null;
+    if (!name || name === a.name) return;
+    try {
+      await renameArticle(a.id, name);
+      treeErr = "";
+      if (a.project === folder && a.name === currentName)
+        await goto(resolve("/text/[folder]/[name]", { folder, name }));
+    } catch (e) {
+      treeErr = String(e);
+    }
+  }
+  async function moveTo(a: ArticleSummary, path: string): Promise<void> {
+    await moveArticle(a.id, path);
+  }
+  async function moveToProject(a: ArticleSummary, project: string): Promise<void> {
+    treeErr = "";
+    try {
+      await moveArticleProject(a.id, project);
+      // the open document moved: follow it into the target project
+      if (a.project === folder && a.name === currentName)
+        await goto(resolve("/text/[folder]/[name]", { folder: project, name: a.name }));
+    } catch (e) {
+      treeErr = String(e);
+    }
+  }
+  /** the tree row's context menu: the full file menu (right-click opens it, the pill is the keyboard way in) */
+  function docMenu(
+    a: ArticleSummary,
+  ): { label: string; icon: string; danger?: boolean; sep?: boolean; onSelect: () => void }[] {
+    const moves: { label: string; icon: string; onSelect: () => void }[] = [
+      ...(a.folder !== ""
+        ? [{ label: "Move to project root", icon: "drive_file_move", onSelect: () => void moveTo(a, "") }]
+        : []),
+      ...subPaths.map((p) => ({ label: `Move to ${p}`, icon: "drive_file_move", onSelect: () => void moveTo(a, p) })),
+      ...others.map((p) => ({
+        label: `Move to project ${p}`,
+        icon: "folder",
+        onSelect: () => void moveToProject(a, p),
+      })),
+    ];
     return [
       { label: "Open document", icon: "open_in_new", onSelect: () => openArticle(a) },
       { label: "Download document", icon: "download", onSelect: () => void downloadArticle(a) },
+      { label: "Rename document", icon: "edit", onSelect: () => startRename(a) },
+      { label: "Duplicate document", icon: "content_copy", onSelect: () => void duplicateDoc(a) },
+      // the move group and the delete row each get their own section
+      ...moves.map((m, i) => ({ ...m, sep: i === 0 })),
       {
         label: "Delete document",
         icon: "delete",
         danger: true,
+        sep: true,
         onSelect: () =>
           confirm.ask(
             `Delete "${displayName(a.name, a.kind)}"?`,
             `This removes the document and its ${a.codes} code entr${a.codes === 1 ? "y" : "ies"}.`,
             () => void deleteDoc(a),
+          ),
+      },
+    ];
+  }
+
+  /* ----- subfolders ----- */
+  function startNewSub(parent: string): void {
+    newSubAt = parent;
+    subName = "";
+    treeErr = "";
+  }
+  async function commitNewSub(parent: string): Promise<void> {
+    const name = subName.trim();
+    newSubAt = null;
+    if (!name) return;
+    const path = parent === "" ? name : `${parent}/${name}`;
+    await createSubfolder(folder, path);
+    closed.delete(path); // a new folder starts open
+  }
+  function startRenameSub(path: string): void {
+    renamingId = null;
+    renamingSub = path;
+    subRenameName = path.split("/").pop() ?? path;
+    treeErr = "";
+  }
+  async function commitRenameSub(path: string): Promise<void> {
+    const name = subRenameName.trim();
+    renamingSub = null;
+    const parent = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+    if (!name || name === path.split("/").pop()) return;
+    try {
+      await renameSubfolder(folder, path, parent === "" ? name : `${parent}/${name}`);
+      treeErr = "";
+      if (target === path) target = parent === "" ? name : `${parent}/${name}`;
+    } catch (e) {
+      treeErr = String(e);
+    }
+  }
+  /** click on a subfolder row: select it as the upload target + fold/unfold the group */
+  function toggleSub(path: string): void {
+    target = target === path ? "" : path;
+    if (closed.has(path)) closed.delete(path);
+    else closed.add(path);
+  }
+
+  function subMenu(
+    path: string,
+    name: string,
+  ): { label: string; icon: string; danger?: boolean; sep?: boolean; onSelect: () => void }[] {
+    return [
+      {
+        label: `New document in ${name}`,
+        icon: "note_add",
+        onSelect: () => {
+          target = path;
+          void newDoc();
+        },
+      },
+      { label: "New folder", icon: "create_new_folder", onSelect: () => startNewSub(path) },
+      { label: "Upload File", icon: "upload_file", onSelect: () => pickFiles(path) },
+      { label: "Upload Folder", icon: "drive_folder_upload", onSelect: () => pickFolder(path) },
+      { label: "Rename folder", icon: "edit", onSelect: () => startRenameSub(path) },
+      {
+        label: "Delete folder",
+        icon: "delete",
+        danger: true,
+        sep: true,
+        onSelect: () =>
+          confirm.ask(
+            `Delete folder ${path}/?`,
+            "Every document inside moves to the project root; nothing is deleted.",
+            () => void deleteSubfolder(folder, path),
           ),
       },
     ];
@@ -169,6 +380,8 @@
     // the open project is gone: the root reopens the last surviving document
     await goto(resolve("/"));
   }
+
+  $effect(() => watchSubfolders(folder, (paths) => (subs = paths)));
 </script>
 
 <aside class="docs">
@@ -218,13 +431,16 @@
     </div>
   {/if}
   {#if projErr}<p class="pmsg">{projErr}</p>{/if}
+  <div class="dbrow">
+    <DatabaseControls compact project={folder} />
+  </div>
   <div class="docshead">
     <button
       type="button"
       class="newdoc"
       disabled={busy}
-      title="New document in {folder}"
-      aria-label="New document in {folder}"
+      title="New document in {target === '' ? folder : `${folder}/${target}`}"
+      aria-label="New document in {target === '' ? folder : `${folder}/${target}`}"
       onclick={() => void newDoc()}
     >
       <span class="material-symbols-rounded" aria-hidden="true">note_add</span>
@@ -233,16 +449,41 @@
   <div class="docsbody">
     <ScrollArea.Root class="wsarea" type="hover">
       <ScrollArea.Viewport class="wsview treeview">
-        <UploadZone {folder} compact />
+        <UploadZone {folder} sub={target} compact />
+        <!-- context-menu upload pickers: the menu items click these, the change handlers upload into menuSub -->
+        <input
+          class="menufile"
+          type="file"
+          multiple
+          accept=".txt,.md,.pdf,text/plain,application/pdf"
+          bind:this={menuFile}
+          onchange={(e) => void menuFilesChange(e)}
+        />
+        <input
+          class="menufile"
+          type="file"
+          webkitdirectory={true}
+          bind:this={menuDir}
+          onchange={(e) => void menuDirChange(e)}
+        />
+        {#if menuMsg}
+          <p class="menumsg">{menuMsg}</p>
+        {/if}
         <div class="fgrow">
           <RowMenu
             items={[
               { label: `New document in ${folder}`, icon: "note_add", onSelect: () => void newDoc() },
-              ...(instr ? [{ label: "Export .qdc", icon: "file_download", onSelect: () => exportQdc() }] : []),
+              { label: "New folder", icon: "create_new_folder", onSelect: () => startNewSub("") },
+              { label: "Upload File", icon: "upload_file", onSelect: () => pickFiles(target) },
+              { label: "Upload Folder", icon: "drive_folder_upload", onSelect: () => pickFolder(target) },
+              ...(instr
+                ? [{ label: "Export .qdc", icon: "file_download", sep: true, onSelect: () => exportQdc() }]
+                : []),
               {
                 label: "Delete project",
                 icon: "delete",
                 danger: true,
+                sep: true,
                 onSelect: () =>
                   confirm.ask(
                     `Delete project ${folder}/?`,
@@ -261,7 +502,9 @@
                 tabindex="0"
                 aria-pressed="true"
                 aria-expanded={open}
-                title="Selected upload target — uploads and new documents land in {folder}/ · click folds the document list · right-click for project actions"
+                title="Selected upload target — uploads and new documents land in {target === ''
+                  ? `${folder}/`
+                  : `${folder}/${target}/`} · click folds the document list · right-click for project actions"
                 onclick={() => (open = !open)}
                 onkeydown={(e) => {
                   if (e.key !== "Enter" && e.key !== " ") return;
@@ -270,7 +513,7 @@
                 }}
               >
                 <span class="material-symbols-rounded" aria-hidden="true">{open ? "folder_open" : "folder"}</span
-                >{folder}/
+                >{target === "" ? `${folder}/` : `${folder}/${target}/`}
                 <span class="fcodes">{docs.length}</span>
                 <button
                   type="button"
@@ -288,30 +531,215 @@
             {/snippet}
           </RowMenu>
         </div>
+        {#if newSubAt === ""}
+          <div class="nfrow subnew">
+            <input
+              type="text"
+              class="nfinput"
+              placeholder="Folder name"
+              aria-label="New folder name"
+              spellcheck="false"
+              use:focusFirst
+              bind:value={subName}
+              onkeydown={(e) => {
+                if (e.key === "Enter") {
+                  e.stopPropagation();
+                  void commitNewSub("");
+                } else if (e.key === "Escape") {
+                  e.stopPropagation();
+                  newSubAt = null;
+                }
+              }}
+            />
+            <button type="button" class="nfgo" disabled={subName.trim() === ""} onclick={() => void commitNewSub("")}>
+              create
+            </button>
+          </div>
+        {/if}
+        {#if treeErr}<p class="pmsg">{treeErr}</p>{/if}
         {#if open}
           <ul class="doclist" transition:slide={{ duration: 180 }}>
-            {#each docs as a (a.id)}
-              <li class:current={a.name === currentName}>
-                <RowMenu items={docMenu(a)}>
-                  {#snippet trigger({ props }: { props: Record<string, unknown> })}
-                    <div class="row" {...props}>
-                      <a href={resolve("/text/[folder]/[name]", { folder: a.project, name: a.name })}>
-                        <span class="material-symbols-rounded docicon" aria-hidden="true">{docIcon(a)}</span>
-                        {displayName(a.name, a.kind)}
-                      </a>
-                      <span class="fcodes">{a.codes}</span>
+            {#each rows as row (`${row.kind}:${row.kind === "folder" ? row.path : row.doc.id}`)}
+              {#if row.kind === "folder"}
+                <li class="subrow" style:padding-left={`${0.5 + row.depth * 0.9}rem`}>
+                  {#if renamingSub === row.path}
+                    <input
+                      type="text"
+                      class="rname"
+                      aria-label="Rename folder"
+                      spellcheck="false"
+                      use:focusFirst
+                      bind:value={subRenameName}
+                      onkeydown={(e) => {
+                        if (e.key === "Enter") {
+                          e.stopPropagation();
+                          void commitRenameSub(row.path);
+                        } else if (e.key === "Escape") {
+                          e.stopPropagation();
+                          renamingSub = null;
+                        }
+                      }}
+                      onblur={() => void commitRenameSub(row.path)}
+                    />
+                  {:else}
+                    <RowMenu items={subMenu(row.path, row.name)}>
+                      {#snippet trigger({ props }: { props: Record<string, unknown> })}
+                        <!-- role=button div: click selects the upload target + folds the group -->
+                        <div
+                          {...props}
+                          class="subhead"
+                          role="button"
+                          tabindex="0"
+                          aria-pressed={target === row.path}
+                          aria-expanded={!closed.has(row.path)}
+                          title="Upload target · click selects this folder for uploads and new documents · right-click for folder actions"
+                          onclick={() => toggleSub(row.path)}
+                          onkeydown={(e) => {
+                            if (e.key !== "Enter" && e.key !== " ") return;
+                            e.preventDefault();
+                            target = target === row.path ? "" : row.path;
+                          }}
+                        >
+                          <span class="material-symbols-rounded" aria-hidden="true">
+                            {closed.has(row.path) ? "folder" : "folder_open"}
+                          </span>{row.name}/
+                          <span class="fcodes">{row.count}</span>
+                          <button
+                            type="button"
+                            class="menubtn"
+                            title="Folder actions"
+                            aria-label={`Menu for folder ${row.path}`}
+                            onclick={(e) => {
+                              e.stopPropagation();
+                              openRowMenu(e.currentTarget.closest("[data-rowmenu]") ?? e.currentTarget);
+                            }}
+                          >
+                            <span class="material-symbols-rounded" aria-hidden="true">more_vert</span>
+                          </button>
+                        </div>
+                      {/snippet}
+                    </RowMenu>
+                  {/if}
+                  {#if newSubAt === row.path}
+                    <div class="nfrow subnew" style:padding-left="1rem">
+                      <input
+                        type="text"
+                        class="nfinput"
+                        placeholder="Folder name"
+                        aria-label="New folder name"
+                        spellcheck="false"
+                        use:focusFirst
+                        bind:value={subName}
+                        onkeydown={(e) => {
+                          if (e.key === "Enter") {
+                            e.stopPropagation();
+                            void commitNewSub(row.path);
+                          } else if (e.key === "Escape") {
+                            e.stopPropagation();
+                            newSubAt = null;
+                          }
+                        }}
+                      />
                       <button
                         type="button"
-                        class="menubtn"
-                        title="Document actions"
-                        aria-label={`Menu for ${displayName(a.name, a.kind)}`}
-                        onclick={(e) => openRowMenu(e.currentTarget.closest("[data-rowmenu]") ?? e.currentTarget)}
+                        class="nfgo"
+                        disabled={subName.trim() === ""}
+                        onclick={() => void commitNewSub(row.path)}
                       >
-                        <span class="material-symbols-rounded" aria-hidden="true">more_vert</span>
+                        create
                       </button>
                     </div>
-                  {/snippet}
-                </RowMenu>
+                  {/if}
+                </li>
+              {:else}
+                <li class:current={row.doc.name === currentName} style:padding-left={`${0.5 + row.depth * 0.9}rem`}>
+                  {#if renamingId === row.doc.id}
+                    <input
+                      type="text"
+                      class="rname"
+                      aria-label="Rename document"
+                      spellcheck="false"
+                      use:focusFirst
+                      bind:value={renameName}
+                      onkeydown={(e) => {
+                        if (e.key === "Enter") {
+                          e.stopPropagation();
+                          void commitRename(row.doc);
+                        } else if (e.key === "Escape") {
+                          e.stopPropagation();
+                          renamingId = null;
+                        }
+                      }}
+                      onblur={() => void commitRename(row.doc)}
+                    />
+                  {:else}
+                    <RowMenu items={docMenu(row.doc)}>
+                      {#snippet trigger({ props }: { props: Record<string, unknown> })}
+                        <div class="row" {...props}>
+                          <a href={resolve("/text/[folder]/[name]", { folder: row.doc.project, name: row.doc.name })}>
+                            <span class="material-symbols-rounded docicon" aria-hidden="true">{docIcon(row.doc)}</span>
+                            {displayName(row.doc.name, row.doc.kind)}
+                          </a>
+                          <span class="fcodes">{row.doc.codes}</span>
+                          <button
+                            type="button"
+                            class="menubtn"
+                            title="Document actions"
+                            aria-label={`Menu for ${displayName(row.doc.name, row.doc.kind)}`}
+                            onclick={(e) => openRowMenu(e.currentTarget.closest("[data-rowmenu]") ?? e.currentTarget)}
+                          >
+                            <span class="material-symbols-rounded" aria-hidden="true">more_vert</span>
+                          </button>
+                        </div>
+                      {/snippet}
+                    </RowMenu>
+                  {/if}
+                </li>
+              {/if}
+            {/each}
+            {#each rootDocs as a (a.id)}
+              <li class:current={a.name === currentName}>
+                {#if renamingId === a.id}
+                  <input
+                    type="text"
+                    class="rname"
+                    aria-label="Rename document"
+                    spellcheck="false"
+                    use:focusFirst
+                    bind:value={renameName}
+                    onkeydown={(e) => {
+                      if (e.key === "Enter") {
+                        e.stopPropagation();
+                        void commitRename(a);
+                      } else if (e.key === "Escape") {
+                        e.stopPropagation();
+                        renamingId = null;
+                      }
+                    }}
+                    onblur={() => void commitRename(a)}
+                  />
+                {:else}
+                  <RowMenu items={docMenu(a)}>
+                    {#snippet trigger({ props }: { props: Record<string, unknown> })}
+                      <div class="row" {...props}>
+                        <a href={resolve("/text/[folder]/[name]", { folder: a.project, name: a.name })}>
+                          <span class="material-symbols-rounded docicon" aria-hidden="true">{docIcon(a)}</span>
+                          {displayName(a.name, a.kind)}
+                        </a>
+                        <span class="fcodes">{a.codes}</span>
+                        <button
+                          type="button"
+                          class="menubtn"
+                          title="Document actions"
+                          aria-label={`Menu for ${displayName(a.name, a.kind)}`}
+                          onclick={(e) => openRowMenu(e.currentTarget.closest("[data-rowmenu]") ?? e.currentTarget)}
+                        >
+                          <span class="material-symbols-rounded" aria-hidden="true">more_vert</span>
+                        </button>
+                      </div>
+                    {/snippet}
+                  </RowMenu>
+                {/if}
               </li>
             {/each}
           </ul>
@@ -321,9 +749,6 @@
         <ScrollArea.Thumb class="wsthumb" />
       </ScrollArea.Scrollbar>
     </ScrollArea.Root>
-  </div>
-  <div class="dbrow">
-    <DatabaseControls compact />
   </div>
 </aside>
 
@@ -407,7 +832,7 @@
     font-size: 0.95rem;
     font-weight: 700;
   }
-  /* inline "new project" row under the switcher */
+  /* inline "new project" / "new folder" row under the switcher */
   .nfrow {
     display: flex;
     align-items: center;
@@ -560,8 +985,13 @@
       font-size: 1.05rem;
     }
 
+    /* the count + menu ride the row's right edge, like in the document rows */
+    .fcodes {
+      margin-left: auto;
+    }
+
     .menubtn {
-      margin-left: 0.15rem;
+      margin-left: 0.4rem;
     }
   }
   /* folder header row: the group button IS the row (it carries the context menu) */
@@ -590,7 +1020,7 @@
   }
   .docs li {
     display: flex;
-    align-items: baseline;
+    align-items: center;
     gap: 0.4rem;
     padding: 0.15rem 0.35rem;
     border-radius: 4px;
@@ -609,7 +1039,7 @@
       flex: 1;
       min-width: 0;
       display: flex;
-      align-items: baseline;
+      align-items: center;
       gap: 0.4rem;
     }
 
@@ -618,6 +1048,9 @@
       font-size: 0.85rem;
       text-decoration: none;
       color: inherit;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     .docicon {
@@ -626,18 +1059,90 @@
       color: var(--on-surface-variant, #666);
     }
   }
+  /* ----- subfolder rows (nested groups inside the project) ----- */
+  .subrow {
+    flex-wrap: wrap;
+
+    .subhead {
+      font: inherit;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--on-surface-variant, #666);
+      display: flex;
+      align-items: center;
+      gap: 0.15rem;
+      flex: 1;
+      min-width: 0;
+      padding: 0.1rem 0.3rem;
+      border: none;
+      background: none;
+      cursor: pointer;
+      text-align: left;
+
+      &:hover {
+        color: var(--primary, #6750a4);
+      }
+
+      /* the picked subfolder is the upload target — marked like the project header */
+      &:global([aria-pressed="true"]) {
+        background: var(--primary-container, #e8def8);
+        color: var(--on-primary-container, #21005d);
+        border-radius: 6px;
+      }
+
+      .material-symbols-rounded {
+        font-size: 1.05rem;
+        flex: 0 0 auto;
+      }
+
+      .fcodes {
+        margin-left: auto;
+      }
+
+      .menubtn {
+        margin-left: 0.4rem;
+      }
+    }
+
+    .subnew {
+      flex: 1 1 100%;
+      margin: 0.2rem 0 0;
+    }
+  }
+  /* inline rename input (documents + folders) */
+  .rname {
+    font: inherit;
+    font-size: 0.85rem;
+    flex: 1;
+    min-width: 0;
+    padding: 0.15rem 0.4rem;
+    border: 1px solid var(--primary, #6750a4);
+    border-radius: 6px;
+    background: var(--surface, white);
+    color: var(--on-surface, #111);
+  }
   .fcodes {
     font-size: 0.75rem;
     color: var(--on-surface-variant, #666);
     font-variant-numeric: tabular-nums;
+    min-width: 1.6rem;
+    text-align: right;
+    margin-right: 0.2rem;
   }
-  /* database export/import row (sidebar bottom — the dashboard is gone) */
+  /* database export/import row (below the project switcher — the dashboard is gone) */
   .dbrow {
     display: flex;
     align-items: center;
     gap: 0.3rem;
-    padding-top: 0.4rem;
-    border-top: 1px solid var(--outline, #ccc);
+  }
+  /* context-menu upload pickers (opened programmatically by the menu items) */
+  .menufile {
+    display: none;
+  }
+  .menumsg {
+    margin: 0.2rem 0 0;
+    font-size: 0.7rem;
+    color: var(--on-surface-variant, #666);
   }
 
   @media (max-width: 50rem) {

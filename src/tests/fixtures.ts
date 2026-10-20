@@ -31,6 +31,9 @@ export const testInstructions: Instructions = {
  * Drive a file input in the browser (vitest has no setInputFiles): build a
  * DataTransfer with the files and fire `change` — the pattern every upload
  * spec needs (db import, catalog import, dropzone, folder picker).
+ * Dropzone/folder-picker specs target `.uprow input[type="file"]` (UploadZone
+ * renders the `.upfolder` input before Melt's) — a bare `input[type="file"]`
+ * would hit the sidebar's `.dbfile` import input, which sits above the row.
  */
 export function uploadTo(selector: string, ...files: File[]): void {
   const input = document.querySelector(selector) as HTMLInputElement;

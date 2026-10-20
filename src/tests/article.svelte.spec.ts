@@ -15,11 +15,13 @@ import {
 } from "./article-harness";
 import {
   createFolder,
+  createSubfolder,
   exportDatabase,
   getArticle,
   getLocalCatalog,
   getPdfData,
   listFolders,
+  moveArticle,
   readCodes,
   saveLocalCatalog,
   savePdfData,
@@ -884,14 +886,14 @@ describe("article coding page", () => {
     expect(navigated).toEqual(["/"]);
   });
 
-  it("exports and re-imports the whole database from the sidebar row", async () => {
+  it("exports and re-imports the project from the sidebar row", async () => {
     await seedArticle({ project: FOLDER, name: NAME, text: TEXT });
 
     renderArticle();
     await ready();
 
-    await expect.element(page.getByRole("button", { name: "Database" })).toBeInTheDocument();
-    await expect.element(page.getByRole("button", { name: "Import DB" })).toBeInTheDocument();
+    await expect.element(page.getByRole("button", { name: "Export", exact: true })).toBeInTheDocument();
+    await expect.element(page.getByTitle("Import a project JSON export")).toBeInTheDocument();
 
     const dump = JSON.stringify(await exportDatabase());
     await resetArticles();
@@ -900,6 +902,130 @@ describe("article coding page", () => {
     uploadTo(".dbfile", new File([dump], "kodakool-db.json", { type: "application/json" }));
 
     await expect.poll(async () => (await getArticle(FOLDER, NAME))?.text).toBe(TEXT);
+  });
+
+  it("creates a subfolder from the project header's menu", async () => {
+    await seedArticle({ project: FOLDER, name: NAME, text: TEXT });
+
+    renderArticle();
+    await ready();
+
+    await page.getByRole("button", { name: "Project menu", exact: true }).click();
+    await page.getByRole("menuitem", { name: "New folder" }).click();
+    const input = page.getByLabelText("New folder name");
+    await expect.element(input).toBeInTheDocument();
+    await input.fill("sources");
+    await page.getByRole("button", { name: "create", exact: true }).click();
+
+    await expect.element(page.getByRole("button", { name: "sources/" })).toBeInTheDocument();
+  });
+
+  it("uploads a file through the project header's menu", async () => {
+    await seedArticle({ project: FOLDER, name: NAME, text: TEXT });
+
+    renderArticle();
+    await ready();
+
+    await page.getByRole("button", { name: "Project menu", exact: true }).click();
+    const menu = page.getByRole("menu");
+    await expect.element(menu.getByRole("menuitem", { name: "Upload File" })).toBeInTheDocument();
+    await expect.element(menu.getByRole("menuitem", { name: "Upload Folder" })).toBeInTheDocument();
+    await page.getByRole("menuitem", { name: "Upload File" }).click();
+    // the menu item clicked the hidden picker; feed it a file like the real chooser would
+    uploadTo(".menufile", new File(["menu uploaded"], "menu doc.txt", { type: "text/plain" }));
+
+    await expect.element(page.getByRole("link", { name: "menu doc.txt" })).toBeInTheDocument();
+    expect((await getArticle(FOLDER, "menu doc"))?.text).toBe("menu uploaded");
+  });
+
+  it("uploads a file into a subfolder from the folder's menu", async () => {
+    await seedArticle({ project: FOLDER, name: NAME, text: TEXT });
+    await createSubfolder(FOLDER, "sources");
+
+    renderArticle();
+    await ready();
+
+    // exact: the subfolder header div is itself a role=button and inherits the pill's name
+    await page.getByRole("button", { name: "Menu for folder sources", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Upload File" }).click();
+    uploadTo(".menufile", new File(["nested upload"], "nested doc.txt", { type: "text/plain" }));
+
+    await expect.poll(async () => (await getArticle(FOLDER, "nested doc"))?.folder).toBe("sources");
+  });
+
+  it("renames a document inline from the row menu", async () => {
+    await seedArticle({ project: FOLDER, name: NAME, text: TEXT });
+    await seedArticle({ project: FOLDER, name: "other doc", text: "x" });
+
+    renderArticle();
+    await ready();
+
+    await page.getByRole("button", { name: "Menu for other doc.txt" }).click();
+    await page.getByRole("menuitem", { name: "Rename document" }).click();
+    const input = page.getByLabelText("Rename document");
+    await expect.element(input).toBeInTheDocument();
+    await input.fill("renamed doc");
+    await userEvent.keyboard("{Enter}");
+
+    await expect.element(page.getByRole("link", { name: "renamed doc.txt" })).toBeInTheDocument();
+    expect(await getArticle(FOLDER, "renamed doc")).toBeTruthy();
+    expect(await getArticle(FOLDER, "other doc")).toBeNull();
+  });
+
+  it("duplicates a document from the row menu", async () => {
+    await seedArticle({ project: FOLDER, name: NAME, text: TEXT });
+    await seedArticle({ project: FOLDER, name: "other doc", text: "x", entries: [quoteEntry] });
+
+    renderArticle();
+    await ready();
+
+    await page.getByRole("button", { name: "Menu for other doc.txt" }).click();
+    await page.getByRole("menuitem", { name: "Duplicate document" }).click();
+
+    await expect.element(page.getByRole("link", { name: "other doc copy.txt" })).toBeInTheDocument();
+    const copy = await getArticle(FOLDER, "other doc copy");
+    expect(copy).toBeTruthy();
+    expect((await readCodes(copy?.id ?? "")).map((c) => c.device)).toEqual([DEVICE_QUOTE]);
+  });
+
+  it("moves a document into a subfolder and uploads land in the selected folder", async () => {
+    await seedArticle({ project: FOLDER, name: NAME, text: TEXT });
+    await seedArticle({ project: FOLDER, name: "other doc", text: "x" });
+    await createSubfolder(FOLDER, "sources");
+
+    renderArticle();
+    await ready();
+    await expect.element(page.getByRole("button", { name: "sources/" })).toBeInTheDocument();
+
+    await page.getByRole("button", { name: "Menu for other doc.txt" }).click();
+    await page.getByRole("menuitem", { name: "Move to sources" }).click();
+    await expect.poll(async () => (await getArticle(FOLDER, "other doc"))?.folder).toBe("sources");
+
+    // selecting the subfolder makes it the upload target
+    await page.getByRole("button", { name: "sources/" }).click();
+    uploadTo('.uprow input[type="file"]', new File(["body"], "moved upload.txt", { type: "text/plain" }));
+    await expect.poll(async () => (await getArticle(FOLDER, "moved upload"))?.folder).toBe("sources");
+  });
+
+  it("deleting a subfolder moves its documents to the project root", async () => {
+    const id = await seedArticle({ project: FOLDER, name: NAME, text: TEXT });
+    await createSubfolder(FOLDER, "sources");
+    await moveArticle(id, "sources");
+
+    renderArticle();
+    await ready();
+    await expect.element(page.getByRole("button", { name: "sources/" })).toBeInTheDocument();
+
+    await page.getByRole("button", { name: "Menu for folder sources", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Delete folder" }).click();
+    await expect.element(page.getByRole("dialog", { name: "Delete folder sources/?" })).toBeInTheDocument();
+    await expect
+      .poll(() => (document.querySelector(".cfconfirm") as HTMLButtonElement | null)?.disabled, { timeout: 6000 })
+      .toBe(false);
+    await page.getByRole("button", { name: "Confirm" }).click();
+
+    await expect.element(page.getByRole("button", { name: "sources/" })).not.toBeInTheDocument();
+    await expect.poll(async () => (await getArticle(FOLDER, NAME))?.folder).toBe("");
   });
 
   it("opens the document row's context menu on right click", async () => {
@@ -990,7 +1116,7 @@ describe("article coding page", () => {
     await ready();
 
     // the tests run in the browser: feed the Melt FileUpload input a real File
-    uploadTo('input[type="file"]', new File(["uploaded body here"], "spd upload.txt", { type: "text/plain" }));
+    uploadTo('.uprow input[type="file"]', new File(["uploaded body here"], "spd upload.txt", { type: "text/plain" }));
 
     await expect.element(page.getByRole("link", { name: "spd upload.txt" })).toBeInTheDocument();
     const art = await getArticle(FOLDER, "spd upload");
@@ -1366,7 +1492,7 @@ describe("article coding page", () => {
     await ready();
 
     uploadTo(
-      'input[type="file"]',
+      '.uprow input[type="file"]',
       new File([buildPdf(["Pdf uploaded body."])], "spd pdf.pdf", { type: "application/pdf" }),
     );
 
@@ -1387,7 +1513,7 @@ describe("article coding page", () => {
     await expect.element(page.getByRole("button", { name: "Download files" })).toBeInTheDocument();
     await expect.element(page.getByRole("button", { name: "JSON", exact: true })).toBeInTheDocument();
     await expect.element(page.getByRole("button", { name: ".qdc" })).toBeInTheDocument();
-    await expect.element(page.getByRole("button", { name: "Import", exact: true })).toBeInTheDocument();
+    await expect.element(page.getByTitle("Import frame devices from .json or .qdc")).toBeInTheDocument();
     expect(document.querySelector(".upfolder")).toBeTruthy();
 
     // the picker lists this project's documents with a select-all toggle

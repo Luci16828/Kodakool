@@ -31,8 +31,17 @@
       // this page's onMount runs BEFORE the layout's, so the layout's fire-and-forget
       // seed may not have started yet: seedExampleProject() is once-per-profile and
       // coalesces an in-flight run, so awaiting it covers both orders
-      await seedExampleProject();
-      const arts = await listArticles();
+      // a failed DB open (e.g. a migration cancelled by a second tab opening the
+      // store mid-migration) must not blank the start screen: getDb() retries on
+      // the next call, so a plain reload of a single tab recovers
+      let arts: Awaited<ReturnType<typeof listArticles>>;
+      try {
+        await seedExampleProject();
+        arts = await listArticles();
+      } catch {
+        resolving = false;
+        return;
+      }
       const set = new Set(await listFolders());
       for (const a of arts) set.add(a.project);
       projects = [...set].sort(compareNames);

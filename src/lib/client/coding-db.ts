@@ -32,6 +32,8 @@ export interface ArticleData {
   name: string;
   text: string;
   kind?: ArticleKind;
+  /** subfolder path inside the project ("sources/interviews"); "" = project root */
+  folder?: string;
   createdAt: number;
   updatedAt: number;
   versions: ArticleVersion[];
@@ -42,6 +44,8 @@ export interface ArticleSummary {
   project: string;
   name: string;
   kind: ArticleKind;
+  /** subfolder path inside the project; "" = project root */
+  folder: string;
   updatedAt: number;
   codes: number;
   versions: number;
@@ -130,11 +134,13 @@ const PDF_SCHEMA = {
 const FOLDER_SCHEMA = {
   title: "folders",
   description: "locally created document folders (may be empty — articles only carry their project name)",
-  version: 0,
+  version: 1,
   type: "object",
   primaryKey: "name",
   properties: {
     name: { type: "string", maxLength: 200 },
+    /** registered subfolder paths inside the project ("sources", "sources/interviews") */
+    subs: { type: "array", items: { type: "string", maxLength: 400 } },
     createdAt: { type: "number" },
   },
   required: ["name", "createdAt"],
@@ -143,7 +149,7 @@ const FOLDER_SCHEMA = {
 const ARTICLE_SCHEMA = {
   title: "articles",
   description: "one document per article (local-first, carries its own text + history)",
-  version: 2,
+  version: 3,
   type: "object",
   primaryKey: "id",
   properties: {
@@ -152,6 +158,8 @@ const ARTICLE_SCHEMA = {
     name: { type: "string", maxLength: 200 },
     text: { type: "string" },
     kind: { type: "string", enum: ["text", "pdf"] },
+    /** subfolder path inside the project; "" = project root */
+    folder: { type: "string", maxLength: 400 },
     createdAt: { type: "number" },
     updatedAt: { type: "number" },
     versions: { type: "array", items: VERSION_SCHEMA },
@@ -215,6 +223,8 @@ export interface PdfDocData extends Record<string, unknown> {
 
 export interface FolderDocData extends Record<string, unknown> {
   name: string;
+  /** registered subfolder paths inside the project (sorted) */
+  subs?: string[];
   createdAt: number;
 }
 
@@ -227,8 +237,158 @@ interface Db {
 }
 
 let dbPromise: Promise<Db> | null = null;
+
+/** Test seam: forget the memoized instance so a spec can exercise the open path from scratch. */
+export function __resetDbForTests(): void {
+  dbPromise = null;
+}
 /** addRxPlugin throws when the same plugin is added twice — only add it on the first open attempt */
 let pluginsAdded = false;
+
+const DB_NAME = "luci-coding";
+/** RxDB's Dexie storage keeps one IndexedDB per (database, schema version, collection) */
+const dexieDbName = (collection: string, version: number) => `rxdb-dexie-${DB_NAME}--${version}--${collection}`;
+
+/** Raw IndexedDB open; resolves null when the database does not exist (the creating open is aborted). */
+function idbOpen(name: string): Promise<IDBDatabase | null> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const req = indexedDB.open(name);
+    req.onupgradeneeded = () => {
+      settled = true;
+      req.transaction?.abort();
+      resolve(null);
+    };
+    req.onblocked = () => {
+      settled = true;
+      resolve(null);
+    };
+    req.onsuccess = () => {
+      if (!settled) resolve(req.result);
+    };
+    req.onerror = () => {
+      if (!settled) reject(req.error);
+    };
+  });
+}
+
+/** All rows of a Dexie storage instance's docs table; [] when the database does not exist. */
+async function idbReadDocs(name: string): Promise<Record<string, unknown>[]> {
+  const db = await idbOpen(name);
+  if (!db) return [];
+  try {
+    if (!db.objectStoreNames.contains("docs")) return [];
+    return await new Promise((resolve, reject) => {
+      const req = db.transaction("docs", "readonly").objectStore("docs").getAll();
+      req.onsuccess = () => resolve(req.result as Record<string, unknown>[]);
+      req.onerror = () => reject(req.error);
+    });
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * RxDB v17 runs a schema migration as a cross-tab coordinated replication. When a
+ * second tab opens the store mid-migration, the coordination cancels the migration
+ * and leaves an `ERROR` status document in the internal store — and `migratePromise`
+ * races DONE vs ERROR, so EVERY later open re-throws DM4 forever. The document data
+ * itself is untouched; deleting the stuck status documents lets the next open
+ * migrate cleanly. Returns how many were removed.
+ */
+export async function clearStuckMigrationStatuses(): Promise<number> {
+  const db = await idbOpen(dexieDbName("_rxdb_internal", 0));
+  if (!db) return 0;
+  try {
+    if (!db.objectStoreNames.contains("docs")) return 0;
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction("docs", "readwrite");
+      const store = tx.objectStore("docs");
+      let removed = 0;
+      const req = store.getAll();
+      req.onsuccess = () => {
+        for (const row of req.result as Record<string, unknown>[]) {
+          const status = (row.data as { status?: string } | undefined)?.status;
+          if (row.context === "rx-migration-status" && status === "ERROR") {
+            store.delete(row.id as IDBValidKey);
+            removed++;
+          }
+        }
+      };
+      tx.oncomplete = () => resolve(removed);
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
+  } finally {
+    db.close();
+  }
+}
+
+/** Collections whose schema version was bumped by the subfolder update; their
+ * old-version Dexie tables can hold the only copy of the data when a migration
+ * was interrupted (the migration writes into a NEW per-version IndexedDB). */
+const STRANDED: Array<{ collection: "articles" | "folders"; below: number }> = [
+  { collection: "articles", below: 3 },
+  { collection: "folders", below: 1 },
+];
+
+/** Empty a Dexie storage instance's docs table. Clearing (not deleting the database)
+ * is the safe form: the migration keeps its connection to the old table open, and a
+ * `deleteDatabase` request against it stays blocked forever — blocking every later
+ * open of that database. A transaction works alongside the open connection. */
+async function idbClearDocs(name: string): Promise<void> {
+  const db = await idbOpen(name);
+  if (!db) return;
+  try {
+    if (!db.objectStoreNames.contains("docs")) return;
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction("docs", "readwrite");
+      tx.objectStore("docs").clear();
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * Rescue documents stranded by an interrupted migration: the live collection is
+ * empty while the old-version IndexedDB still holds the data. Copy every document
+ * the live collection does not have (oldest version first, so the newest wins),
+ * backfilling the fields the migration strategy would have added, then empty the
+ * old table so a later reload can never resurrect deleted documents. Idempotent.
+ */
+async function rescueStrandedDocs(db: Db): Promise<void> {
+  for (const { collection, below } of STRANDED) {
+    const col = db[collection];
+    const have = new Set((await col.find().exec()).map((d) => d.id));
+    for (let version = 0; version < below; version++) {
+      const name = dexieDbName(collection, version);
+      const rows = await idbReadDocs(name);
+      if (rows.length === 0) continue;
+      const docs: Record<string, unknown>[] = [];
+      for (const row of rows) {
+        if (row._deleted || have.has(row.id)) continue;
+        const { _rev, _meta, _attachments, _deleted, ...plain } = row;
+        docs.push(plain);
+      }
+      if (docs.length > 0) {
+        if (collection === "articles") {
+          for (const d of docs) d.folder = normalizeSubPath(String(d.folder ?? ""));
+        } else {
+          for (const d of docs) d.subs = Array.isArray(d.subs) ? d.subs : [];
+        }
+        await (col as unknown as Collection<Record<string, unknown>>).bulkUpsert(docs);
+        for (const d of docs) have.add(d.id as string);
+      }
+      // the table is spent (the data is live now) — empty it so a later reload can
+      // never resurrect documents the user deleted in the meantime
+      await idbClearDocs(name);
+    }
+  }
+}
 
 export function getDb(): Promise<Db> {
   dbPromise ??= (async () => {
@@ -240,23 +400,55 @@ export function getDb(): Promise<Db> {
       addRxPlugin(RxDBMigrationSchemaPlugin);
       pluginsAdded = true;
     }
-    const db = await createRxDatabase({ name: "luci-coding", storage: getRxStorageDexie() });
-    await db.addCollections({
+    const collections = () => ({
       articles: {
         schema: structuredClone(ARTICLE_SCHEMA),
         // v0 → v1 added the kind field: pre-existing articles are plain text
         migrationStrategies: {
-          1: (oldDoc) => ({ ...oldDoc, kind: "text" as const }),
+          1: (oldDoc: Record<string, unknown>) => ({ ...oldDoc, kind: "text" as const }),
           // v1 → v2 made every snapshot a graph node (id + parent)
-          2: (oldDoc) => ({ ...oldDoc, versions: normalizeVersions(oldDoc.versions) }),
+          2: (oldDoc: Record<string, unknown>) => ({ ...oldDoc, versions: normalizeVersions(oldDoc.versions) }),
+          // v2 → v3 added the subfolder path: pre-existing articles sit at the project root
+          3: (oldDoc: Record<string, unknown>) => ({ ...oldDoc, folder: "" }),
         },
       },
       codes: { schema: structuredClone(CODE_SCHEMA) },
       catalogs: { schema: structuredClone(CATALOG_SCHEMA) },
       pdfs: { schema: structuredClone(PDF_SCHEMA) },
-      folders: { schema: structuredClone(FOLDER_SCHEMA) },
+      folders: {
+        schema: structuredClone(FOLDER_SCHEMA),
+        // v0 → v1 added the subfolder registry: pre-existing projects have no subfolders
+        migrationStrategies: {
+          1: (oldDoc: Record<string, unknown>) => ({ ...oldDoc, subs: [] as string[] }),
+        },
+      },
     });
+    const open = async () => {
+      const db = await createRxDatabase({ name: DB_NAME, storage: getRxStorageDexie() });
+      try {
+        await db.addCollections(collections());
+        return db;
+      } catch (e) {
+        // close the failed instance: its migration state keeps the leader-election
+        // BroadcastChannel held, so a retry on the same instance would deadlock
+        await db.close().catch(() => undefined);
+        throw e;
+      }
+    };
+    let db: Awaited<ReturnType<typeof open>>;
+    try {
+      db = await open();
+    } catch (e) {
+      // a migration cancelled by a second tab poisons the internal store with an
+      // ERROR status doc that makes every later open throw DM4 — clear the stuck
+      // docs and retry once (a background migration that already finished shows a
+      // DONE status, so the retry succeeds in that case too)
+      await clearStuckMigrationStatuses().catch(() => undefined);
+      db = await open();
+    }
     const typed = db as unknown as Db;
+    // an interrupted migration strands the data in the old-version IndexedDB; copy it back
+    await rescueStrandedDocs(typed).catch(() => undefined);
     // repair crash residue (orphan codes/pdfs, half-normalized articles) once per page load
     await sweep(typed).catch(() => undefined);
     return typed;
@@ -299,7 +491,13 @@ async function sweep(db: Db): Promise<{ codes: number; pdfs: number }> {
     // (id + parent) a pre-graph store never had
     if (needsNormalize(a.versions)) patch.versions = normalizeVersions(a.versions);
     if (a.kind !== "text" && a.kind !== "pdf") patch.kind = "text";
+    // pre-v3 stores have no subfolder path — every article sits at the project root
+    if (typeof a.folder !== "string") patch.folder = "";
     if (Object.keys(patch).length > 0) await a.patch(patch).catch(skipConflict);
+  }
+  for (const f of await db.folders.find().exec()) {
+    if (Array.isArray(f.subs)) continue;
+    await f.patch({ subs: [] as string[] }).catch(skipConflict);
   }
   return { codes, pdfs };
 }
@@ -362,6 +560,7 @@ export async function nextUntitledName(project: string): Promise<string> {
 export async function createArticle(
   project: string = DEFAULT_PROJECT,
   kind: ArticleKind = "text",
+  folder = "",
 ): Promise<ArticleSummary> {
   const { articles } = await getDb();
   const cleanProject = (project || DEFAULT_PROJECT).trim() || DEFAULT_PROJECT;
@@ -373,6 +572,7 @@ export async function createArticle(
     name: await nextUntitledName(cleanProject),
     text: "",
     kind,
+    folder: normalizeSubPath(folder),
     createdAt: now,
     updatedAt: now,
     versions: [],
@@ -381,7 +581,16 @@ export async function createArticle(
   // concurrent creators can compute the same `Untitled N` name: losers rename
   // themselves so (project, name) — the app's addressing key — stays unique
   const name = await resolveArticleName(id, cleanProject, article.name);
-  return { id, project: cleanProject, name, kind, updatedAt: now, codes: 0, versions: 0 };
+  return {
+    id,
+    project: cleanProject,
+    name,
+    kind,
+    folder: article.folder ?? "",
+    updatedAt: now,
+    codes: 0,
+    versions: 0,
+  };
 }
 
 async function resolveArticleName(id: string, project: string, name: string): Promise<string> {
@@ -428,6 +637,8 @@ function toSummary(a: ArticleData, codes: number): ArticleSummary {
     project: a.project,
     name: a.name,
     kind: a.kind ?? "text",
+    // a store written before the folder field may lack it — treat as project root
+    folder: typeof a.folder === "string" ? a.folder : "",
     updatedAt: a.updatedAt,
     codes,
     // a store written by an older app version may lack versions — never crash on it
@@ -444,18 +655,20 @@ export function watchArticles(next: (list: ArticleSummary[]) => void): () => voi
   let counts = new Map<string, number>();
   const emit = () => next(arts.map((a) => toSummary(a, counts.get(a.id) ?? 0)).sort(compareDocs));
 
-  void getDb().then(({ articles, codes }) => {
-    if (stopped) return;
-    aUnsub = articles.find().$.subscribe((docs) => {
-      arts = docs.map((d) => d.toJSON());
-      emit();
-    });
-    cUnsub = codes.find().$.subscribe((docs) => {
-      counts = new Map();
-      for (const c of docs) counts.set(c.articleId, (counts.get(c.articleId) ?? 0) + 1);
-      emit();
-    });
-  });
+  void getDb()
+    .then(({ articles, codes }) => {
+      if (stopped) return;
+      aUnsub = articles.find().$.subscribe((docs) => {
+        arts = docs.map((d) => d.toJSON());
+        emit();
+      });
+      cUnsub = codes.find().$.subscribe((docs) => {
+        counts = new Map();
+        for (const c of docs) counts.set(c.articleId, (counts.get(c.articleId) ?? 0) + 1);
+        emit();
+      });
+    })
+    .catch(() => undefined);
 
   return () => {
     stopped = true;
@@ -478,26 +691,28 @@ export function watchArticle(
   let entries: CodeEntry[] = [];
   const emit = () => next(article, entries);
 
-  void getDb().then(({ articles, codes }) => {
-    if (stopped) return;
-    aUnsub = articles.find({ selector: { project, name } }).$.subscribe((docs) => {
-      article = docs[0]?.toJSON() ?? null;
-      const id = article?.id ?? null;
-      if (id !== currentId) {
-        currentId = id;
-        cUnsub?.unsubscribe();
-        cUnsub = undefined;
-        entries = [];
-        if (id !== null) {
-          cUnsub = codes.find({ selector: { articleId: id } }).$.subscribe((cd) => {
-            entries = cd.map(toEntry);
-            emit();
-          });
+  void getDb()
+    .then(({ articles, codes }) => {
+      if (stopped) return;
+      aUnsub = articles.find({ selector: { project, name } }).$.subscribe((docs) => {
+        article = docs[0]?.toJSON() ?? null;
+        const id = article?.id ?? null;
+        if (id !== currentId) {
+          currentId = id;
+          cUnsub?.unsubscribe();
+          cUnsub = undefined;
+          entries = [];
+          if (id !== null) {
+            cUnsub = codes.find({ selector: { articleId: id } }).$.subscribe((cd) => {
+              entries = cd.map(toEntry);
+              emit();
+            });
+          }
         }
-      }
-      emit();
-    });
-  });
+        emit();
+      });
+    })
+    .catch(() => undefined);
 
   return () => {
     stopped = true;
@@ -611,6 +826,75 @@ export async function renameArticle(id: string, name: string): Promise<void> {
   }
 }
 
+/** Normalize a subfolder path: trim segments, drop empty ones and "."/"..", join with "/". */
+export function normalizeSubPath(path: string): string {
+  return path
+    .split("/")
+    .map((s) => s.trim())
+    .filter((s) => s !== "" && s !== "." && s !== "..")
+    .join("/");
+}
+
+/** Move an article into a subfolder of its project ("" = project root). */
+export async function moveArticle(id: string, folder: string): Promise<void> {
+  const { articles } = await getDb();
+  const doc = await articles.findOne(id).exec();
+  if (!doc) return;
+  await doc.patch({ folder: normalizeSubPath(folder), updatedAt: Date.now() }).catch(skipConflict);
+}
+
+/** Move an article to another project's root. (project, name) uniqueness is re-checked:
+ * the loser reverts and throws, same as renameArticle. */
+export async function moveArticleProject(id: string, project: string): Promise<void> {
+  const { articles } = await getDb();
+  const doc = await articles.findOne(id).exec();
+  if (!doc) return;
+  const clean = project.trim();
+  if (!clean || clean === doc.project) return;
+  const oldProject = doc.project;
+  await doc.patch({ project: clean, folder: "", updatedAt: Date.now() }).catch(skipConflict);
+  const same = await articles.find({ selector: { project: clean, name: doc.name } }).exec();
+  if (same.length > 1) {
+    const fresh = await articles.findOne(id).exec();
+    if (fresh) await fresh.patch({ project: oldProject, folder: "" }).catch(skipConflict);
+    throw new Error(`"${doc.name}" already exists in ${clean}`);
+  }
+}
+
+/** Copy an article (text + entries + PDF bytes) beside the original as "<name> copy [N]". */
+export async function duplicateArticle(id: string): Promise<ArticleSummary | null> {
+  const { articles, codes, pdfs } = await getDb();
+  const src = await articles.findOne(id).exec();
+  if (!src) return null;
+  const taken = async (n: string) =>
+    (await articles.find({ selector: { project: src.project, name: n } }).exec()).length > 0;
+  const base = src.name.replace(/ copy( \d+)?$/, "");
+  let name = `${base} copy`;
+  for (let n = 2; await taken(name); n++) name = `${base} copy ${n}`;
+  const newId = crypto.randomUUID();
+  const now = Date.now();
+  const article: ArticleData = {
+    id: newId,
+    project: src.project,
+    name,
+    text: src.text,
+    kind: src.kind ?? "text",
+    folder: typeof src.folder === "string" ? src.folder : "",
+    createdAt: now,
+    updatedAt: now,
+    versions: [],
+  };
+  await articles.insert(article);
+  // same name-race resolution as createArticle: losers rename themselves
+  const finalName = await resolveArticleName(newId, src.project, name);
+  // entries keep their uids — entryId hashes articleId + uid, so the copy's ids are unique
+  const entries = (await codes.find({ selector: { articleId: id } }).exec()).map(toEntry);
+  if (entries.length > 0) await codes.bulkUpsert(entries.map((e) => toCodeDoc(newId, e)));
+  const pdf = await pdfs.findOne(id).exec();
+  if (pdf) await pdfs.insert({ id: newId, data: pdf.data, pages: pdf.pages, updatedAt: now });
+  return { ...toSummary(article, entries.length), name: finalName };
+}
+
 /** Remove an article together with its code entries and stored PDF bytes. */
 export async function deleteArticle(id: string): Promise<void> {
   const { articles, codes, pdfs } = await getDb();
@@ -639,10 +923,12 @@ export async function listFolders(): Promise<string[]> {
 export function watchFolders(next: (names: string[]) => void): () => void {
   let stopped = false;
   let unsub: Unsubscribable | undefined;
-  void getDb().then(({ folders }) => {
-    if (stopped) return;
-    unsub = folders.find().$.subscribe((docs) => next(docs.map((d) => d.name).sort(compareNames)));
-  });
+  void getDb()
+    .then(({ folders }) => {
+      if (stopped) return;
+      unsub = folders.find().$.subscribe((docs) => next(docs.map((d) => d.name).sort(compareNames)));
+    })
+    .catch(() => undefined);
   return () => {
     stopped = true;
     unsub?.unsubscribe();
@@ -672,6 +958,75 @@ export async function deleteFolder(name: string): Promise<void> {
   const folder = await folders.findOne(name).exec();
   if (folder) await folder.remove().catch(skipConflict);
   for (const a of await articles.find({ selector: { project: name } }).exec()) await deleteArticle(a.id);
+}
+
+// ----- subfolders (organization layer inside one project) -----
+
+/** Live list of a project's registered subfolder paths (sorted). */
+export function watchSubfolders(project: string, next: (paths: string[]) => void): () => void {
+  let stopped = false;
+  let unsub: Unsubscribable | undefined;
+  void getDb()
+    .then(({ folders }) => {
+      if (stopped) return;
+      unsub = folders
+        .find({ selector: { name: project } })
+        .$.subscribe((docs) => next([...(docs[0]?.toJSON().subs ?? [])].sort(compareNames)));
+    })
+    .catch(() => undefined);
+  return () => {
+    stopped = true;
+    unsub?.unsubscribe();
+  };
+}
+
+/** Register a subfolder path inside a project (creates the project doc when missing; idempotent). */
+export async function createSubfolder(project: string, path: string): Promise<void> {
+  const clean = normalizeSubPath(path);
+  if (!clean) return;
+  await createFolder(project);
+  const { folders } = await getDb();
+  const doc = await folders.findOne(project).exec();
+  if (!doc) return;
+  const subs = doc.toJSON().subs ?? [];
+  if (subs.includes(clean)) return;
+  await doc.patch({ subs: [...subs, clean].sort(compareNames) }).catch(skipConflict);
+}
+
+/** Remove a subfolder: its documents (and nested folders' ones) move to the project root first. */
+export async function deleteSubfolder(project: string, path: string): Promise<void> {
+  const clean = normalizeSubPath(path);
+  if (!clean) return;
+  const { articles, folders } = await getDb();
+  // move contained documents FIRST: a crash mid-way leaves them visible at the root,
+  // never stranded inside a folder that no longer exists
+  for (const a of await articles.find({ selector: { project } }).exec()) {
+    const f = typeof a.folder === "string" ? a.folder : "";
+    if (f === clean || f.startsWith(clean + "/")) await a.patch({ folder: "" }).catch(skipConflict);
+  }
+  const doc = await folders.findOne(project).exec();
+  if (!doc) return;
+  const subs = (doc.toJSON().subs ?? []).filter((s) => s !== clean && !s.startsWith(clean + "/"));
+  await doc.patch({ subs }).catch(skipConflict);
+}
+
+/** Rename a subfolder: rewrites the path prefix on every contained document + nested subfolder. */
+export async function renameSubfolder(project: string, oldPath: string, newPath: string): Promise<void> {
+  const old = normalizeSubPath(oldPath);
+  const next = normalizeSubPath(newPath);
+  if (!old || !next || old === next) return;
+  const { articles, folders } = await getDb();
+  const doc = await folders.findOne(project).exec();
+  const subs = doc?.toJSON().subs ?? [];
+  if (subs.includes(next)) throw new Error(`"${next}" already exists`);
+  const rel = (f: string) => (f === old ? next : f.startsWith(old + "/") ? next + f.slice(old.length) : f);
+  for (const a of await articles.find({ selector: { project } }).exec()) {
+    const cur = typeof a.folder === "string" ? a.folder : "";
+    const f = rel(cur);
+    if (f !== cur) await a.patch({ folder: f }).catch(skipConflict);
+  }
+  if (!doc) return;
+  await doc.patch({ subs: [...new Set(subs.map(rel))].sort(compareNames) }).catch(skipConflict);
 }
 
 // ----- local frame-device catalogs -----
@@ -778,7 +1133,7 @@ export async function getPdfData(articleId: string): Promise<{ data: string; pag
 
 export interface DatabaseExport {
   kind: "luci-bachelor-db";
-  version: 4;
+  version: 5;
   exportedAt: number;
   articles: ArticleData[];
   codes: CodeDocData[];
@@ -792,7 +1147,7 @@ export async function exportDatabase(): Promise<DatabaseExport> {
   const { articles, codes, catalogs, pdfs, folders } = await getDb();
   const out: DatabaseExport = {
     kind: "luci-bachelor-db",
-    version: 4,
+    version: 5,
     exportedAt: Date.now(),
     articles: (await articles.find().exec()).map((d) => d.toJSON()),
     codes: (await codes.find().exec()).map((d) => d.toJSON()),
@@ -805,6 +1160,34 @@ export async function exportDatabase(): Promise<DatabaseExport> {
       out.catalogs.push({ folder: d.folder, instructions: instructionsSchema.parse(JSON.parse(d.data)) });
     } catch {
       // skip invalid local overrides
+    }
+  }
+  return out;
+}
+
+/** Snapshot ONE project — its documents, their entries + PDF bytes, its catalog
+ * override and its folder registration. The result is a valid `DatabaseExport`
+ * subset, so `importDatabase` accepts a project blob unchanged (merge by id). */
+export async function exportProject(project: string): Promise<DatabaseExport> {
+  const { articles, codes, catalogs, pdfs, folders } = await getDb();
+  const mine = (await articles.find().exec()).filter((d) => d.project === project).map((d) => d.toJSON());
+  const ids = new Set(mine.map((a) => a.id));
+  const out: DatabaseExport = {
+    kind: "luci-bachelor-db",
+    version: 5,
+    exportedAt: Date.now(),
+    articles: mine,
+    codes: (await codes.find().exec()).filter((d) => ids.has(d.articleId)).map((d) => d.toJSON()),
+    catalogs: [],
+    pdfs: (await pdfs.find().exec()).filter((d) => ids.has(d.id)).map((d) => d.toJSON()),
+    folders: (await folders.find().exec()).filter((d) => d.name === project).map((d) => d.toJSON()),
+  };
+  const cat = await catalogs.findOne(project).exec();
+  if (cat) {
+    try {
+      out.catalogs.push({ folder: cat.folder, instructions: instructionsSchema.parse(JSON.parse(cat.data)) });
+    } catch {
+      // skip invalid local override
     }
   }
   return out;
@@ -849,6 +1232,8 @@ export async function importDatabase(
       name: x.name,
       text: x.text,
       kind: x.kind ?? "text",
+      // pre-v3 exports have no subfolder path — the article lands at the project root
+      folder: typeof x.folder === "string" ? normalizeSubPath(x.folder) : "",
       createdAt: num(x.createdAt, Date.now()),
       updatedAt: num(x.updatedAt, Date.now()),
       // exports from before versions were graph nodes have no id/parent — chain them
@@ -883,8 +1268,14 @@ export async function importDatabase(
   for (const d of await articles.find().exec()) known.add(d.id);
   const cds = (rawCodes as CodeDocData[]).filter((c) => known.has(c.articleId)).map((c) => strip(c));
   const pdfs = (rawPdfs as PdfDocData[]).filter((p) => known.has(p.id)).map((p) => strip(p));
-  // v2 exports have no folders array
-  const folders = (rawFolders as FolderDocData[]).map((f) => strip(f));
+  // v2 exports have no folders array; v4 folder docs have no subfolder registry
+  const folders = (rawFolders as (FolderDocData & { subs?: unknown })[]).map((f) => {
+    const { _rev: _ignored, ...rest } = f as FolderDocData & { _rev?: string };
+    const subs = Array.isArray(f.subs)
+      ? [...new Set(f.subs.filter((s) => typeof s === "string").map(normalizeSubPath))].sort(compareNames)
+      : [];
+    return { ...rest, subs } as FolderDocData;
+  });
 
   if (arts.length > 0) await articles.bulkUpsert(arts);
   if (cds.length > 0) await codes.bulkUpsert(cds);

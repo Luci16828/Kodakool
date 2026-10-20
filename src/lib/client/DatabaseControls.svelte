@@ -1,14 +1,17 @@
 <script lang="ts">
   import "material-symbols/rounded.css";
-  import { exportDatabase, importDatabase } from "$lib/client/coding-db";
+  import { exportDatabase, exportProject, importDatabase } from "$lib/client/coding-db";
   import { downloadText } from "$lib/client/download";
 
   /**
-   * Whole-database export/import row (local RxDB snapshot as JSON) — shared by
-   * the root start screen and the coding page's tree sidebar.
+   * Export/import row (local RxDB snapshot as JSON) — shared by the root start
+   * screen and the coding page's tree sidebar. With a `project` prop it exports
+   * THAT project only (documents + entries + PDF bytes + catalog + folder
+   * registration); without one it exports the whole database. Import always
+   * merges by id, so a project blob lands alongside the existing data.
    * `compact` = the sidebar's small pill variant with an ellipsized message.
    */
-  let { compact = false }: { compact?: boolean } = $props();
+  let { compact = false, project = "" }: { compact?: boolean; project?: string } = $props();
 
   let msg = $state("");
   let fileInput: HTMLInputElement | undefined = $state(undefined);
@@ -16,13 +19,15 @@
   async function exportDb() {
     msg = "";
     try {
-      const dump = await exportDatabase();
+      const dump = project ? await exportProject(project) : await exportDatabase();
       downloadText(
-        `kodakool-db-${new Date().toISOString().slice(0, 10)}.json`,
+        `kodakool-${project || "db"}-${new Date().toISOString().slice(0, 10)}.json`,
         JSON.stringify(dump, null, 2),
         "application/json",
       );
-      msg = `exported ${dump.articles.length} documents, ${dump.catalogs.length} catalogs`;
+      msg = project
+        ? `exported project ${project}: ${dump.articles.length} documents, ${dump.catalogs.length} catalogs`
+        : `exported ${dump.articles.length} documents, ${dump.catalogs.length} catalogs`;
     } catch (e) {
       msg = `export failed: ${String(e)}`;
     }
@@ -46,18 +51,18 @@
 <button
   type="button"
   class={compact ? "dbbtn" : "pill"}
-  title="Export the local database as JSON"
+  title={project ? `Export the ${project} project as JSON` : "Export the local database as JSON"}
   onclick={() => void exportDb()}
 >
-  <span class="material-symbols-rounded" aria-hidden="true">file_download</span>Database
+  <span class="material-symbols-rounded" aria-hidden="true">file_download</span>Export
 </button>
 <button
   type="button"
   class={compact ? "dbbtn" : "pill"}
-  title="Import a database JSON export"
+  title={project ? "Import a project JSON export" : "Import a database JSON export"}
   onclick={() => fileInput?.click()}
 >
-  <span class="material-symbols-rounded" aria-hidden="true">file_upload</span>Import DB
+  <span class="material-symbols-rounded" aria-hidden="true">file_upload</span>Import
 </button>
 <input
   type="file"

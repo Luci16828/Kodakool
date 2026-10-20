@@ -23,6 +23,7 @@ export async function uploadArticleFile(
   project: string,
   f: File,
   onProgress?: (msg: string) => void,
+  folder = "",
 ): Promise<UploadResult> {
   const segs = (f.webkitRelativePath || f.name).split("/");
   const isPdfFile = /\.pdf$/i.test(f.name);
@@ -49,7 +50,7 @@ export async function uploadArticleFile(
     text = await f.text();
   }
 
-  const created = await createArticle(project, isPdfFile ? "pdf" : "text");
+  const created = await createArticle(project, isPdfFile ? "pdf" : "text", folder);
   try {
     await saveArticle(created.id, text, []);
     if (pdfBytes !== null) await savePdfData(created.id, pdfBytes, pdfPages);
@@ -63,13 +64,13 @@ export async function uploadArticleFile(
   return { ok: true, message: `uploaded ${name}` };
 }
 
-/** Folder picker: every `.txt`/`.md`/`.pdf` file inside becomes an article in `project`. */
-export async function uploadArticleFolder(project: string, input: HTMLInputElement): Promise<string[]> {
+/** Folder picker: every `.txt`/`.md`/`.pdf` file inside becomes an article in `project` (in `folder`). */
+export async function uploadArticleFolder(project: string, input: HTMLInputElement, folder = ""): Promise<string[]> {
   const files = [...(input.files ?? [])].filter((f) => /\.(txt|md|markdown|pdf)$/i.test(f.name));
   input.value = "";
   const messages: string[] = [];
   for (const f of files) {
-    const r = await uploadArticleFile(project, f);
+    const r = await uploadArticleFile(project, f, undefined, folder);
     if (r.message !== "") messages.push(r.message);
   }
   return messages;

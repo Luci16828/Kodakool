@@ -6,9 +6,13 @@
   /**
    * The shared upload row (project page + coding-page tree): a Melt FileUpload
    * dropzone for .txt/.md/.pdf files plus a webkitdirectory folder picker —
-   * everything lands in `folder`. `compact` is the narrow-sidebar look.
+   * everything lands in `folder` (optionally inside the project subfolder `sub`).
+   * `compact` is the narrow-sidebar look.
    */
-  let { folder, compact = false }: { folder: string; compact?: boolean } = $props();
+  let { folder, sub = "", compact = false }: { folder: string; sub?: string; compact?: boolean } = $props();
+
+  /** the label the row shows as its upload target */
+  const dest = $derived(sub === "" ? `${folder}/` : `${folder}/${sub}/`);
 
   let msg = $state("");
   const fileUpload = new FileUpload({
@@ -17,13 +21,13 @@
     onAccept: (f) => void uploadFile(f),
   });
   async function uploadFile(f: File): Promise<void> {
-    const r = await uploadArticleFile(folder, f, (m) => (msg = m));
+    const r = await uploadArticleFile(folder, f, (m) => (msg = m), sub);
     msg = r.message;
   }
   /** folder picker (webkitdirectory): every .txt/.md/.pdf file inside becomes an article */
   async function uploadFolder(e: Event): Promise<void> {
     const input = e.target as HTMLInputElement;
-    const messages = await uploadArticleFolder(folder, input);
+    const messages = await uploadArticleFolder(folder, input, sub);
     msg = messages[messages.length - 1] ?? "";
   }
 </script>
@@ -32,17 +36,17 @@
   <div
     class="upload"
     {...fileUpload.dropzone}
-    title={compact ? `Upload .txt/.md/.pdf files into ${folder}/` : `Upload into ${folder}/ (.txt/.md/.pdf)`}
+    title={compact ? `Upload .txt/.md/.pdf files into ${dest}` : `Upload into ${dest} (.txt/.md/.pdf)`}
   >
     <span class="material-symbols-rounded" aria-hidden="true">upload</span>
     {#if compact}
-      {fileUpload.isDragging ? `Drop → ${folder}/` : `File → ${folder}/`}
+      {fileUpload.isDragging ? `Drop → ${dest}` : `File → ${dest}`}
     {:else}
-      {fileUpload.isDragging ? `Drop into ${folder}/` : `Upload into ${folder}/ (.txt/.md/.pdf)`}
+      {fileUpload.isDragging ? `Drop into ${dest}` : `Upload into ${dest} (.txt/.md/.pdf)`}
     {/if}
   </div>
-  <label class="upfolder" title="Upload a whole folder of .txt/.md/.pdf files into {folder}/">
-    <span class="material-symbols-rounded" aria-hidden="true">upload</span>{compact ? "Folder" : `Folder → ${folder}/`}
+  <label class="upfolder" title="Upload a whole folder of .txt/.md/.pdf files into {dest}">
+    <span class="material-symbols-rounded" aria-hidden="true">upload</span>{compact ? "Folder" : `Folder → ${dest}`}
     <input type="file" webkitdirectory={true} onchange={(e) => void uploadFolder(e)} />
   </label>
 </div>

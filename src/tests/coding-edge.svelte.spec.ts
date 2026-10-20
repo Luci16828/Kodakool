@@ -17,7 +17,7 @@ vi.mock("$app/navigation", () => ({
 
 /** feed the Melt FileUpload input a real File (vitest has no setInputFiles) */
 async function upload(...files: File[]): Promise<void> {
-  uploadTo('input[type="file"]', ...files);
+  uploadTo('.uprow input[type="file"]', ...files);
 }
 
 const barError = () => document.querySelector(".bar .msg.err")?.textContent ?? "";

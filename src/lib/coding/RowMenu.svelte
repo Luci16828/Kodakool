@@ -15,8 +15,8 @@
     trigger,
     open = $bindable(false),
   }: {
-    /** menu rows in display order; `danger` marks the destructive one */
-    items: { label: string; icon: string; danger?: boolean; onSelect: () => void }[];
+    /** menu rows in display order; `danger` marks the destructive one, `sep` draws a divider above the row */
+    items: { label: string; icon: string; danger?: boolean; sep?: boolean; onSelect: () => void }[];
     /** the row element the menu is anchored to (receives the trigger props) */
     trigger: Snippet<[{ props: Record<string, unknown> }]>;
     open?: boolean;
@@ -32,6 +32,7 @@
   <ContextMenu.Portal>
     <ContextMenu.Content class="ctxmenu" side="right" align="start" sideOffset={4}>
       {#each items as item (item.label)}
+        {#if item.sep}<ContextMenu.Separator class="ctxsep" />{/if}
         <ContextMenu.Item class={`ctxitem ${item.danger ? "danger" : ""}`} onSelect={() => item.onSelect()}>
           <span class="material-symbols-rounded" aria-hidden="true">{item.icon}</span>
           {item.label}
@@ -72,6 +73,13 @@
   /* Bits sets data-highlighted on the keyboard/pointer-highlighted item at runtime */
   :global(.ctxitem[data-highlighted]) {
     background: var(--surface-variant, #eee);
+  }
+  /* group divider (Bits renders the Separator as its own element) */
+  :global(.ctxsep) {
+    height: 1px;
+    margin: 0.2rem 0.4rem;
+    background: var(--outline, #ccc);
+    opacity: 0.7;
   }
   :global(.ctxitem.danger) {
     color: #b3261e;
