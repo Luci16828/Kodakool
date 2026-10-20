@@ -5,9 +5,9 @@
   import ColorsDialog from "$lib/coding/ColorsDialog.svelte";
   import { compareDocs, compareNames } from "$lib/coding/display";
   import { EXAMPLE_PROJECT, seedExampleProject } from "$lib/client/examples";
-  import { downloadText } from "$lib/client/download";
+  import { getArticle, listArticles, listFolders } from "$lib/client/coding-db";
+  import DatabaseControls from "$lib/client/DatabaseControls.svelte";
   import { lastDoc } from "$lib/client/last-doc";
-  import { exportDatabase, getArticle, importDatabase, listArticles, listFolders } from "$lib/client/coding-db";
   import { createProjectDoc, openDoc, openNewDoc } from "$lib/client/open-doc";
 
   /**
@@ -72,40 +72,6 @@
       busy = false;
     }
   }
-
-  // ----- whole-database export / import (local RxDB snapshot as JSON) -----
-
-  let dbMsg = $state("");
-  let dbInput = $state<HTMLInputElement | undefined>(undefined);
-
-  async function exportDb() {
-    dbMsg = "";
-    try {
-      const dump = await exportDatabase();
-      downloadText(
-        `kodakool-db-${new Date().toISOString().slice(0, 10)}.json`,
-        JSON.stringify(dump, null, 2),
-        "application/json",
-      );
-      dbMsg = `exported ${dump.articles.length} documents, ${dump.catalogs.length} catalogs`;
-    } catch (e) {
-      dbMsg = `export failed: ${String(e)}`;
-    }
-  }
-
-  async function importDb(e: Event) {
-    const input = e.target as HTMLInputElement;
-    const file = input.files?.[0];
-    input.value = "";
-    if (!file) return;
-    dbMsg = "";
-    try {
-      const counts = await importDatabase(JSON.parse(await file.text()));
-      dbMsg = `imported ${counts.articles} documents, ${counts.catalogs} catalogs`;
-    } catch (err) {
-      dbMsg = `import failed: ${err instanceof Error ? err.message : String(err)}`;
-    }
-  }
 </script>
 
 <svelte:head>
@@ -126,21 +92,8 @@
         <Dialog.Trigger class="pill">
           <span class="material-symbols-rounded" aria-hidden="true">palette</span>Colors
         </Dialog.Trigger>
-        <button type="button" class="pill" onclick={() => void exportDb()} title="Export the local database as JSON">
-          <span class="material-symbols-rounded" aria-hidden="true">file_download</span>Database
-        </button>
-        <button type="button" class="pill" onclick={() => dbInput?.click()} title="Import a database JSON export">
-          <span class="material-symbols-rounded" aria-hidden="true">file_upload</span>Import DB
-        </button>
-        <input
-          type="file"
-          accept=".json,application/json"
-          class="dbfile"
-          bind:this={dbInput}
-          onchange={(e) => void importDb(e)}
-        />
+        <DatabaseControls />
       </p>
-      {#if dbMsg}<p class="dbmsg">{dbMsg}</p>{/if}
 
       <div class="actions">
         <button type="button" class="go" onclick={() => (newProj = !newProj)} disabled={busy}>
@@ -214,14 +167,6 @@
   }
   .msg.err {
     color: #b3261e;
-  }
-  .dbfile {
-    display: none;
-  }
-  .dbmsg {
-    margin: 0.4rem 0 0;
-    font-size: 0.8rem;
-    color: var(--on-surface-variant);
   }
   .empty {
     margin-top: 0.75rem;

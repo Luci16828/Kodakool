@@ -4,7 +4,7 @@ import { render } from "vitest-browser-svelte";
 import ColorProvider from "./ColorProvider.svelte";
 import Root from "../routes/+page.svelte";
 import { createFolder, exportDatabase, getArticle, listFolders, saveLocalCatalog } from "$lib/client/coding-db";
-import { resetArticles, seedArticle, testInstructions } from "./fixtures";
+import { resetArticles, seedArticle, testInstructions, uploadTo } from "./fixtures";
 
 const navigated = vi.hoisted(() => [] as string[]);
 vi.mock("$app/navigation", () => ({
@@ -27,11 +27,7 @@ function setLastDoc(folder: string, name: string): void {
 }
 
 async function uploadDbFile(dump: string): Promise<void> {
-  const input = document.querySelector(".dbfile") as HTMLInputElement;
-  const dt = new DataTransfer();
-  dt.items.add(new File([dump], "kodakool-db.json", { type: "application/json" }));
-  input.files = dt.files;
-  input.dispatchEvent(new Event("change", { bubbles: true }));
+  uploadTo(".dbfile", new File([dump], "kodakool-db.json", { type: "application/json" }));
 }
 
 beforeEach(async () => {

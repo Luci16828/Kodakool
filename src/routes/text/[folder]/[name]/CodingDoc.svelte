@@ -32,7 +32,7 @@
   import Minimap from "$lib/coding/Minimap.svelte";
   import { compareNames, displayName } from "$lib/coding/display";
   import { mdExtensions } from "$lib/coding/code-md";
-  import type { Instructions } from "$lib/coding/instructions";
+  import { UUID_RE, type Instructions } from "$lib/coding/instructions";
   import type { CatalogView } from "$lib/coding/catalog-view";
   import type { CodeEntry } from "$lib/coding/types";
   import {
@@ -65,8 +65,6 @@
   import { cssVar, hoverFadeCss } from "$lib/coding/css-var";
 
   const { data }: { data: { folder: string; name: string } } = $props();
-
-  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
   /** the center column's tabs (Preview is PDF-only, Edit is offered to no PDF) */
   type Tab = "preview" | "coding" | "edit" | "analysis";

@@ -84,6 +84,9 @@ export function idByCode(instr: Instructions): Map<string, string> {
 // Shared by the catalog aside's draft editing and its direct edits of the
 // stored local catalog: both mutate a FrameDevice[] tree the same way.
 
+/** Stable catalog device ids are UUID v4s — the UI guards every id hand-off with it. */
+export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /** Depth-first lookup by stable id. */
 export function findDevice(devices: FrameDevice[], id: string): FrameDevice | null {
   for (const n of devices) {

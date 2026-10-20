@@ -1,8 +1,18 @@
-import { page, userEvent } from "vitest/browser";
+import { userEvent } from "vitest/browser";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render } from "vitest-browser-svelte";
-import ColorProvider from "./ColorProvider.svelte";
-import ArticlePage from "../routes/text/[folder]/[name]/+page.svelte";
+import {
+  chips,
+  editor,
+  FOLDER,
+  marks,
+  NAME,
+  page,
+  quoteEntry,
+  ready,
+  renderArticle,
+  TEXT,
+  unmountArticle,
+} from "./article-harness";
 import {
   createFolder,
   exportDatabase,
@@ -17,7 +27,15 @@ import {
 import { extractPdfDoc } from "$lib/coding/pdf";
 import { buildPdf } from "$lib/coding/pdf-sample";
 import type { CodeEntry } from "$lib/coding/types";
-import { DEVICE_COMMENT, DEVICE_FRAME, DEVICE_QUOTE, resetArticles, seedArticle, testInstructions } from "./fixtures";
+import {
+  DEVICE_COMMENT,
+  DEVICE_FRAME,
+  DEVICE_QUOTE,
+  resetArticles,
+  seedArticle,
+  testInstructions,
+  uploadTo,
+} from "./fixtures";
 
 const navigated = vi.hoisted(() => [] as string[]);
 vi.mock("$app/navigation", () => ({
@@ -27,36 +45,11 @@ vi.mock("$app/navigation", () => ({
   },
 }));
 
-const FOLDER = "test";
-const NAME = "spd 1";
-const TEXT = "Ein Zitat im Text.";
-
-/** entry for the word `Zitat` (offsets 4..9 of the single-line body) */
-const quoteEntry: CodeEntry = { device: DEVICE_QUOTE, line: 1, range: [4, 9], excerpt: "Zitat" };
-
-let lastRender: ReturnType<typeof render> | undefined;
-
-function renderArticle(name = NAME) {
-  lastRender = render(ArticlePage, { data: { folder: FOLDER, name } }, { wrapper: ColorProvider });
-  return lastRender;
-}
-
-/** waits until the local article has been handed to CodeMirror */
-async function ready(): Promise<void> {
-  await expect.element(page.getByRole("textbox")).toBeInTheDocument();
-  // the icon font arrives asynchronously: every icon width (and with it the bar's
-  // whole layout) jumps when it lands, so a click can straddle the shift
-  await document.fonts.ready;
-}
-
-const editor = () => page.getByRole("textbox").first();
-const marks = () => document.querySelectorAll(".cm-underline").length;
 /** marks whose gradient hatches overlapping coverage */
 const hatchedMarks = () =>
   [...document.querySelectorAll(".cm-underline")].filter((el) =>
     (el.getAttribute("style") ?? "").includes("repeating-linear-gradient"),
   ).length;
-const chips = () => [...document.querySelectorAll(".cm-tag")].map((el) => el.textContent ?? "");
 
 /**
  * Place the caret at the end of the body by clicking right of the line's text
@@ -145,8 +138,7 @@ async function rightClickRow(name: string): Promise<void> {
 afterEach(() => {
   // unmount before the next test seeds: the page's unmount commit flush must not
   // race with resetArticles/seedArticle (RxDB CONFLICT on the codes collection)
-  lastRender?.unmount();
-  lastRender = undefined;
+  unmountArticle();
 });
 
 beforeEach(async () => {
@@ -904,11 +896,8 @@ describe("article coding page", () => {
     const dump = JSON.stringify(await exportDatabase());
     await resetArticles();
     // the open document vanishes (the page reports it missing) — the import brings it back
-    const input = document.querySelector(".dbfile") as HTMLInputElement;
-    const dt = new DataTransfer();
-    dt.items.add(new File([dump], "kodakool-db.json", { type: "application/json" }));
-    input.files = dt.files;
-    input.dispatchEvent(new Event("change", { bubbles: true }));
+    // the tests run in the browser: feed the Melt FileUpload input a real File
+    uploadTo(".dbfile", new File([dump], "kodakool-db.json", { type: "application/json" }));
 
     await expect.poll(async () => (await getArticle(FOLDER, NAME))?.text).toBe(TEXT);
   });
@@ -1001,11 +990,7 @@ describe("article coding page", () => {
     await ready();
 
     // the tests run in the browser: feed the Melt FileUpload input a real File
-    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
-    const dt = new DataTransfer();
-    dt.items.add(new File(["uploaded body here"], "spd upload.txt", { type: "text/plain" }));
-    input.files = dt.files;
-    input.dispatchEvent(new Event("change", { bubbles: true }));
+    uploadTo('input[type="file"]', new File(["uploaded body here"], "spd upload.txt", { type: "text/plain" }));
 
     await expect.element(page.getByRole("link", { name: "spd upload.txt" })).toBeInTheDocument();
     const art = await getArticle(FOLDER, "spd upload");
@@ -1018,17 +1003,12 @@ describe("article coding page", () => {
     renderArticle();
     await ready();
 
-    const input = document.querySelector(".upfolder input") as HTMLInputElement;
-    const dt = new DataTransfer();
     const txt = new File(["folder body"], "sub.txt", { type: "text/plain" });
     const md = new File(["# note"], "note.md", { type: "text/markdown" });
     // vitest cannot open a real directory picker — fake the folder paths the browser sets
     Object.defineProperty(txt, "webkitRelativePath", { value: "proj/sub.txt" });
     Object.defineProperty(md, "webkitRelativePath", { value: "proj/note.md" });
-    dt.items.add(txt);
-    dt.items.add(md);
-    input.files = dt.files;
-    input.dispatchEvent(new Event("change", { bubbles: true }));
+    uploadTo(".upfolder input", txt, md);
 
     // the picked folder's own name is NOT used — everything lands in the active folder
     await expect.poll(async () => (await getArticle(FOLDER, "sub"))?.text).toBe("folder body");
@@ -1385,11 +1365,10 @@ describe("article coding page", () => {
     renderArticle();
     await ready();
 
-    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
-    const dt = new DataTransfer();
-    dt.items.add(new File([buildPdf(["Pdf uploaded body."])], "spd pdf.pdf", { type: "application/pdf" }));
-    input.files = dt.files;
-    input.dispatchEvent(new Event("change", { bubbles: true }));
+    uploadTo(
+      'input[type="file"]',
+      new File([buildPdf(["Pdf uploaded body."])], "spd pdf.pdf", { type: "application/pdf" }),
+    );
 
     await expect.element(page.getByRole("link", { name: "spd pdf.pdf" })).toBeInTheDocument();
     const art = await getArticle(FOLDER, "spd pdf");

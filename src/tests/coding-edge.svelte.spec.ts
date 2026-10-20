@@ -1,13 +1,11 @@
-import { page, userEvent } from "vitest/browser";
+import { userEvent } from "vitest/browser";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render } from "vitest-browser-svelte";
-import ColorProvider from "./ColorProvider.svelte";
-import ArticlePage from "../routes/text/[folder]/[name]/+page.svelte";
 import { getArticle, listArticles, readCodes, saveLocalCatalog, savePdfData } from "$lib/client/coding-db";
 import { extractPdfDoc } from "$lib/coding/pdf";
 import { buildPdf } from "$lib/coding/pdf-sample";
 import type { CodeEntry } from "$lib/coding/types";
-import { DEVICE_QUOTE, resetArticles, seedArticle, testInstructions } from "./fixtures";
+import { FOLDER, NAME, page, quoteEntry, ready, renderArticle, TEXT, unmountArticle } from "./article-harness";
+import { DEVICE_QUOTE, resetArticles, seedArticle, testInstructions, uploadTo } from "./fixtures";
 
 const navigated = vi.hoisted(() => [] as string[]);
 vi.mock("$app/navigation", () => ({
@@ -17,43 +15,15 @@ vi.mock("$app/navigation", () => ({
   },
 }));
 
-const FOLDER = "test";
-const NAME = "spd 1";
-const TEXT = "Ein Zitat im Text.";
-
-const quoteEntry: CodeEntry = { device: DEVICE_QUOTE, line: 1, range: [4, 9], excerpt: "Zitat" };
-
-let lastRender: ReturnType<typeof render> | undefined;
-
-function renderArticle(name = NAME) {
-  lastRender = render(
-    ArticlePage,
-    { data: { folder: FOLDER, name } },
-    {
-      wrapper: ColorProvider,
-    },
-  );
-  return lastRender;
-}
-
-async function ready(): Promise<void> {
-  await expect.element(page.getByRole("textbox")).toBeInTheDocument();
-}
-
 /** feed the Melt FileUpload input a real File (vitest has no setInputFiles) */
 async function upload(...files: File[]): Promise<void> {
-  const input = document.querySelector('input[type="file"]') as HTMLInputElement;
-  const dt = new DataTransfer();
-  for (const f of files) dt.items.add(f);
-  input.files = dt.files;
-  input.dispatchEvent(new Event("change", { bubbles: true }));
+  uploadTo('input[type="file"]', ...files);
 }
 
 const barError = () => document.querySelector(".bar .msg.err")?.textContent ?? "";
 
 afterEach(() => {
-  lastRender?.unmount();
-  lastRender = undefined;
+  unmountArticle();
 });
 
 beforeEach(async () => {

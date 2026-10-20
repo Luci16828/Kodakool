@@ -27,6 +27,19 @@ export const testInstructions: Instructions = {
   ],
 };
 
+/**
+ * Drive a file input in the browser (vitest has no setInputFiles): build a
+ * DataTransfer with the files and fire `change` — the pattern every upload
+ * spec needs (db import, catalog import, dropzone, folder picker).
+ */
+export function uploadTo(selector: string, ...files: File[]): void {
+  const input = document.querySelector(selector) as HTMLInputElement;
+  const dt = new DataTransfer();
+  for (const f of files) dt.items.add(f);
+  input.files = dt.files;
+  input.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
 /** Remove every article + entry + PDF + folder + local catalog so a test file never depends on the previous one. */
 export async function resetArticles(): Promise<void> {
   // a previous page's unmount autosave flush may race here: conflicts are expected, skip them —

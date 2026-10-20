@@ -1,11 +1,17 @@
-import { page, userEvent } from "vitest/browser";
+import { userEvent } from "vitest/browser";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render } from "vitest-browser-svelte";
-import ColorProvider from "./ColorProvider.svelte";
-import ArticlePage from "../routes/text/[folder]/[name]/+page.svelte";
 import { saveLocalCatalog } from "$lib/client/coding-db";
 import { Q_OPEN_MS } from "$lib/coding/quickselect";
 import type { CodeEntry } from "$lib/coding/types";
+import {
+  chips,
+  editor,
+  marks,
+  page,
+  ready,
+  renderArticle as harnessRenderArticle,
+  unmountArticle,
+} from "./article-harness";
 import { DEVICE_COMMENT, DEVICE_FRAME, DEVICE_QUOTE, resetArticles, seedArticle, testInstructions } from "./fixtures";
 
 const navigated = vi.hoisted(() => [] as string[]);
@@ -32,24 +38,8 @@ const einEntry: CodeEntry = { device: DEVICE_QUOTE, line: 1, range: [0, 3], exce
 /** `Text` (offsets 13..17) coded with the comment device */
 const commentEntry: CodeEntry = { device: DEVICE_COMMENT, line: 1, range: [13, 17], excerpt: "Text" };
 
-let lastRender: ReturnType<typeof render> | undefined;
-
-function renderArticle() {
-  lastRender = render(ArticlePage, { data: { folder: FOLDER, name: NAME } }, { wrapper: ColorProvider });
-  return lastRender;
-}
-
-/** waits until the article is live in CodeMirror */
-async function ready(): Promise<void> {
-  await expect.element(page.getByRole("textbox")).toBeInTheDocument();
-  // the icon font arrives asynchronously: every icon width (and with it the bar's
-  // whole layout) jumps when it lands, so a click can straddle the shift
-  await document.fonts.ready;
-}
-
-const editor = () => page.getByRole("textbox").first();
-const marks = () => document.querySelectorAll(".cm-underline").length;
-const chips = () => [...document.querySelectorAll(".cm-tag")].map((el) => el.textContent ?? "");
+/** this spec lives in its own project (qtest) — the harness mount with our names */
+const renderArticle = () => harnessRenderArticle(NAME, FOLDER);
 const ctag = () => document.querySelector(".ctag")?.textContent ?? "";
 
 /** a point inside the editor, so both lists of the menu have room */
@@ -221,8 +211,7 @@ afterEach(async () => {
   // unmount before the next test seeds: the page's unmount commit flush must land
   // before the store is emptied, or its write resurrects code docs the next
   // test's seed then collides with (RxDB COL22 on the codes collection)
-  lastRender?.unmount();
-  lastRender = undefined;
+  unmountArticle();
   await new Promise((r) => setTimeout(r, 150));
   await resetArticles();
 });

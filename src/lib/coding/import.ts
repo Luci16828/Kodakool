@@ -1,6 +1,4 @@
-import { instructionsSchema, type FrameDevice, type Instructions } from "./instructions";
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+import { instructionsSchema, UUID_RE, type FrameDevice, type Instructions } from "./instructions";
 
 /** Parse a `.json` frame-device export (the raw `Instructions` shape, lossless). */
 export function parseCatalogJson(text: string): Instructions {

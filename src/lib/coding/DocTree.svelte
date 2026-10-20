@@ -11,13 +11,8 @@
   import RowMenu from "$lib/coding/RowMenu.svelte";
   import type { ConfirmAsk } from "$lib/coding/confirm.svelte";
   import type { Instructions } from "$lib/coding/instructions";
-  import {
-    deleteArticle,
-    deleteFolder,
-    exportDatabase,
-    importDatabase,
-    type ArticleSummary,
-  } from "$lib/client/coding-db";
+  import { deleteArticle, deleteFolder, type ArticleSummary } from "$lib/client/coding-db";
+  import DatabaseControls from "$lib/client/DatabaseControls.svelte";
   import { createProjectDoc, openDoc, openNewDoc } from "$lib/client/open-doc";
   import { downloadArticle, downloadText } from "$lib/client/download";
   import UploadZone from "$lib/client/UploadZone.svelte";
@@ -174,40 +169,6 @@
     // the open project is gone: the root reopens the last surviving document
     await goto(resolve("/"));
   }
-
-  // ----- whole-database export / import (local RxDB snapshot as JSON) -----
-
-  let dbMsg = $state("");
-  let dbInput = $state<HTMLInputElement | undefined>(undefined);
-
-  async function exportDb() {
-    dbMsg = "";
-    try {
-      const dump = await exportDatabase();
-      downloadText(
-        `kodakool-db-${new Date().toISOString().slice(0, 10)}.json`,
-        JSON.stringify(dump, null, 2),
-        "application/json",
-      );
-      dbMsg = `exported ${dump.articles.length} documents, ${dump.catalogs.length} catalogs`;
-    } catch (e) {
-      dbMsg = `export failed: ${String(e)}`;
-    }
-  }
-
-  async function importDb(e: Event) {
-    const input = e.target as HTMLInputElement;
-    const file = input.files?.[0];
-    input.value = "";
-    if (!file) return;
-    dbMsg = "";
-    try {
-      const counts = await importDatabase(JSON.parse(await file.text()));
-      dbMsg = `imported ${counts.articles} documents, ${counts.catalogs} catalogs`;
-    } catch (err) {
-      dbMsg = `import failed: ${err instanceof Error ? err.message : String(err)}`;
-    }
-  }
 </script>
 
 <aside class="docs">
@@ -362,21 +323,8 @@
     </ScrollArea.Root>
   </div>
   <div class="dbrow">
-    <button type="button" class="dbbtn" title="Export the local database as JSON" onclick={() => void exportDb()}>
-      <span class="material-symbols-rounded" aria-hidden="true">file_download</span>Database
-    </button>
-    <button type="button" class="dbbtn" title="Import a database JSON export" onclick={() => dbInput?.click()}>
-      <span class="material-symbols-rounded" aria-hidden="true">file_upload</span>Import DB
-    </button>
-    <input
-      type="file"
-      accept=".json,application/json"
-      class="dbfile"
-      bind:this={dbInput}
-      onchange={(e) => void importDb(e)}
-    />
+    <DatabaseControls compact />
   </div>
-  {#if dbMsg}<p class="dbmsg" title={dbMsg}>{dbMsg}</p>{/if}
 </aside>
 
 <style lang="scss">
@@ -690,39 +638,6 @@
     gap: 0.3rem;
     padding-top: 0.4rem;
     border-top: 1px solid var(--outline, #ccc);
-  }
-  .dbbtn {
-    font: inherit;
-    font-size: 0.7rem;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.25rem;
-    padding: 0.2rem 0.55rem;
-    border: 1px solid var(--outline, #888);
-    border-radius: 999px;
-    background: var(--surface, white);
-    color: var(--on-surface-variant, #666);
-    cursor: pointer;
-
-    .material-symbols-rounded {
-      font-size: 0.95rem;
-    }
-
-    &:hover {
-      color: var(--primary, #6750a4);
-      border-color: var(--primary, #6750a4);
-    }
-  }
-  .dbfile {
-    display: none;
-  }
-  .dbmsg {
-    margin: 0;
-    font-size: 0.65rem;
-    color: var(--on-surface-variant, #666);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 
   @media (max-width: 50rem) {

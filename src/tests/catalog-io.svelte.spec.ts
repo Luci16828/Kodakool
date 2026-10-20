@@ -6,7 +6,15 @@ import ArticlePage from "../routes/text/[folder]/[name]/+page.svelte";
 import { getLocalCatalog, saveLocalCatalog } from "$lib/client/coding-db";
 import { parseCatalogFile, parseCatalogJson, parseQdc } from "$lib/coding/import";
 import { toQdc } from "$lib/coding/qdc";
-import { DEVICE_COMMENT, DEVICE_FRAME, DEVICE_QUOTE, resetArticles, seedArticle, testInstructions } from "./fixtures";
+import {
+  DEVICE_COMMENT,
+  DEVICE_FRAME,
+  DEVICE_QUOTE,
+  resetArticles,
+  seedArticle,
+  testInstructions,
+  uploadTo,
+} from "./fixtures";
 
 const FOLDER = "test";
 
@@ -81,11 +89,7 @@ describe("frame-device catalog export/import", () => {
       title: "imported",
       devices: [testInstructions.devices[0], { ...testInstructions.devices[1], name: "Stellungnahme" }],
     };
-    const input = document.querySelector(".catfile") as HTMLInputElement;
-    const dt = new DataTransfer();
-    dt.items.add(new File([JSON.stringify(imported)], "devices.json", { type: "application/json" }));
-    input.files = dt.files;
-    input.dispatchEvent(new Event("change", { bubbles: true }));
+    uploadTo(".catfile", new File([JSON.stringify(imported)], "devices.json", { type: "application/json" }));
 
     await expect
       .poll(async () => (await getLocalCatalog(FOLDER))?.devices.map((d) => d.name))

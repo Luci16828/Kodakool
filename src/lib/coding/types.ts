@@ -64,18 +64,3 @@ export const codingFileSchema = z.object({
 export type CodeEntry = z.infer<typeof codeEntrySchema>;
 export type CodingFile = z.infer<typeof codingFileSchema>;
 export type ArticleVersion = z.infer<typeof articleVersionSchema>;
-
-export type SourceStatusKind = "uncoded" | "verified" | "failed";
-
-export interface SourceStatus {
-  folder: string;
-  /** base name without extension, e.g. "spd 1" */
-  name: string;
-  /** path relative to coding_source/, e.g. "test/spd 1.txt" */
-  source: string;
-  /** source file kind: PDF sources are verified against their extracted text */
-  kind?: "txt" | "pdf";
-  status: SourceStatusKind;
-  codes: number;
-  errors: string[];
-}

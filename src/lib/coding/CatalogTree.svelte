@@ -8,6 +8,7 @@
   import { slide } from "svelte/transition";
   import "material-symbols/rounded.css";
   import { openRowMenu } from "$lib/coding/context-menu";
+  import { UUID_RE } from "$lib/coding/instructions";
   import RowMenu from "$lib/coding/RowMenu.svelte";
   import type { Slug } from "./shortlabel";
 
@@ -50,8 +51,6 @@
     /** request deletion of the device `id` (edit mode; parent confirms) */
     ondelete?: (id: string) => void;
   } = $props();
-
-  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
   /** row currently being dragged / currently a drop target (edit mode only) */
   let dragId = $state<string | null>(null);
@@ -262,24 +261,12 @@
     min-width: 0;
   }
   /* edit mode: keyboard/touch way into the row's context menu, overlaid on the row's right edge */
+  /* the shared .menubtn base lives in the layout's themeCss — only the
+     catalog row's absolute placement is added here */
   .menubtn {
     position: absolute;
     top: -0.15rem;
     right: 0.1rem;
-    font: inherit;
-    display: inline-flex;
-    align-items: center;
-    border: none;
-    background: none;
-    padding: 0.1rem;
-    cursor: pointer;
-    color: var(--on-surface-variant, #888);
-  }
-  .menubtn:hover {
-    color: var(--primary, #6750a4);
-  }
-  .menubtn .material-symbols-rounded {
-    font-size: 1rem;
   }
   .tnode {
     display: flex;
