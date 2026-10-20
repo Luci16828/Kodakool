@@ -438,17 +438,6 @@ function compareSummary(a: ArticleSummary, b: ArticleSummary): number {
   return a.project.localeCompare(b.project) || a.name.localeCompare(b.name, undefined, { numeric: true });
 }
 
-/** Sum codes + versions across summaries (the stats chips on every screen). */
-export function statsOf(items: ArticleSummary[]): { codes: number; versions: number } {
-  let codes = 0;
-  let versions = 0;
-  for (const a of items) {
-    codes += a.codes;
-    versions += a.versions;
-  }
-  return { codes, versions };
-}
-
 /** Live list of all articles (sorted) with current per-article code counts. */
 export function watchArticles(next: (list: ArticleSummary[]) => void): () => void {
   let stopped = false;

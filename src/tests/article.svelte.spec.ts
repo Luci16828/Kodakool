@@ -5,6 +5,7 @@ import ColorProvider from "./ColorProvider.svelte";
 import ArticlePage from "../routes/text/[folder]/[name]/+page.svelte";
 import {
   createFolder,
+  exportDatabase,
   getArticle,
   getLocalCatalog,
   getPdfData,
@@ -777,10 +778,11 @@ describe("article coding page", () => {
       .toEqual(["archive", "other", "__new__"]);
 
     await page.getByRole("option", { name: "other" }).click();
-    expect(navigated).toEqual(["/project/other"]);
+    // switching opens the target project's FIRST document
+    expect(navigated).toEqual(["/text/other/foreign doc"]);
   });
 
-  it("creates a project from the dropdown's new-project row and opens it", async () => {
+  it("creates a project from the dropdown's new-project row and opens its first document", async () => {
     await seedArticle({ project: FOLDER, name: NAME, text: TEXT });
 
     renderArticle();
@@ -796,7 +798,7 @@ describe("article coding page", () => {
     await page.getByRole("button", { name: "Create" }).click();
 
     await expect.poll(async () => (await listFolders()).includes("field study")).toBe(true);
-    expect(navigated).toEqual(["/project/field study"]);
+    expect(navigated).toEqual(["/text/field study/Untitled 1.md"]);
   });
 
   it("opens an existing project when the new-project name is taken", async () => {
@@ -811,22 +813,12 @@ describe("article coding page", () => {
     await input.fill(FOLDER);
     await userEvent.keyboard("{Enter}");
 
-    // createFolder is idempotent: the name is registered once, the project opens
+    // createFolder is idempotent: the name is registered once, a fresh document opens in it
     await expect.poll(async () => (await listFolders()).length).toBe(1);
-    expect(navigated).toEqual([`/project/${FOLDER}`]);
+    expect(navigated).toEqual(["/text/test/Untitled 1.md"]);
   });
 
-  it("links back to the project page from the coding bar", async () => {
-    await seedArticle({ project: FOLDER, name: NAME, text: TEXT });
-
-    renderArticle();
-    await ready();
-
-    const back = await page.getByRole("link", { name: "Back to project test" }).element();
-    expect(back.getAttribute("href")).toBe("/project/test");
-  });
-
-  it("returns to the project page when the open document is deleted", async () => {
+  it("returns to the root when the open document is deleted", async () => {
     await seedArticle({ project: FOLDER, name: NAME, text: TEXT });
     await seedArticle({ project: FOLDER, name: "other doc", text: "x" });
 
@@ -842,7 +834,7 @@ describe("article coding page", () => {
     await page.getByRole("button", { name: "Confirm" }).click();
 
     await expect.poll(async () => await getArticle(FOLDER, NAME)).toBeNull();
-    expect(navigated).toEqual(["/project/test"]);
+    expect(navigated).toEqual(["/"]);
   });
 
   it("deletes a document from the tree after the confirmation countdown", async () => {
@@ -862,6 +854,63 @@ describe("article coding page", () => {
 
     await expect.element(page.getByRole("link", { name: "other doc.txt" })).not.toBeInTheDocument();
     expect(await getArticle(FOLDER, "other doc")).toBeNull();
+  });
+
+  it("offers .qdc export and project deletion in the project header's menu", async () => {
+    await seedArticle({ project: FOLDER, name: NAME, text: TEXT });
+    await saveLocalCatalog(FOLDER, testInstructions);
+
+    renderArticle();
+    await ready();
+
+    await page.getByRole("button", { name: "Project menu", exact: true }).click();
+    const menu = page.getByRole("menu");
+    await expect.element(menu).toBeInTheDocument();
+    await expect.element(menu.getByRole("menuitem", { name: `New document in ${FOLDER}` })).toBeInTheDocument();
+    await expect.element(menu.getByRole("menuitem", { name: "Export .qdc" })).toBeInTheDocument();
+    await expect.element(menu.getByRole("menuitem", { name: "Delete project" })).toBeInTheDocument();
+  });
+
+  it("deletes the whole project from the project header's menu", async () => {
+    await seedArticle({ project: FOLDER, name: NAME, text: TEXT });
+    await seedArticle({ project: "other", name: "foreign doc", text: "x" });
+
+    renderArticle();
+    await ready();
+
+    await page.getByRole("button", { name: "Project menu", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Delete project" }).click();
+    await expect.element(page.getByRole("dialog", { name: "Delete project test/?" })).toBeInTheDocument();
+    await expect
+      .poll(() => (document.querySelector(".cfconfirm") as HTMLButtonElement | null)?.disabled, { timeout: 6000 })
+      .toBe(false);
+    await page.getByRole("button", { name: "Confirm" }).click();
+
+    await expect.poll(async () => await getArticle(FOLDER, NAME)).toBeNull();
+    expect(await getArticle("other", "foreign doc")).not.toBeNull();
+    // the open project is gone: the root reopens a surviving document
+    expect(navigated).toEqual(["/"]);
+  });
+
+  it("exports and re-imports the whole database from the sidebar row", async () => {
+    await seedArticle({ project: FOLDER, name: NAME, text: TEXT });
+
+    renderArticle();
+    await ready();
+
+    await expect.element(page.getByRole("button", { name: "Database" })).toBeInTheDocument();
+    await expect.element(page.getByRole("button", { name: "Import DB" })).toBeInTheDocument();
+
+    const dump = JSON.stringify(await exportDatabase());
+    await resetArticles();
+    // the open document vanishes (the page reports it missing) — the import brings it back
+    const input = document.querySelector(".dbfile") as HTMLInputElement;
+    const dt = new DataTransfer();
+    dt.items.add(new File([dump], "kodakool-db.json", { type: "application/json" }));
+    input.files = dt.files;
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+
+    await expect.poll(async () => (await getArticle(FOLDER, NAME))?.text).toBe(TEXT);
   });
 
   it("opens the document row's context menu on right click", async () => {

@@ -47,17 +47,21 @@ const problems = [];
 page.on("pageerror", (e) => problems.push(`pageerror: ${e.message}`));
 page.on("console", (m) => m.type() === "error" && problems.push(`console: ${m.text()}`));
 
-// 1. prerendered homepage
+// 1. the root URL opens the app's single screen: with a fresh profile the example
+//    seeds, and the root redirects into its coding page
 const home = await page.goto(`${url}/`);
-const homeText = await page.textContent("body");
-console.log("home status:", home.status(), "| dashboard rendered:", /Projects/.test(homeText));
-
-// example project seeds on first visit (the dashboard shows it as a project card)
-const seeded = await page
-  .waitForSelector('a[href*="/project/example"]', { timeout: 20000 })
+const homeEditor = await page
+  .waitForSelector(".cm-content", { timeout: 20000 })
   .then(() => true)
   .catch(() => false);
-console.log("example project seeded:", seeded);
+console.log(
+  "home status:",
+  home.status(),
+  "| opened the example document:",
+  new URL(page.url()).pathname === `${BASE}/text/example/Junge%20Freiheit%2022`,
+  "| editor mounted:",
+  homeEditor,
+);
 
 // 2. deep link to a coding page: served by 404.html, client router takes over
 const deep = await page.goto(`${url}/text/example/Junge%20Freiheit%2022`);
@@ -83,36 +87,41 @@ console.log(
     .catch(() => 0),
 );
 
-// 3. client-side navigation inside the app (base-aware resolve() links)
-const links = await page.$$eval("a", (as) => as.map((a) => a.getAttribute("href")));
-console.log("links on coding page:", links.slice(0, 4));
-const backLink = await page.getAttribute('a[aria-label^="Back to project"]', "href");
-console.log("coding page back link:", backLink);
+// 3. the sidebar is the file explorer: its tree rows carry base-aware coding links
+const links = await page.$$eval(".docs a", (as) => as.map((a) => a.getAttribute("href")));
+console.log("sidebar document links:", links.slice(0, 3));
 
-// 4. project page deep link: also served by 404.html, lists only its own documents
+// 4. the old project-page URL is gone: served by 404.html, the catch-all redirects
+//    home, and the root reopens the last document (the example one)
 const proj = await page.goto(`${url}/project/example`);
-const listed = await page
-  .waitForSelector(".docs a", { timeout: 20000 })
+const reopened = await page
+  .waitForSelector(".cm-content", { timeout: 20000 })
   .then(() => true)
   .catch(() => false);
-console.log("project page status:", proj.status(), "| documents listed:", listed);
-console.log("project page back link:", await page.getAttribute(".crumb a", "href"));
-
-// 5. the dashboard card is the way into a project
-await page.goto(`${url}/`);
-await page.waitForSelector(".card .open", { timeout: 20000 }).catch(() => {});
-console.log("dashboard card link:", await page.getAttribute(".card .open", "href"));
-await page.click(".card .open");
-await page.waitForLoadState("networkidle");
 console.log(
-  "after card nav:",
-  new URL(page.url()).pathname,
-  "| under base:",
-  new URL(page.url()).pathname.startsWith(`${BASE}/`),
+  "old project URL status:",
+  proj.status(),
+  "| reopened the last document:",
+  new URL(page.url()).pathname === `${BASE}/text/example/Junge%20Freiheit%2022`,
+  "| editor mounted:",
+  reopened,
 );
 
-// 6. a document row on the project page opens its coding page
-const docLink = page.locator('a[href*="Junge"]').first();
+// 5. visiting the root again reopens the last document (no start screen on a seeded profile)
+await page.goto(`${url}/`);
+const rootEditor = await page
+  .waitForSelector(".cm-content", { timeout: 20000 })
+  .then(() => true)
+  .catch(() => false);
+console.log(
+  "root reopen:",
+  new URL(page.url()).pathname === `${BASE}/text/example/Junge%20Freiheit%2022`,
+  "| editor mounted:",
+  rootEditor,
+);
+
+// 6. a sidebar document row opens its coding page
+const docLink = page.locator('.docs a[href*="Junge"]').first();
 await docLink.click();
 await page.waitForLoadState("networkidle");
 const navEditor = await page

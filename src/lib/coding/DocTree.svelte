@@ -6,19 +6,33 @@
   import "material-symbols/rounded.css";
   import { docIcon, displayName } from "$lib/coding/display";
   import { openRowMenu } from "$lib/coding/context-menu";
+  import { toQdc } from "$lib/coding/qdc";
+  import { useColors } from "$lib/coding/prefs.svelte";
   import RowMenu from "$lib/coding/RowMenu.svelte";
   import type { ConfirmAsk } from "$lib/coding/confirm.svelte";
-  import { createArticle, createFolder, deleteArticle, type ArticleSummary } from "$lib/client/coding-db";
-  import { downloadArticle } from "$lib/client/download";
+  import type { Instructions } from "$lib/coding/instructions";
+  import {
+    createArticle,
+    createFolder,
+    deleteArticle,
+    deleteFolder,
+    exportDatabase,
+    importDatabase,
+    type ArticleSummary,
+  } from "$lib/client/coding-db";
+  import { downloadArticle, downloadText } from "$lib/client/download";
   import UploadZone from "$lib/client/UploadZone.svelte";
 
   /**
-   * The coding page's document-tree sidebar: the project switcher at the top (a chip for
-   * the open project + a dropdown of every OTHER project, ending with the "new project"
-   * row), the collapsible project header (the selected upload target), the compact upload
-   * row, and one row per document of THIS project (other projects never appear). New
-   * documents open their coding page; switching to another project and creating one open
-   * that project's page; deleting the open document returns to its project.
+   * The coding page's document-tree sidebar — the app's whole file explorer (the
+   * project dashboard is gone): the project switcher at the top (a chip for the
+   * open project + a dropdown of every OTHER project, ending with the "new project"
+   * row; picking one opens that project's first document, creating one when it is
+   * empty), the collapsible project header (the selected upload target) whose menu
+   * offers new document / .qdc export / project deletion, the compact upload row,
+   * one row per document of THIS project (other projects never appear), and the
+   * database export/import row at the bottom. New documents open their coding page;
+   * deleting the open document returns to the root, which reopens the last document.
    *
    * Rows and the project header carry right-click context menus (Bits ContextMenu,
    * anchored at the pointer); the `more_vert` buttons open the same menus for keyboard use.
@@ -27,16 +41,24 @@
     folder,
     currentName,
     docs,
+    allDocs,
     projects,
+    instr,
     confirm,
   }: {
     folder: string;
     currentName: string;
     docs: ArticleSummary[];
+    /** every local document (the switcher opens the target project's first one) */
+    allDocs: ArticleSummary[];
     /** every local project: registered folders + projects that hold documents (sorted) */
     projects: string[];
+    /** this project's frame-device catalog (drives the .qdc export), null when none */
+    instr: Instructions | null;
     confirm: ConfirmAsk;
   } = $props();
+
+  const prefs = useColors();
 
   let busy = $state(false);
   /** inline "new project" row of the switcher (opened by the dropdown's last row) */
@@ -68,6 +90,7 @@
     node.focus();
   }
 
+  /** open a document of THIS project */
   async function newDoc(): Promise<void> {
     busy = true;
     try {
@@ -82,8 +105,8 @@
   }
   async function deleteDoc(a: ArticleSummary): Promise<void> {
     await deleteArticle(a.id);
-    // deleting the document we are looking at returns to its project
-    if (a.project === folder && a.name === currentName) await goto(resolve("/project/[folder]", { folder: a.project }));
+    // deleting the document we are looking at returns to the root, which reopens the last document
+    if (a.project === folder && a.name === currentName) await goto(resolve("/"));
   }
   /** the tree row's context menu: open / download / delete (replaces the old per-row trash) */
   function docMenu(a: ArticleSummary): { label: string; icon: string; danger?: boolean; onSelect: () => void }[] {
@@ -104,10 +127,19 @@
     ];
   }
 
-  /** the switcher leaves the document: every project has its own page */
+  /** the switcher opens the target project's FIRST document (creating one when empty) */
   async function switchProject(name: string): Promise<void> {
     if (name === "" || name === folder) return;
-    await goto(resolve("/project/[folder]", { folder: name }));
+    busy = true;
+    try {
+      const mine = allDocs
+        .filter((a) => a.project === name)
+        .sort((x, y) => x.name.localeCompare(y.name, undefined, { numeric: true }));
+      const a = mine[0] ?? (await createArticle(name));
+      await goto(resolve("/text/[folder]/[name]", { folder: name, name: a.name }));
+    } finally {
+      busy = false;
+    }
   }
   /** dropdown pick: a project switches, the "new project" row opens the name input */
   function pickProject(name: string): void {
@@ -127,13 +159,58 @@
     busy = true;
     projErr = "";
     try {
-      // createFolder is idempotent: an existing name simply becomes the switch target
+      // createFolder is idempotent: an existing name simply opens its first document
       await createFolder(name);
-      await goto(resolve("/project/[folder]", { folder: name }));
+      const a = await createArticle(name);
+      await goto(resolve("/text/[folder]/[name]", { folder: a.project, name: a.name }));
     } catch (e) {
       projErr = String(e);
-    } finally {
       busy = false;
+    }
+  }
+
+  /** the project header's menu: .qdc export of the local catalog (when it exists) */
+  function exportQdc(): void {
+    if (instr === null) return;
+    downloadText(`${folder}.qdc`, toQdc(instr, { origin: folder, options: prefs.options }), "application/xml");
+  }
+  async function removeProject(): Promise<void> {
+    await deleteFolder(folder);
+    // the open project is gone: the root reopens the last surviving document
+    await goto(resolve("/"));
+  }
+
+  // ----- whole-database export / import (local RxDB snapshot as JSON) -----
+
+  let dbMsg = $state("");
+  let dbInput = $state<HTMLInputElement | undefined>(undefined);
+
+  async function exportDb() {
+    dbMsg = "";
+    try {
+      const dump = await exportDatabase();
+      downloadText(
+        `kodakool-db-${new Date().toISOString().slice(0, 10)}.json`,
+        JSON.stringify(dump, null, 2),
+        "application/json",
+      );
+      dbMsg = `exported ${dump.articles.length} documents, ${dump.catalogs.length} catalogs`;
+    } catch (e) {
+      dbMsg = `export failed: ${String(e)}`;
+    }
+  }
+
+  async function importDb(e: Event) {
+    const input = e.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = "";
+    if (!file) return;
+    dbMsg = "";
+    try {
+      const counts = await importDatabase(JSON.parse(await file.text()));
+      dbMsg = `imported ${counts.articles} documents, ${counts.catalogs} catalogs`;
+    } catch (err) {
+      dbMsg = `import failed: ${err instanceof Error ? err.message : String(err)}`;
     }
   }
 </script>
@@ -205,10 +282,17 @@
           <RowMenu
             items={[
               { label: `New document in ${folder}`, icon: "note_add", onSelect: () => void newDoc() },
+              ...(instr ? [{ label: "Export .qdc", icon: "file_download", onSelect: () => exportQdc() }] : []),
               {
-                label: "Open project page",
-                icon: "folder_open",
-                onSelect: () => void goto(resolve("/project/[folder]", { folder })),
+                label: "Delete project",
+                icon: "delete",
+                danger: true,
+                onSelect: () =>
+                  confirm.ask(
+                    `Delete project ${folder}/?`,
+                    "Deletes the project with all its documents, coding entries and its frame-device catalog.",
+                    () => void removeProject(),
+                  ),
               },
             ]}
           >
@@ -282,6 +366,22 @@
       </ScrollArea.Scrollbar>
     </ScrollArea.Root>
   </div>
+  <div class="dbrow">
+    <button type="button" class="dbbtn" title="Export the local database as JSON" onclick={() => void exportDb()}>
+      <span class="material-symbols-rounded" aria-hidden="true">file_download</span>Database
+    </button>
+    <button type="button" class="dbbtn" title="Import a database JSON export" onclick={() => dbInput?.click()}>
+      <span class="material-symbols-rounded" aria-hidden="true">file_upload</span>Import DB
+    </button>
+    <input
+      type="file"
+      accept=".json,application/json"
+      class="dbfile"
+      bind:this={dbInput}
+      onchange={(e) => void importDb(e)}
+    />
+  </div>
+  {#if dbMsg}<p class="dbmsg" title={dbMsg}>{dbMsg}</p>{/if}
 </aside>
 
 <style lang="scss">
@@ -587,6 +687,47 @@
     font-size: 0.75rem;
     color: var(--on-surface-variant, #666);
     font-variant-numeric: tabular-nums;
+  }
+  /* database export/import row (sidebar bottom — the dashboard is gone) */
+  .dbrow {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding-top: 0.4rem;
+    border-top: 1px solid var(--outline, #ccc);
+  }
+  .dbbtn {
+    font: inherit;
+    font-size: 0.7rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.2rem 0.55rem;
+    border: 1px solid var(--outline, #888);
+    border-radius: 999px;
+    background: var(--surface, white);
+    color: var(--on-surface-variant, #666);
+    cursor: pointer;
+
+    .material-symbols-rounded {
+      font-size: 0.95rem;
+    }
+
+    &:hover {
+      color: var(--primary, #6750a4);
+      border-color: var(--primary, #6750a4);
+    }
+  }
+  .dbfile {
+    display: none;
+  }
+  .dbmsg {
+    margin: 0;
+    font-size: 0.65rem;
+    color: var(--on-surface-variant, #666);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   @media (max-width: 50rem) {

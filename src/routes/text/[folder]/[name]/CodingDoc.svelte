@@ -52,6 +52,7 @@
   import DownloadPicker from "$lib/coding/DownloadPicker.svelte";
   import UploadZone from "$lib/client/UploadZone.svelte";
   import { seedSettled } from "$lib/client/examples";
+  import { rememberDoc } from "$lib/client/last-doc";
   import {
     codingMarks,
     smartSelect,
@@ -1307,6 +1308,8 @@
       if (!initialLoaded) {
         initial = { article: a, entries: es };
         loading = false;
+        // the root URL reopens this document on the next visit
+        rememberDoc(data.folder, data.name);
         return;
       }
       article = a;
@@ -1367,9 +1370,7 @@
     <h1>{data.name}</h1>
     <p>This article does not exist in local storage.</p>
     <p>
-      <a href={resolve("/project/[folder]", { folder: data.folder })}>← {data.folder}/</a>
-      ·
-      <a href={resolve("/")}>projects</a>
+      <a href={resolve("/")}>← Kodakool</a>
     </p>
   </main>
 {:else}
@@ -1377,7 +1378,15 @@
     <ColorsDialog bind:open={colorsOpen}>
       <PaneGroup class="workspace" direction="horizontal" autoSaveId={`workspace:${data.folder}`}>
         <Pane minSize={WS_TREE.min} maxSize={WS_TREE.max} defaultSize={WS_TREE.def}>
-          <DocTree folder={data.folder} currentName={data.name} docs={myDocs} {projects} {confirm} />
+          <DocTree
+            folder={data.folder}
+            currentName={data.name}
+            docs={myDocs}
+            allDocs={docs}
+            {projects}
+            instr={localCatalog}
+            {confirm}
+          />
         </Pane>
         <PaneResizer class="wshandle" />
         <Pane minSize={WS_DOC.min} defaultSize={WS_DOC.def}>
@@ -1407,14 +1416,6 @@
                 </h1>
               {/if}
               <div class="bar">
-                <a
-                  class="pill back"
-                  href={resolve("/project/[folder]", { folder: data.folder })}
-                  aria-label="Back to project {data.folder}"
-                  title="Back to {data.folder}/"
-                >
-                  <span class="material-symbols-rounded" aria-hidden="true">arrow_back</span>{data.folder}
-                </a>
                 <div class="tabs" role="tablist" aria-label="Document view">
                   {#each tabs as t (t)}
                     <button
@@ -1901,11 +1902,6 @@
       flex: 0 0 auto;
       /* nowrap bar: a shrinking pill must never break its own label */
       white-space: nowrap;
-    }
-
-    /* back to the project this document belongs to */
-    .back {
-      text-decoration: none;
     }
 
     .msg {

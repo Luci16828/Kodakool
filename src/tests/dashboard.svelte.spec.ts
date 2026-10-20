@@ -1,89 +1,89 @@
 import { page } from "vitest/browser";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import ColorProvider from "./ColorProvider.svelte";
-import Dashboard from "../routes/+page.svelte";
-import { exportDatabase, getArticle, listArticles, listFolders, saveLocalCatalog } from "$lib/client/coding-db";
+import Root from "../routes/+page.svelte";
+import { createFolder, exportDatabase, getArticle, listFolders, saveLocalCatalog } from "$lib/client/coding-db";
 import { resetArticles, seedArticle, testInstructions } from "./fixtures";
 
-function renderDashboard() {
-  return render(Dashboard, {}, { wrapper: ColorProvider });
+const navigated = vi.hoisted(() => [] as string[]);
+vi.mock("$app/navigation", () => ({
+  goto: (url: string) => {
+    navigated.push(url);
+    return Promise.resolve();
+  },
+}));
+
+const FOLDER = "test";
+const TEXT = "Ein Zitat im Text.";
+
+function renderRoot() {
+  return render(Root, {}, { wrapper: ColorProvider });
 }
 
-const chip = (text: string) => page.getByText(text, { exact: false }).first();
+/** the coding page records the document it opens here; the root reopens it */
+function setLastDoc(folder: string, name: string): void {
+  localStorage.setItem("luci-last-doc", JSON.stringify({ folder, name }));
+}
+
+async function uploadDbFile(dump: string): Promise<void> {
+  const input = document.querySelector(".dbfile") as HTMLInputElement;
+  const dt = new DataTransfer();
+  dt.items.add(new File([dump], "kodakool-db.json", { type: "application/json" }));
+  input.files = dt.files;
+  input.dispatchEvent(new Event("change", { bubbles: true }));
+}
 
 beforeEach(async () => {
+  navigated.length = 0;
+  localStorage.removeItem("luci-last-doc");
+  // the root page seeds the example itself: mark the profile as already seeded
+  // (the once-per-profile flag), so the store is exactly what each test seeds
+  localStorage.setItem("luci-example-seeded", "1");
   await resetArticles();
 });
 
-describe("project screen", () => {
-  it("lists projects with their document, code and version counts", async () => {
-    await seedArticle({
-      project: "test",
-      name: "spd 1",
-      text: "Ein Artikel.",
-      entries: [
-        { line: 1, range: [0, 3], excerpt: "Ein", code: "1.1" },
-        { line: 1, range: [4, 12], excerpt: " Artikel", code: "2" },
-      ],
-    });
-    await seedArticle({ project: "test", name: "spd 2", text: "", versions: ["first"] });
+describe("root page — opening the app", () => {
+  it("opens the last document the coding page recorded", async () => {
+    await seedArticle({ project: FOLDER, name: "spd 1", text: "a" });
+    await seedArticle({ project: FOLDER, name: "spd 2", text: "b" });
+    setLastDoc(FOLDER, "spd 2");
 
-    renderDashboard();
+    renderRoot();
 
-    await expect.element(page.getByRole("heading", { level: 1 })).toHaveTextContent("Kodakool");
-    await expect.element(chip("1 projects")).toBeInTheDocument();
-    await expect.element(chip("2 documents")).toBeInTheDocument();
-    await expect.element(chip("2 codes")).toBeInTheDocument();
-    await expect.element(chip("1 versions")).toBeInTheDocument();
-
-    await expect.element(page.getByRole("heading", { level: 2 }).first()).toHaveTextContent("test");
-    await expect.element(page.getByText("2 documents", { exact: true }).first()).toBeInTheDocument();
-    await expect.element(page.getByText("2 codes", { exact: true }).first()).toBeInTheDocument();
+    await expect.poll(() => navigated).toEqual(["/text/test/spd 2"]);
   });
 
-  it("shows the empty state while there are no projects", async () => {
-    renderDashboard();
+  it("falls back to the first document when the last opened one no longer exists", async () => {
+    await seedArticle({ project: FOLDER, name: "spd 1", text: "a" });
+    await seedArticle({ project: FOLDER, name: "spd 2", text: "b" });
+    setLastDoc(FOLDER, "deleted doc");
 
-    await expect.element(page.getByText("No projects yet")).toBeInTheDocument();
+    renderRoot();
+
+    await expect.poll(() => navigated).toEqual(["/text/test/spd 1"]);
   });
 
-  it("links each project card to its project page", async () => {
-    await seedArticle({ project: "test", name: "spd 1", text: "Text" });
+  it("falls back to the first document (project, then name) on a fresh profile", async () => {
+    await seedArticle({ project: "test", name: "zeta", text: "a" });
+    await seedArticle({ project: "archive", name: "note", text: "b" });
 
-    renderDashboard();
+    renderRoot();
 
-    await expect.element(page.getByRole("link", { name: "test", exact: true })).toBeInTheDocument();
-    const link = await page.getByRole("link", { name: "test", exact: true }).element();
-    expect(link.getAttribute("href")).toBe("/project/test");
+    await expect.poll(() => navigated).toEqual(["/text/archive/note"]);
   });
 
-  it("enters a project without listing its documents on the card", async () => {
-    await seedArticle({ project: "test", name: "spd 1", text: "Text" });
-    await seedArticle({ project: "test", name: "spd 2", text: "Text" });
+  it("shows the start screen with an empty database", async () => {
+    renderRoot();
 
-    renderDashboard();
-
-    // the card is the way in: no document rows, no per-project document creation
-    await expect.element(page.getByRole("link", { name: "test", exact: true })).toBeInTheDocument();
-    expect(document.querySelectorAll(".card li")).toHaveLength(0);
-    expect(document.querySelectorAll(".card .go")).toHaveLength(0);
-    expect(document.querySelectorAll(".card")).toHaveLength(1);
+    await expect.element(page.getByText("Nothing open yet")).toBeInTheDocument();
+    await expect.element(page.getByRole("button", { name: "New project" })).toBeInTheDocument();
+    expect(navigated).toEqual([]);
   });
 
-  it("offers a .qdc export only for projects with a frame-device catalog", async () => {
-    await seedArticle({ project: "test", name: "coded", text: "Text" });
-    await seedArticle({ project: "other", name: "plain", text: "Text" });
-    await saveLocalCatalog("test", testInstructions);
-
-    renderDashboard();
-
-    await expect.element(page.getByRole("button", { name: "Export .qdc" })).toBeInTheDocument();
-    await expect.poll(() => document.querySelectorAll(".export").length).toBe(1);
-  });
-
-  it("creates a project through the new-project input", async () => {
-    renderDashboard();
+  it("creates a project through the new-project input and opens its first document", async () => {
+    renderRoot();
+    await expect.element(page.getByText("Nothing open yet")).toBeInTheDocument();
 
     await page.getByRole("button", { name: "New project" }).click();
     const input = (await page.getByLabelText("New project name").element()) as HTMLInputElement;
@@ -91,100 +91,59 @@ describe("project screen", () => {
     input.dispatchEvent(new Event("input", { bubbles: true }));
     await page.getByRole("button", { name: "Create" }).click();
 
-    await expect.element(page.getByRole("heading", { level: 2 }).first()).toHaveTextContent("research");
-    await expect.element(page.getByText("Empty project")).toBeInTheDocument();
+    // the fresh project's default document opens right away (markdown by default)
+    await expect.poll(() => navigated).toEqual(["/text/research/Untitled 1.md"]);
+    expect((await getArticle("research", "Untitled 1.md"))?.name).toBe("Untitled 1.md");
   });
 
-  it("creates projects past the declared 200-char limit (maxLength is not enforced)", async () => {
-    renderDashboard();
+  it("creates a document in an existing project straight from the start screen", async () => {
+    // a registered folder WITHOUT documents: the start screen offers it
+    await createFolder("archive");
 
-    const long = "f".repeat(250);
-    await page.getByRole("button", { name: "New project" }).click();
-    const input = (await page.getByLabelText("New project name").element()) as HTMLInputElement;
-    input.value = long;
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-    await page.getByRole("button", { name: "Create" }).click();
-
-    await expect.poll(async () => (await listFolders()).includes(long)).toBe(true);
+    renderRoot();
+    await expect.element(page.getByText("Nothing open yet")).toBeInTheDocument();
+    await expect.element(page.getByRole("button", { name: /New document in archive/ })).toBeInTheDocument();
+    await page.getByRole("button", { name: /New document in archive/ }).click();
+    await expect.poll(() => navigated).toEqual(["/text/archive/Untitled 1.md"]);
   });
 
-  it("deletes a project with its documents through the timed confirm dialog", async () => {
-    await seedArticle({ project: "test", name: "spd 1", text: "Ein Artikel." });
+  it("hosts the colors dialog on the start screen", async () => {
+    renderRoot();
+    await expect.element(page.getByText("Nothing open yet")).toBeInTheDocument();
 
-    renderDashboard();
-
-    await page.getByRole("button", { name: "Menu for project test" }).click();
-    await page.getByRole("menuitem", { name: "Delete project" }).click();
-    const dialog = page.getByRole("dialog", { name: "Delete project test/?" });
-    await expect.element(dialog).toBeInTheDocument();
-    const confirm = dialog.getByRole("button", { name: /Confirm/ });
-    // the confirm button starts disabled with a visible countdown
-    await expect.element(confirm).toBeDisabled();
-    await expect.element(dialog.getByRole("button", { name: "Confirm" })).toBeEnabled();
-    await dialog.getByRole("button", { name: "Confirm" }).click();
-
-    await expect.poll(async () => (await listArticles()).length).toBe(0);
-    await expect.element(page.getByText("No projects yet")).toBeInTheDocument();
+    await page.getByRole("button", { name: "Colors" }).click();
+    await expect.element(page.getByRole("dialog", { name: "Colors" })).toBeInTheDocument();
+    await expect.element(page.getByLabelText("base color")).toBeInTheDocument();
+    await page.getByRole("button", { name: "Close colors" }).click();
+    await expect.element(page.getByRole("dialog", { name: "Colors" })).not.toBeInTheDocument();
   });
+});
 
-  it("opens the project card's context menu on right click", async () => {
-    await seedArticle({ project: "test", name: "spd 1", text: "Ein Artikel." });
-    await saveLocalCatalog("test", testInstructions);
-
-    renderDashboard();
-    await expect.element(page.getByRole("link", { name: "test", exact: true })).toBeInTheDocument();
-
-    const card = document.querySelector(".card") as HTMLElement;
-    const r = card.getBoundingClientRect();
-    card.dispatchEvent(
-      new MouseEvent("contextmenu", {
-        bubbles: true,
-        cancelable: true,
-        view: window,
-        clientX: Math.round(r.left + 30),
-        clientY: Math.round(r.top + 10),
-      }),
-    );
-
-    const menu = page.getByRole("menu");
-    await expect.element(menu).toBeInTheDocument();
-    await expect.element(menu.getByRole("menuitem", { name: "Open project" })).toBeInTheDocument();
-    await expect.element(menu.getByRole("menuitem", { name: "Export .qdc" })).toBeInTheDocument();
-    await expect.element(menu.getByRole("menuitem", { name: "Delete project" })).toBeInTheDocument();
-  });
-
+describe("root page — database", () => {
   it("offers database export/import and re-imports a dump", async () => {
-    await seedArticle({ project: "test", name: "spd 1", text: "Ein Artikel." });
+    await seedArticle({ project: FOLDER, name: "spd 1", text: TEXT });
+    await saveLocalCatalog(FOLDER, testInstructions);
     const dump = JSON.stringify(await exportDatabase());
 
     await resetArticles();
-    renderDashboard();
+    renderRoot();
+    await expect.element(page.getByText("Nothing open yet")).toBeInTheDocument();
 
-    await expect.element(page.getByRole("button", { name: "Database" })).toBeInTheDocument();
-    await expect.element(page.getByRole("button", { name: "Import DB" })).toBeInTheDocument();
+    await uploadDbFile(dump);
 
-    const input = document.querySelector(".dbfile") as HTMLInputElement;
-    const dt = new DataTransfer();
-    dt.items.add(new File([dump], "kodakool-db.json", { type: "application/json" }));
-    input.files = dt.files;
-    input.dispatchEvent(new Event("change", { bubbles: true }));
-
-    await expect.poll(async () => (await getArticle("test", "spd 1"))?.text).toBe("Ein Artikel.");
+    await expect.poll(async () => (await getArticle(FOLDER, "spd 1"))?.text).toBe(TEXT);
     await expect.element(page.getByText(/imported 1 documents/).first()).toBeInTheDocument();
   });
 
   it("reports a database import that is not a Kodakool export", async () => {
-    renderDashboard();
+    renderRoot();
+    await expect.element(page.getByText("Nothing open yet")).toBeInTheDocument();
 
-    const input = document.querySelector(".dbfile") as HTMLInputElement;
-    const dt = new DataTransfer();
-    dt.items.add(new File([JSON.stringify({ kind: "something-else" })], "foreign.json", { type: "application/json" }));
-    input.files = dt.files;
-    input.dispatchEvent(new Event("change", { bubbles: true }));
+    await uploadDbFile(JSON.stringify({ kind: "something-else" }));
 
     await expect
       .poll(() => document.querySelector(".dbmsg")?.textContent ?? "")
       .toMatch(/import failed: not a luci-bachelor database export/);
-    expect((await listArticles()).length).toBe(0);
+    expect((await listFolders()).length).toBe(0);
   });
 });
