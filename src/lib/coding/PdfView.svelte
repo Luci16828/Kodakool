@@ -149,9 +149,19 @@
   $effect(() => {
     const el = host;
     if (!el) return;
-    const ro = new ResizeObserver(() => fit());
+    // rAF-deferred: fit() writes `scale` ($state), and a synchronous reactive write
+    // inside a ResizeObserver callback re-triggers the observer (project rule —
+    // same reason as the deferral in Minimap.svelte)
+    let raf = 0;
+    const ro = new ResizeObserver(() => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => fit());
+    });
     ro.observe(el);
-    return () => ro.disconnect();
+    return () => {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+    };
   });
 
   // render bookkeeping (canvas nodes, render tasks, tokens) lives OUTSIDE reactive

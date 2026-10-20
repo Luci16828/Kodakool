@@ -66,8 +66,11 @@ const editor = await page
   .then(() => true)
   .catch(() => false);
 const doc = await page.textContent(".cm-content").catch(() => "");
+// the catalog aside renders its device rows (the old `text=Devices` assertion was
+// stale: the aside header is "New category"/"New code"/"Edit", so it silently
+// reported false and the check still passed)
 const catalog = await page
-  .waitForSelector("text=Devices", { timeout: 10000 })
+  .waitForSelector(".catalog .tnode", { timeout: 10000 })
   .then(() => true)
   .catch(() => false);
 console.log("deep link status:", deep.status(), "| editor mounted:", editor);

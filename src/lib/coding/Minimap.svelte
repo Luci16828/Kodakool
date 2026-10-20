@@ -53,7 +53,21 @@
     if (view === undefined) return;
     const dom = view.scrollDOM;
     measure();
-    const onScroll = () => (top = dom.scrollTop);
+    // CodeMirror virtualizes lines, so scrollHeight keeps changing *while scrolling*
+    // (a freshly measured line block grows the content). The ResizeObserver only
+    // fires on the scroller's own box, so the band's denominator has to be re-read
+    // here too — otherwise `top / scrollH` mixes a fresh numerator with a stale
+    // denominator and the viewport band drifts up to ~4% of the rail.
+    const onScroll = () => {
+      top = dom.scrollTop;
+      const sh = Math.max(1, dom.scrollHeight);
+      const ch = Math.max(1, dom.clientHeight);
+      if (sh !== scrollH || ch !== clientH) {
+        scrollH = sh;
+        clientH = ch;
+        geomTick = untrack(() => geomTick) + 1;
+      }
+    };
     dom.addEventListener("scroll", onScroll, { passive: true });
     let raf = 0;
     const ro = new ResizeObserver(() => {

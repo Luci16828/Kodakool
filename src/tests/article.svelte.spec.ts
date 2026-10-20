@@ -163,6 +163,21 @@ describe("article coding page", () => {
     await expect.element(page.getByRole("textbox")).not.toBeInTheDocument();
   });
 
+  it("recovers when the document appears after the page first saw nothing", async () => {
+    // The cold deep link case: the layout seeds fire-and-forget, so a first visit to a
+    // shared link can query the store before the article exists. The page may show the
+    // status screen, but it must never LATCH there — the live query has to take over.
+    renderArticle(NAME);
+
+    await expect.element(page.getByText("This article does not exist in local storage.")).toBeInTheDocument();
+
+    await seedArticle({ project: FOLDER, name: NAME, text: TEXT, entries: [quoteEntry] });
+
+    await ready();
+    await expect.element(page.getByText("This article does not exist in local storage.")).not.toBeInTheDocument();
+    await expect.poll(marks).toBe(1);
+  });
+
   it("renders the body with a mark and a label chip for each code", async () => {
     await seedArticle({ project: FOLDER, name: NAME, text: TEXT, entries: [quoteEntry] });
 

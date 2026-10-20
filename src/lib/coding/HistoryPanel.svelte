@@ -62,6 +62,14 @@
 </Popover.Root>
 
 <style lang="scss">
+  /* the trigger button is rendered by Bits, so it needs :global; the icon span is this
+     component's own markup, so it carries this component's scope class. CodingDoc's
+     `.bar .save.ghost .material-symbols-rounded` rule can never reach it (the span has
+     no CodingDoc scope class) — sizing the glyph here is what actually applies */
+  :global(.vbtn) .material-symbols-rounded {
+    font-size: 0.9rem;
+  }
+
   /* Popover.Content is rendered by Bits → :global; it renders inside Popover.Portal
      (the bar scrolls sideways, so the panel must not be a layout sibling of the pills) */
   :global(.historypop) {

@@ -51,6 +51,7 @@
   } from "$lib/client/coding-db";
   import DownloadPicker from "$lib/coding/DownloadPicker.svelte";
   import UploadZone from "$lib/client/UploadZone.svelte";
+  import { seedSettled } from "$lib/client/examples";
   import {
     codingMarks,
     smartSelect,
@@ -1288,12 +1289,21 @@
     const unsubFolders = watchFolders((names) => (folders = names));
     unsubscribe = watchArticle(data.folder, data.name, (a, es) => {
       if (a === null) {
+        // The layout seeds the example project fire-and-forget, so a cold deep link
+        // can observe an empty store. A first `null` therefore means "not yet", not
+        // "absent": await the seed (memoized, so a warm profile resolves at once)
+        // and only then declare the document missing.
         if (!initialLoaded) {
-          missing = true;
-          loading = false;
+          void seedSettled().then(() => {
+            if (initialLoaded) return;
+            missing = true;
+            loading = false;
+          });
         }
         return;
       }
+      // a document that arrives after a premature `missing` recovers (live query)
+      missing = false;
       if (!initialLoaded) {
         initial = { article: a, entries: es };
         loading = false;
@@ -1659,6 +1669,9 @@
     font-weight: 700;
     margin: 0 0 0.45rem; /* keep the focus border clear of the bar's finish button */
     width: min(100%, 26rem);
+    /* no global border-box in this app: without this the 0.4rem padding + 1px
+       border are ADDED to the width, so the input sticks 15px past the column */
+    box-sizing: border-box;
     padding: 0.1rem 0.4rem;
     background: var(--surface, white);
     color: var(--on-surface);
@@ -2003,11 +2016,10 @@
   :global(.bar .save.ghost) {
     border-style: dashed;
     opacity: 0.8;
-
-    /* the history glyph reads oversized next to the pill's 0.8rem label */
-    .material-symbols-rounded {
-      font-size: 0.9rem;
-    }
+    /* the history glyph is sized in HistoryPanel.svelte: the span is rendered by that
+       component, so a nested rule here compiles scoped and never matches it — the glyph
+       silently fell back to the Material Symbols default (24px, oversized vs the bar's
+       16px icons, and it made the pill 8px taller than its neighbours) */
   }
 
   :global(.smart) {

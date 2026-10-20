@@ -406,7 +406,13 @@
   }
   /* the tag input mirrors the display tag: bold, marker-colored, left of the name */
   .ttag {
-    width: 3.6rem;
+    /* tags are valid up to 12 chars (instructions.ts), and a fixed 3.6rem box hid
+       26px of a 12-char tag while editing — size the box to what is typed, clamped
+       so a long tag never eats the name input's space */
+    box-sizing: border-box;
+    field-sizing: content;
+    min-width: 3.6rem;
+    max-width: 7rem;
     flex: none;
     font: inherit;
     font-size: 0.8rem;
