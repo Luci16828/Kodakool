@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { buildCatalogView } from "./catalog-view";
+import { buildCatalogView, flattenCatalog, indexCatalog } from "./catalog-view";
 import { DEVICE_COMMENT, DEVICE_QUOTE, testInstructions } from "../../tests/fixtures";
 import type { CatalogView } from "$lib/coding/catalog-view";
 
@@ -79,5 +79,37 @@ describe("buildCatalogView", () => {
     const nodes = buildCatalogView(testInstructions, []);
     const flat = nodes.flatMap((n) => [n, ...n.children]);
     expect(flat.every((n) => n.count === 0)).toBe(true);
+  });
+});
+
+describe("flattenCatalog/indexCatalog", () => {
+  const nodes = buildCatalogView(testInstructions, ["11111111-1111-4111-8111-111111111111"]);
+
+  test("flatten lists every node once, parents before children", () => {
+    const flat = flattenCatalog(nodes);
+    expect(flat.length).toBe(new Set(flat.map((n) => n.id)).size);
+    const codes = flat.map((n) => n.code);
+    expect(codes.indexOf("1")).toBeLessThan(codes.indexOf("1.1"));
+  });
+
+  test("the index maps ids, codes and aliases onto the catalog id", () => {
+    const idx = indexCatalog(nodes);
+    const zitat = flattenCatalog(nodes).find((n) => n.code === "1.1")!;
+    expect(idx.displayByDevice.get(zitat.id)).toBe("1.1");
+    expect(idx.nameByDevice.get(zitat.id)).toBe(zitat.name);
+    expect(idx.keyToId.get(zitat.id)).toBe(zitat.id);
+    expect(idx.keyToId.get("1.1")).toBe(zitat.id);
+    for (const alias of zitat.alias ?? []) expect(idx.keyToId.get(alias)).toBe(zitat.id);
+  });
+
+  test("shortByCode carries the slug short labels by display code", () => {
+    const idx = indexCatalog(nodes);
+    expect(idx.shortByCode.get("2")).toBe("K");
+    expect(idx.shortByCode.get("1.1")).toBe("Z");
+  });
+
+  test("orphans are indexed under their raw key", () => {
+    const idx = indexCatalog(nodes);
+    expect(idx.keyToId.get("11111111-1111-4111-8111-111111111111")).toBe("11111111-1111-4111-8111-111111111111");
   });
 });

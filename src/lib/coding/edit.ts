@@ -70,3 +70,40 @@ export function entryFromOffsets(
   if (uid !== undefined) entry.uid = uid;
   return entry;
 }
+
+/**
+ * Canonical coding-state fingerprint for the dirty check: content only (uid is
+ * identity, not content), key order fixed, entries order-independent — stored
+ * snapshots come back from RxDB with a different key order than `deriveCodes` writes.
+ */
+export function codesKey(list: CodeEntry[]): string {
+  const items = list.map((e) =>
+    JSON.stringify([
+      e.device ?? null,
+      e.code ?? null,
+      e.line,
+      e.endLine ?? null,
+      e.range[0],
+      e.range[1],
+      e.excerpt,
+      e.note ?? null,
+    ]),
+  );
+  return JSON.stringify(items.sort());
+}
+
+/**
+ * Coding the same span with the same device twice is redundant: content equality
+ * (device/code + line/endLine + range). The uid keeps an entry's identity across
+ * text edits, but a fresh uid per click would let the same span be coded over and over.
+ */
+export function isDuplicateEntry(entries: CodeEntry[], entry: CodeEntry): boolean {
+  return entries.some(
+    (e) =>
+      (e.device ?? e.code) === (entry.device ?? entry.code) &&
+      e.line === entry.line &&
+      (e.endLine ?? e.line) === (entry.endLine ?? entry.line) &&
+      e.range[0] === entry.range[0] &&
+      e.range[1] === entry.range[1],
+  );
+}

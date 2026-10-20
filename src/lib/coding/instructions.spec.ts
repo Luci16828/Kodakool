@@ -2,7 +2,20 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { codeIndex, deviceIndex, idByCode, instructionsSchema, uniqueIds, type FrameDevice } from "./instructions.ts";
+import {
+  addChildDevice,
+  addBelowDevice,
+  codeIndex,
+  deviceIndex,
+  findDevice,
+  idByCode,
+  instructionsSchema,
+  moveDevice,
+  removeDeviceById,
+  siblingsOf,
+  uniqueIds,
+  type FrameDevice,
+} from "./instructions.ts";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const file = path.join(HERE, "../assets/examples/frame-devices.json");
@@ -79,5 +92,64 @@ describe("instructions format", () => {
       bad.devices[0].tag = tag;
       expect(instructionsSchema.safeParse(bad).success).toBe(false);
     }
+  });
+});
+
+describe("device-tree editing operations", () => {
+  const dev = (id: string, children: FrameDevice[] = []): FrameDevice => ({
+    id,
+    name: `d-${id}`,
+    kind: "device",
+    examples: [],
+    children,
+  });
+  const tree = (): FrameDevice[] => [dev("a", [dev("a1"), dev("a2")]), dev("b")];
+
+  it("findDevice walks nested children; siblingsOf finds the owning list", () => {
+    const t = tree();
+    expect(findDevice(t, "a2")?.name).toBe("d-a2");
+    expect(findDevice(t, "nope")).toBeNull();
+    expect(siblingsOf(t, "a1")).toBe(t[0].children);
+    expect(siblingsOf(t, "b")).toBe(t);
+    expect(siblingsOf(t, "nope")).toBeNull();
+  });
+
+  it("addChildDevice nests under a parent or at top level", () => {
+    const t = tree();
+    expect(addChildDevice(t, "a1", dev("x"))).toBe(true);
+    expect(t[0].children[0].children.map((c) => c.id)).toEqual(["x"]);
+    expect(addChildDevice(t, null, dev("top"))).toBe(true);
+    expect(t.map((d) => d.id)).toEqual(["a", "b", "top"]);
+    expect(addChildDevice(t, "gone", dev("y"))).toBe(false);
+  });
+
+  it("addBelowDevice inserts directly after the anchor with kind inheritance handled by the caller", () => {
+    const t = tree();
+    expect(addBelowDevice(t, "a1", dev("mid"))).toBe(true);
+    expect(t[0].children.map((c) => c.id)).toEqual(["a1", "mid", "a2"]);
+    expect(addBelowDevice(t, "gone", dev("z"))).toBe(false);
+  });
+
+  it("removeDeviceById drops the node with its subtree and returns it", () => {
+    const t = tree();
+    expect(removeDeviceById(t, "a")?.children.map((c) => c.id)).toEqual(["a1", "a2"]);
+    expect(t.map((d) => d.id)).toEqual(["b"]);
+    expect(removeDeviceById(t, "gone")).toBeNull();
+  });
+
+  it("moveDevice lands after the target downward and before it upward", () => {
+    const down = tree();
+    expect(moveDevice(down, "a1", "a2")).toBe(true);
+    expect(down[0].children.map((c) => c.id)).toEqual(["a2", "a1"]);
+    const up = tree();
+    expect(moveDevice(up, "a2", "a1")).toBe(true);
+    expect(up[0].children.map((c) => c.id)).toEqual(["a2", "a1"]);
+  });
+
+  it("moveDevice refuses self-moves and cross-parent moves", () => {
+    const t = tree();
+    expect(moveDevice(t, "a1", "a1")).toBe(false);
+    expect(moveDevice(t, "a1", "b")).toBe(false);
+    expect(moveDevice(t, "gone", "a2")).toBe(false);
   });
 });

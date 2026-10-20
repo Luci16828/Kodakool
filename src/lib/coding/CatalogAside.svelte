@@ -4,7 +4,16 @@
   import { buildCatalogView, type CatalogView } from "$lib/coding/catalog-view";
   import CatalogTree from "$lib/coding/CatalogTree.svelte";
   import type { ConfirmAsk } from "$lib/coding/confirm.svelte";
-  import type { FrameDevice, Instructions } from "$lib/coding/instructions";
+  import {
+    addChildDevice,
+    addBelowDevice,
+    findDevice,
+    moveDevice,
+    removeDeviceById,
+    siblingsOf,
+    type FrameDevice,
+    type Instructions,
+  } from "$lib/coding/instructions";
   import { parseCatalogFile } from "$lib/coding/import";
   import type { PaletteOptions } from "$lib/coding/palette";
   import { toQdc } from "$lib/coding/qdc";
@@ -54,30 +63,14 @@
   /** edit-mode tree built from the draft catalog */
   const draftView = $derived(draft === null ? [] : buildCatalogView(draft, entryKeys));
 
-  function draftFind(ns: FrameDevice[], id: string): FrameDevice | null {
-    for (const n of ns) {
-      if (n.id === id) return n;
-      const f = draftFind(n.children, id);
-      if (f) return f;
-    }
-    return null;
-  }
-  function draftSiblings(ns: FrameDevice[], id: string): FrameDevice[] | null {
-    if (ns.some((d) => d.id === id)) return ns;
-    for (const n of ns) {
-      const f = draftSiblings(n.children, id);
-      if (f) return f;
-    }
-    return null;
-  }
   function draftRename(id: string, name: string): void {
     if (!draft) return;
-    const d = draftFind(draft.devices, id);
+    const d = findDevice(draft.devices, id);
     if (d) d.name = name;
   }
   function draftTag(id: string, tag: string): void {
     if (!draft) return;
-    const d = draftFind(draft.devices, id);
+    const d = findDevice(draft.devices, id);
     if (!d) return;
     const t = tag.trim();
     if (t) d.tag = t;
@@ -85,14 +78,8 @@
   }
   /** drop dragId onto targetId: downward moves land after the target, upward before it */
   function draftMove(dragId: string, targetId: string): void {
-    if (!draft || dragId === targetId) return;
-    const list = draftSiblings(draft.devices, dragId);
-    if (!list || !list.some((d) => d.id === targetId)) return;
-    const from = list.findIndex((d) => d.id === dragId);
-    const to = list.findIndex((d) => d.id === targetId);
-    const [moved] = list.splice(from, 1);
-    const at = list.findIndex((d) => d.id === targetId);
-    list.splice(from <= to ? at + 1 : at, 0, moved);
+    if (!draft) return;
+    moveDevice(draft.devices, dragId, targetId);
   }
   /** a fresh device for the tree: new UUID, editable placeholder name, kind inherited */
   function newDevice(kind?: FrameDevice["kind"]): FrameDevice {
@@ -107,27 +94,21 @@
   /** new device under `parentId` (null = top level); fresh UUID, editable name */
   function draftAdd(parentId: string | null): void {
     if (!draft) return;
-    const parent = parentId === null ? null : draftFind(draft.devices, parentId);
-    const dev = newDevice(parent?.kind);
-    if (parent) parent.children.push(dev);
-    else draft.devices.push(dev);
+    const parent = parentId === null ? null : findDevice(draft.devices, parentId);
+    if (parent === null && parentId !== null) return;
+    addChildDevice(draft.devices, parentId, newDevice(parent?.kind));
   }
   /** new device as the sibling directly BELOW `id` in the draft */
   function draftAddBelow(id: string): void {
     if (!draft) return;
-    const list = draftSiblings(draft.devices, id);
-    if (!list) return;
-    const at = list.findIndex((d) => d.id === id);
-    if (at < 0) return;
-    list.splice(at + 1, 0, newDevice(list[at].kind));
+    const above = findDevice(draft.devices, id);
+    if (!above) return;
+    addBelowDevice(draft.devices, id, newDevice(above.kind));
   }
   /** remove a device from the draft (entries referencing it survive as orphans) */
   function draftDelete(id: string): void {
     if (!draft) return;
-    const list = draftSiblings(draft.devices, id);
-    if (!list) return;
-    const i = list.findIndex((d) => d.id === id);
-    if (i >= 0) list.splice(i, 1);
+    removeDeviceById(draft.devices, id);
   }
   /**
    * Delete a device straight from the stored local catalog (the row context menu
@@ -136,13 +117,9 @@
   function removeDevice(id: string): void {
     if (localCatalog === null) return;
     const copy = plainClone(localCatalog);
-    const list = draftSiblings(copy.devices, id);
-    if (!list) return;
-    const i = list.findIndex((d) => d.id === id);
-    if (i < 0) return;
-    const name = list[i].name;
-    list.splice(i, 1);
-    void persist(copy, `Device "${name}" deleted — its entries stay as orphaned codes`, "delete failed");
+    const removed = removeDeviceById(copy.devices, id);
+    if (!removed) return;
+    void persist(copy, `Device "${removed.name}" deleted — its entries stay as orphaned codes`, "delete failed");
   }
   /** write a mutated catalog copy back to the store (view-mode row-menu edits) */
   function persist(copy: Instructions, note: string, failLabel: string): Promise<void> {
@@ -159,49 +136,41 @@
   function addStoredChild(parentId: string): void {
     if (localCatalog === null) return;
     const copy = plainClone(localCatalog);
-    const parent = draftFind(copy.devices, parentId);
+    const parent = findDevice(copy.devices, parentId);
     if (!parent) return;
-    parent.children.push(newDevice(parent.kind));
+    addChildDevice(copy.devices, parentId, newDevice(parent.kind));
     void persist(copy, `New device added under "${parent.name}"`, "save failed");
   }
   /** view-mode row menu: a sibling device directly below `id` in the stored catalog */
   function addStoredBelow(id: string): void {
     if (localCatalog === null) return;
     const copy = plainClone(localCatalog);
-    const list = draftSiblings(copy.devices, id);
-    if (!list) return;
-    const at = list.findIndex((d) => d.id === id);
-    if (at < 0) return;
-    const above = list[at].name;
-    list.splice(at + 1, 0, newDevice(list[at].kind));
-    void persist(copy, `New device added below "${above}"`, "save failed");
+    const above = findDevice(copy.devices, id);
+    if (!above) return;
+    addBelowDevice(copy.devices, id, newDevice(above.kind));
+    void persist(copy, `New device added below "${above.name}"`, "save failed");
   }
-  function askDeleteDevice(id: string): void {
-    if (!draft) return;
-    const d = draftFind(draft.devices, id);
-    if (!d) return;
-    const used = entryKeys.filter((k) => k === id).length;
+  /** shared countdown confirmation for draft + stored deletes (same orphan rule) */
+  function confirmDelete(d: FrameDevice, perform: () => void): void {
+    const used = entryKeys.filter((k) => k === d.id).length;
     confirm.ask(
       `Delete device "${d.name}"?`,
       used > 0
         ? `${used} code entr${used === 1 ? "y" : "ies"} use this device; they stay in the file as orphaned codes.`
         : "No code entries use this device.",
-      () => draftDelete(id),
+      perform,
     );
+  }
+  function askDeleteDevice(id: string): void {
+    if (!draft) return;
+    const d = findDevice(draft.devices, id);
+    if (d) confirmDelete(d, () => draftDelete(id));
   }
   /** view-mode row menu: the same countdown confirmation, applied to the stored catalog */
   function askRemoveDevice(id: string): void {
     if (localCatalog === null) return;
-    const d = draftFind(localCatalog.devices, id);
-    if (!d) return;
-    const used = entryKeys.filter((k) => k === id).length;
-    confirm.ask(
-      `Delete device "${d.name}"?`,
-      used > 0
-        ? `${used} code entr${used === 1 ? "y" : "ies"} use this device; they stay in the file as orphaned codes.`
-        : "No code entries use this device.",
-      () => removeDevice(id),
-    );
+    const d = findDevice(localCatalog.devices, id);
+    if (d) confirmDelete(d, () => removeDevice(id));
   }
   /** Proxy-safe deep clone: Svelte 5 props/$state are proxies and structuredClone rejects them. */
   function plainClone<T>(v: T): T {

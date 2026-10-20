@@ -19,3 +19,14 @@ export function displayName(name: string, kind: ArticleKind): string {
   if (/\.(md|markdown)$/i.test(name)) return name;
   return /\.txt$/i.test(name) ? name : `${name}.txt`;
 }
+
+/** document order used across the app: by project, then numeric-aware name
+    ("doc 2" before "doc 10") — tree, switcher, dashboard and db listings share it */
+export function compareDocs(a: { project: string; name: string }, b: { project: string; name: string }): number {
+  return a.project.localeCompare(b.project) || compareNames(a.name, b.name);
+}
+
+/** locale-aware, numeric-aware name/project order */
+export function compareNames(a: string, b: string): number {
+  return a.localeCompare(b, undefined, { numeric: true });
+}

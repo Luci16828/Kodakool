@@ -10,7 +10,7 @@
   import { Dialog, Toggle } from "bits-ui";
   import { Pane, PaneGroup, PaneResizer } from "paneforge";
   import "material-symbols/rounded.css";
-  import { buildPalette, onForFill, type CodeColor } from "$lib/coding/palette";
+  import { buildPalette, onForFill } from "$lib/coding/palette";
   import { useColors } from "$lib/coding/prefs.svelte";
   import AnalysisPanel from "$lib/coding/AnalysisPanel.svelte";
   import CatalogAside from "$lib/coding/CatalogAside.svelte";
@@ -21,14 +21,16 @@
   import { EntryPopupCtl } from "$lib/coding/entry-popup.svelte";
   import MarkdownHelp from "$lib/coding/MarkdownHelp.svelte";
   import { ConfirmAsk } from "$lib/coding/confirm.svelte";
-  import { entryFromOffsets, entryId, lineStarts, offsetsSpan } from "$lib/coding/edit";
-  import { buildCatalogView } from "$lib/coding/catalog-view";
+  import { codesKey, entryFromOffsets, entryId, isDuplicateEntry, lineStarts, offsetsSpan } from "$lib/coding/edit";
+  import { buildCatalogView, indexCatalog } from "$lib/coding/catalog-view";
+  import { analysisRows, hotSetFor, litSegments, splitSegments, type Placed } from "$lib/coding/coverage";
+  import { createPainter, PREVIEW_CODE, SEL_CODE } from "$lib/coding/paint";
   import HistoryPanel from "$lib/coding/HistoryPanel.svelte";
   import { rankDevices, reconcileSlots } from "$lib/coding/quickselect";
   import { QuickPrefs } from "$lib/coding/quickselect.svelte";
   import QuickSelect from "$lib/coding/QuickSelect.svelte";
   import Minimap from "$lib/coding/Minimap.svelte";
-  import { displayName } from "$lib/coding/display";
+  import { compareNames, displayName } from "$lib/coding/display";
   import { mdExtensions } from "$lib/coding/code-md";
   import type { Instructions } from "$lib/coding/instructions";
   import type { CatalogView } from "$lib/coding/catalog-view";
@@ -60,7 +62,7 @@
     syncCodingMarks,
     type CodingMarkSpec,
   } from "$lib/coding/code-mark";
-  import { alphaVar, cssVar, hoverFadeCss } from "$lib/coding/css-var";
+  import { cssVar, hoverFadeCss } from "$lib/coding/css-var";
 
   const { data }: { data: { folder: string; name: string } } = $props();
 
@@ -86,8 +88,15 @@
   let pending = $state(false);
   let committing = false;
   let commitTimer: ReturnType<typeof setTimeout> | undefined;
+  /** drop a queued autosave flush (tab switches, renames, unmount own the flush) */
+  function cancelCommit(): void {
+    if (commitTimer !== undefined) {
+      clearTimeout(commitTimer);
+      commitTimer = undefined;
+    }
+  }
   function scheduleCommit(delay = 700): void {
-    if (commitTimer !== undefined) clearTimeout(commitTimer);
+    cancelCommit();
     commitTimer = setTimeout(() => {
       commitTimer = undefined;
       void doCommit();
@@ -223,37 +232,25 @@
   const confirm = new ConfirmAsk();
 
   /** documents of THIS project only — other projects stay on the project screen */
-  const myDocs = $derived.by(() =>
-    docs
-      .filter((a) => a.project === data.folder)
-      .sort((x, y) => x.name.localeCompare(y.name, undefined, { numeric: true })),
-  );
+  const myDocs = $derived(docs.filter((a) => a.project === data.folder).sort((x, y) => compareNames(x.name, y.name)));
 
   /** every project the sidebar can switch to: folders + any project holding documents */
   const projects = $derived.by(() => {
     const set = new Set(folders);
     for (const a of docs) set.add(a.project);
     set.add(data.folder);
-    return [...set].sort((x, y) => x.localeCompare(y));
+    return [...set].sort(compareNames);
   });
 
   const entryKeys = $derived(entries.map((e) => e.device ?? e.code ?? "").filter((k) => k !== ""));
   /** effective catalog: the local RxDB copy (seeded, imported, or edited) */
   const catalog = $derived(buildCatalogView(localCatalog, entryKeys));
+  /** one-pass lookup index over the catalog: display codes, names, short tags, key→id */
+  const index = $derived(indexCatalog(catalog));
+  const displayByDevice = $derived(index.displayByDevice);
+  const nameByDevice = $derived(index.nameByDevice);
+  const keyToId = $derived(index.keyToId);
 
-  function flatten(nodes: CatalogView[], out: CatalogView[] = []) {
-    for (const n of nodes) {
-      out.push(n);
-      flatten(n.children, out);
-    }
-    return out;
-  }
-  const nodes = $derived(flatten(catalog));
-  const displayByDevice = $derived(new SvelteMap(nodes.map((n) => [n.id, n.code])));
-  const nameByDevice = $derived(new SvelteMap(nodes.map((n) => [n.id, n.name])));
-
-  const SEL_CODE = "__selection";
-  const PREVIEW_CODE = "__preview";
   // selection/preview bars keep a blue-ish identity (prefer) but are now part of the
   // palette, so the chroma/tone sliders re-tint them like every other mark.
   const palettePrefer = new SvelteMap([
@@ -264,7 +261,7 @@
     buildPalette(
       [
         ...new SvelteSet([
-          ...nodes.map((n) => n.code),
+          ...index.nodes.map((n) => n.code),
           ...entries.map((e) => displayByDevice.get(e.device ?? e.code ?? "") ?? e.code ?? e.device ?? ""),
           SEL_CODE,
           PREVIEW_CODE,
@@ -273,7 +270,6 @@
       { prefer: palettePrefer, ...prefs.options },
     ),
   );
-  const colorOf = (code: string) => palette.get(code)?.light.marker ?? "#888888";
 
   // Fingerprint of the palette colors. The sidebar's styleFor is a callback, so
   // +page never reads `palette` for that subtree and slider moves would otherwise
@@ -286,86 +282,16 @@
     return t;
   });
 
-  // short slugs (LTE etc.) from the catalog, keyed by display code
-  const shortByCode = $derived.by(() => {
-    const map = new SvelteMap<string, string>();
-    const walk = (ns: CatalogView[]): void => {
-      for (const n of ns) {
-        if (n.slug) map.set(n.code, n.slug.short);
-        walk(n.children);
-      }
-    };
-    walk(catalog);
-    return map;
-  });
-
-  // selection & smart-preview are coverage pseudo-codes (rendered through the
-  // same segments/hatch pipeline as real entries, so overlaps hatch).
-  // SEL_CODE / PREVIEW_CODE are declared above the palette (it colors them).
-
-  // article parity: repeating stripes separated by surface gaps (hatch())
-  function hatch(stops: string[]): string {
-    const w = 4;
-    const p = w + 2;
-    const total = stops.length * p;
-    const stopsStr = stops
-      .flatMap((col, k) => [
-        `${col} ${k * p}px ${k * p + w}px`,
-        `var(--surface, white) ${k * p + w}px ${(k + 1) * p}px`,
-      ])
-      .concat(`${stops[0]} ${total}px ${total}px`)
-      .join(", ");
-    return `repeating-linear-gradient(45deg, ${stopsStr})`;
-  }
-
-  /** fill (or fillHover) of a code color for the given scheme/interaction state */
-  const pickFill = (c: CodeColor, dark: boolean, hover: boolean): string => {
-    const s = dark ? c.dark : c.light;
-    return hover ? s.fillHover : s.fill;
-  };
-
-  const fillOf = (code: string, dark: boolean, hover: boolean): string => {
-    // selection & preview take the armed frame device's color when one is armed,
-    // otherwise their own palette entry (so the chroma/tone sliders re-tint them too)
-    if (code === SEL_CODE || code === PREVIEW_CODE) {
-      const c = (armed === null ? undefined : palette.get(displayByDevice.get(armed) ?? armed)) ?? palette.get(code);
-      if (c !== undefined) return pickFill(c, dark, hover);
-      return code === SEL_CODE ? (dark ? "#7f97e6" : "#4a7ad4") : dark ? "#93a4d6" : "#829fcf";
-    }
-    const c = palette.get(code);
-    return c === undefined ? "#888888" : pickFill(c, dark, hover);
-  };
-
-  function colorVars(code: string): string {
-    const c = palette.get(code);
-    if (!c) return "";
-    return [
-      `--fill: ${c.light.fill}`,
-      `--fill-d: ${c.dark.fill}`,
-      `--marker: ${c.light.marker}`,
-      `--marker-d: ${c.dark.marker}`,
-      `--on-marker: ${c.light.on}`,
-      `--on-marker-d: ${c.dark.on}`,
-    ].join("; ");
-  }
-
-  // catalog id for an entry's device/code/alias key
-  const keyToId = $derived.by(() => {
-    const map = new SvelteMap<string, string>();
-    const walk = (ns: CatalogView[]): void => {
-      for (const n of ns) {
-        map.set(n.id, n.id);
-        map.set(n.code, n.id);
-        for (const a of n.alias ?? []) map.set(a, n.id);
-        walk(n.children);
-      }
-    };
-    walk(catalog);
-    return map;
-  });
+  /** palette key of the armed device (numeric display code) */
+  const armedCode = $derived(armed === null ? "" : (displayByDevice.get(armed) ?? armed));
+  /** the paint layer: palette + short tags + armed device → mark/chip/row CSS.
+      Coverage styles are memoized inside the painter, so a hover/preview crossing
+      re-strings only the changed segments; a palette (chroma/tone/theme) or
+      armed-device change simply builds a new painter (fresh cache). */
+  const paint = $derived(createPainter({ palette, shortByCode: index.shortByCode, armedCode }));
 
   // catalog aside callbacks (the aside owns the edit draft + catalog IO)
-  const styleFor = (n: CatalogView) => colorVars(n.code);
+  const styleFor = (n: CatalogView) => paint.colorVars(n.code);
   const onhover = (id: string | null) => (hoverDevice = id);
 
   /** every key a mark can carry (catalog ids + entry keys) gets a fade alpha variable */
@@ -378,7 +304,7 @@
       seen.add(v);
       out.push(id);
     };
-    for (const n of nodes) add(n.id);
+    for (const n of index.nodes) add(n.id);
     for (const k of entryKeys) add(k);
     return out;
   });
@@ -429,7 +355,7 @@
     () => data.folder,
     () => key,
   );
-  const quickNodes = $derived(new SvelteMap(flatten(catalog).map((n) => [n.id, n])));
+  const quickNodes = $derived(index.byId);
   /** entries per catalog node id (the "top used" part of the ranking) */
   const quickCounts = $derived.by(() => {
     const counts = new SvelteMap<string, number>();
@@ -450,9 +376,9 @@
   $effect(() => quick.sync(quickDisplay));
   const quickLabel = (id: string) => {
     const code = displayByDevice.get(id) ?? id;
-    return shortByCode.get(code) ?? code;
+    return index.shortByCode.get(code) ?? code;
   };
-  const quickStyle = (id: string) => colorVars(displayByDevice.get(id) ?? id);
+  const quickStyle = (id: string) => paint.colorVars(displayByDevice.get(id) ?? id);
   /** release over a tag: arm that device, and code the live selection when there is one */
   function quickPick(id: string): void {
     if (!UUID_RE.test(id)) return;
@@ -472,16 +398,6 @@
     const free = quickDisplay.indexOf(null);
     const slot = at >= 0 ? at : free >= 0 ? free : quick.count - 1;
     quick.pin(slot, quick.pins[slot] === id ? null : id);
-  }
-
-  interface Placed {
-    entry?: CodeEntry;
-    id: string;
-    code: string;
-    devices: string[];
-    from: number;
-    to: number;
-    faded: boolean;
   }
 
   const placed = $derived.by<Placed[]>(() => {
@@ -519,59 +435,13 @@
     return out;
   });
 
-  const tagFor = (code: string) => {
-    const c = palette.get(code);
-    return {
-      label: shortByCode.get(code) ?? code,
-      marker: c?.light.marker ?? "#888888",
-      markerD: c?.dark.marker ?? "#888888",
-      on: c?.light.on ?? "#ffffff",
-      onD: c?.dark.on ?? "#ffffff",
-    };
-  };
-
   // ----- analysis tab: the coded segments as a list + a position diagram -----
   /** entry id hovered in the analysis list (its diagram stripe lights up) */
   let analysisHover = $state<string | null>(null);
   /** diagram stripe clicked → scroll the matching list row into view */
   let analysisScroll = $state<string | null>(null);
   /** every coded segment in document order, with its palette identity */
-  const analysis = $derived.by(() => {
-    const out: {
-      id: string;
-      from: number;
-      to: number;
-      code: string;
-      label: string;
-      name: string;
-      excerpt: string;
-      note: string;
-      lines: string;
-      style: string;
-    }[] = [];
-    for (const e of entries) {
-      const id = entryId(key, e);
-      const r = livePos.get(id);
-      const from = r?.from ?? docStarts[e.line - 1] + e.range[0];
-      const to = r?.to ?? docStarts[(e.endLine ?? e.line) - 1] + e.range[1];
-      if (!Number.isFinite(from) || !Number.isFinite(to) || from >= to) continue;
-      const code = displayByDevice.get(e.device ?? e.code ?? "") ?? e.device ?? e.code ?? "";
-      const endLine = e.endLine ?? e.line;
-      out.push({
-        id,
-        from,
-        to,
-        code,
-        label: shortByCode.get(code) ?? code,
-        name: nameByDevice.get(e.device ?? e.code ?? "") ?? code,
-        excerpt: e.excerpt,
-        note: e.note ?? "",
-        lines: endLine > e.line ? `${e.line}–${endLine}` : `${e.line}`,
-        style: colorVars(code),
-      });
-    }
-    return out.sort((x, y) => x.from - y.from || x.to - y.to);
-  });
+  const analysis = $derived(analysisRows(entries, key, livePos, docStarts, index, (code) => paint.colorVars(code)));
   $effect(() => {
     const id = analysisScroll;
     if (id === null) return;
@@ -598,80 +468,17 @@
     analysisJump = it.from;
   }
 
-  // article parity: entry size metric (lines dominate chars) for the narrowest
-  // entry of a hovered segment; pseudo coverage (selection/preview) is ignored
-  const spanOf = (p: Placed): number => {
-    if (!p.entry) return Number.POSITIVE_INFINITY;
-    return ((p.entry.endLine ?? p.entry.line) - p.entry.line) * 1_000_000 + (p.to - p.from);
-  };
-  const narrowest = (cov: Placed[]): Placed | undefined =>
-    cov
-      .filter((p) => p.entry !== undefined)
-      .reduce<Placed | undefined>((a, b) => (a === undefined || spanOf(b) < spanOf(a) ? b : a), undefined);
   // split overlapping entries into disjoint segments (article token parity):
-  // maximal intervals with identical coverage, independent of any hover state.
-  // Sweep line over the boundary points: `active` holds the placed entries covering
-  // the current interval (indices into `placed`, ascending, so cov keeps placed
-  // order) — the old per-interval filter over all placements was O(P²) per recompute,
-  // and placed changes on every keystroke, selection change and preview crossing.
-  const segments = $derived.by(() => {
-    const points = [...new SvelteSet(placed.flatMap((p) => [p.from, p.to]))].sort((a, b) => a - b);
-    const startsAt = new Map<number, number[]>();
-    const endsAt = new Map<number, number[]>();
-    placed.forEach((p, i) => {
-      const s = startsAt.get(p.from);
-      if (s) s.push(i);
-      else startsAt.set(p.from, [i]);
-      const e = endsAt.get(p.to);
-      if (e) e.push(i);
-      else endsAt.set(p.to, [i]);
-    });
-    const out: { id: string; ids: string[]; from: number; to: number; cov: Placed[] }[] = [];
-    let active: number[] = [];
-    for (let i = 0; i + 1 < points.length; i++) {
-      const from = points[i];
-      const to = points[i + 1];
-      // a placement ending exactly at `from` covers the previous interval, not this one
-      const end = endsAt.get(from);
-      if (end !== undefined) {
-        const drop = new SvelteSet(end);
-        active = active.filter((idx) => !drop.has(idx));
-      }
-      const start = startsAt.get(from);
-      if (start !== undefined) {
-        // merge the new indices into the ascending active list
-        const merged: number[] = [];
-        let a = 0;
-        let b = 0;
-        while (a < active.length && b < start.length) merged.push(active[a] < start[b] ? active[a++] : start[b++]);
-        while (a < active.length) merged.push(active[a++]);
-        while (b < start.length) merged.push(start[b++]);
-        active = merged;
-      }
-      if (active.length === 0) continue;
-      const cov = active.map((idx) => placed[idx]);
-      const ids = cov.map((p) => p.id);
-      out.push({ id: [...ids].sort().join("|"), ids, from, to, cov });
-    }
-    return out;
-  });
+  // maximal intervals with identical coverage — the sweep-line implementation
+  // lives in coverage.ts (unit-tested there); placed changes on every keystroke,
+  // selection change and preview crossing, so it must stay O(P log P).
+  const segments = $derived(splitSegments(placed));
 
   // single hover model (article hotSetFor parity): hovering a segment marks its
   // narrowest entry hot, hovering a chip marks that entry hot, and the entry is
   // then hot in EVERY segment and chip it covers — bars and chips both render
   // off this one set, so all hover sources go through the same code path
-  const hotEntries = $derived.by(() => {
-    const s = new SvelteSet<string>();
-    // a live selection takes over the emphasis: no hover highlight while it lasts
-    if (selRange !== null) return s;
-    const seg = hoverId === null ? undefined : segments.find((x) => x.id === hoverId);
-    if (seg !== undefined) {
-      const n = narrowest(seg.cov);
-      if (n !== undefined) s.add(n.id);
-    }
-    if (pop.hoverChip !== null) s.add(pop.hoverChip);
-    return s;
-  });
+  const hotEntries = $derived(hotSetFor(segments, hoverId, pop.hoverChip, selRange !== null));
 
   /** PdfView marks: real entries + selection/preview pseudo coverage — the same
       pipeline as the editor's specs (hatch, focus-mode fade, no chips for pseudo) */
@@ -683,81 +490,18 @@
       devices: p.devices,
       faded: p.faded,
       hot: hotEntries.has(p.id),
-      color: fillOf(p.code, false, false),
-      colorD: fillOf(p.code, true, false),
-      colorHot: fillOf(p.code, false, true),
-      colorHotD: fillOf(p.code, true, true),
-      label: shortByCode.get(p.code) ?? p.code,
+      color: paint.fillOf(p.code, false, false),
+      colorD: paint.fillOf(p.code, true, false),
+      colorHot: paint.fillOf(p.code, false, true),
+      colorHotD: paint.fillOf(p.code, true, true),
+      label: index.shortByCode.get(p.code) ?? p.code,
       // selection/preview pseudo coverage gets no chip (editor parity: tags are
       // only rendered for real entries)
       tagless: p.entry === undefined,
-      on: onForFill(fillOf(p.code, false, false)),
-      onD: onForFill(fillOf(p.code, true, false)),
+      on: onForFill(paint.fillOf(p.code, false, false)),
+      onD: onForFill(paint.fillOf(p.code, true, false)),
     })),
   );
-
-  const mix = (col: string, faded: boolean) => (faded ? `color-mix(in srgb, ${col} 32%, transparent)` : col);
-  const itemFill = (p: Placed, dark: boolean, hotFor: boolean) =>
-    hotFor ? fillOf(p.code, dark, true) : mix(fillOf(p.code, dark, false), p.faded);
-  // the sidebar hover fade is a per-device alpha variable (see css-var.ts):
-  // the gradient stays the same, only the alpha variables animate
-  const stop = (p: Placed, hotIds: SvelteSet<string>, dark: boolean, hotVariant: boolean) => {
-    const col = itemFill(p, dark, hotVariant && hotIds.has(p.id));
-    const dev = p.devices[0];
-    return dev ? `color-mix(in srgb, ${col} ${alphaVar(dev)}, transparent)` : col;
-  };
-  const gradFor = (
-    cov: Placed[],
-    hotIds: SvelteSet<string>,
-    dark: boolean,
-    hotVariant: boolean,
-    focus: boolean,
-  ): string => {
-    // focus mode (selection/preview/hover): highlighted markers fully cover
-    // the faded ones below them — no hatching against faded coverage; same
-    // color highlights merge into one solid fill
-    const vis = focus ? cov.filter((p) => !p.faded || hotIds.has(p.id)) : cov;
-    const stops = vis.map((p) => stop(p, hotIds, dark, hotVariant));
-    const uniq = focus ? [...new Set(stops)] : stops;
-    return uniq.length === 1 ? `linear-gradient(${uniq[0]}, ${uniq[0]})` : hatch(uniq);
-  };
-  const computeStyleForCov = (cov: Placed[], hotIds: SvelteSet<string>, focus: boolean): string => {
-    // dominant code for the bar text: the first visible (non-faded) coverage
-    const dom = cov.find((p) => !p.faded || hotIds.has(p.id)) ?? cov[0];
-    return [
-      `--bars:${gradFor(cov, hotIds, false, false, focus)}`,
-      `--bars-d:${gradFor(cov, hotIds, true, false, focus)}`,
-      `--bars-hot:${gradFor(cov, hotIds, false, true, focus)}`,
-      `--bars-hot-d:${gradFor(cov, hotIds, true, true, focus)}`,
-      // text on the bar: contrast against the dominant code's fill (per scheme/variant)
-      `--on-bars:${onForFill(fillOf(dom.code, false, false))}`,
-      `--on-bars-d:${onForFill(fillOf(dom.code, true, false))}`,
-      `--on-bars-hot:${onForFill(fillOf(dom.code, false, true))}`,
-      `--on-bars-hot-d:${onForFill(fillOf(dom.code, true, true))}`,
-    ].join("; ");
-  };
-  // memoized style strings: the gradient is a pure function of the coverage
-  // (ids, fade flags, hot flags, device alphas) + focus mode, so a hover/preview
-  // crossing — which changes only a handful of segments — re-strings only those;
-  // every other segment hits the cache. The generation resets it on palette
-  // (chroma/tone/theme) and armed-device changes, which move the fills.
-  const styleCache = new Map<string, string>();
-  let styleGen = "";
-  const styleForCov = (cov: Placed[], hotIds: SvelteSet<string>, focus: boolean): string => {
-    const gen = `${paletteTick}|${armedCode}`;
-    if (gen !== styleGen) {
-      styleCache.clear();
-      styleGen = gen;
-    }
-    let key = focus ? "f|" : "n|";
-    for (const p of cov) key += `${p.id}:${p.faded ? 1 : 0}${hotIds.has(p.id) ? 1 : 0}:${p.devices[0] ?? ""}|`;
-    const hit = styleCache.get(key);
-    if (hit !== undefined) return hit;
-    const style = computeStyleForCov(cov, hotIds, focus);
-    if (styleCache.size > 4000) styleCache.clear();
-    styleCache.set(key, style);
-    return style;
-  };
 
   const specs = $derived.by<CodingMarkSpec[]>(() => {
     const out: CodingMarkSpec[] = [];
@@ -765,7 +509,7 @@
       const hotIds = new SvelteSet(ids.filter((x) => hotEntries.has(x)));
       const hot = hotIds.size > 0;
       const focus = cov.some((p) => p.faded) && cov.some((p) => !p.faded || hotIds.has(p.id));
-      const style = styleForCov(cov, hotIds, focus);
+      const style = paint.styleForCov(cov, hotIds, focus);
       out.push({
         id,
         ids,
@@ -778,7 +522,7 @@
         tags: cov
           .filter((p) => p.entry !== undefined && p.from === from)
           .map((p) => ({
-            ...tagFor(p.code),
+            ...paint.tagFor(p.code),
             id: p.id,
             device: p.devices[0],
             hot: hotIds.has(p.id),
@@ -791,36 +535,35 @@
     return out;
   });
 
+  /** sidebar-hover overlay: the lit placements per segment (shared by the editor
+      viewport overlay and the minimap's solid bars — one filter, one style pass) */
+  const litForOverlay = $derived(fadeAll ? [] : litSegments(segments, hoverKeys, hotEntries));
+
   /** sidebar-hover overlay: only the segments in the current viewport get the
       solid focus gradient (the hovered device covers the faded hatch) */
   const hoverSpecs = $derived.by<CodingMarkSpec[]>(() => {
-    const keys = hoverKeys;
-    if (keys === null || fadeAll) return EMPTY_SPECS;
+    const lit = litForOverlay;
+    if (lit.length === 0) return EMPTY_SPECS;
     const out: CodingMarkSpec[] = [];
-    // segments are sorted by `from`; binary-search the first one that reaches
+    // lit segments are sorted by `from`; binary-search the first one that reaches
     // into the viewport, then stop as soon as the segments pass its bottom edge
     let lo = 0;
-    let hi = segments.length;
+    let hi = lit.length;
     while (lo < hi) {
       const mid = (lo + hi) >> 1;
-      if (segments[mid].to < visibleRange.from) lo = mid + 1;
+      if (lit[mid].to < visibleRange.from) lo = mid + 1;
       else hi = mid;
     }
-    for (let i = lo; i < segments.length && segments[i].from <= visibleRange.to; i++) {
-      const { id, ids, from, cov } = segments[i];
-      const lit = cov.filter(
-        (p) => (p.entry !== undefined && p.devices[0] && keys.has(p.devices[0])) || hotEntries.has(p.id),
-      );
-      if (lit.length === 0) continue;
-      const hotIds = new SvelteSet(ids.filter((x) => hotEntries.has(x)));
+    for (let i = lo; i < lit.length && lit[i].from <= visibleRange.to; i++) {
+      const { id, ids, from, to, cov, hotIds } = lit[i];
       out.push({
         id,
         ids,
         devices: [...new SvelteSet(cov.flatMap((p) => p.devices))],
         from,
-        to: segments[i].to,
+        to,
         code: [...new SvelteSet(cov.filter((p) => p.entry !== undefined).map((p) => p.code))].sort().join(" · "),
-        style: styleForCov(lit, hotIds, true),
+        style: paint.styleForCov(lit[i].lit, hotIds, true),
         tags: [],
         hot: hotIds.size > 0,
       });
@@ -884,20 +627,16 @@
   /** the disjoint coverage segments as minimap bars: offset + the bar's hatch gradient */
   const minimapMarks = $derived(specs.map((s) => ({ id: s.id, from: s.from, to: s.to, style: s.style })));
   /** the minimap's solid hover bars: every segment the hovered catalog subtree covers */
-  const minimapHoverMarks = $derived.by(() => {
-    const keys = hoverKeys;
-    if (keys === null || fadeAll) return EMPTY_BARS;
-    const out: { id: string; from: number; to: number; style: string }[] = [];
-    for (const { id, ids, from, to, cov } of segments) {
-      const lit = cov.filter(
-        (p) => (p.entry !== undefined && p.devices[0] && keys.has(p.devices[0])) || hotEntries.has(p.id),
-      );
-      if (lit.length === 0) continue;
-      const hotIds = new SvelteSet(ids.filter((x) => hotEntries.has(x)));
-      out.push({ id, from, to, style: styleForCov(lit, hotIds, true) });
-    }
-    return out;
-  });
+  const minimapHoverMarks = $derived(
+    litForOverlay.length === 0
+      ? EMPTY_BARS
+      : litForOverlay.map(({ id, from, to, lit, hotIds }) => ({
+          id,
+          from,
+          to,
+          style: paint.styleForCov(lit, hotIds, true),
+        })),
+  );
 
   const popupEntry = $derived.by(() => {
     const id = pop.popup?.id;
@@ -905,7 +644,7 @@
   });
   const popupEntryKey = $derived(popupEntry?.device ?? popupEntry?.code ?? "");
   const popupFullName = $derived(nameByDevice.get(popupEntryKey) ?? popupEntryKey);
-  const popupTag = $derived(tagFor(displayByDevice.get(popupEntryKey) ?? popupEntryKey));
+  const popupTag = $derived(paint.tagFor(displayByDevice.get(popupEntryKey) ?? popupEntryKey));
 
   /** shared entry creation: editor mouseup and PdfView selection both land here */
   function addEntryFromOffsets(selFrom: number, selTo: number, fromEditor: boolean): void {
@@ -927,15 +666,7 @@
     // coding the same span with the same device twice is redundant: dedupe by
     // content — the uid keeps an entry's identity across text edits, but a
     // fresh uid per click would let the same span be coded over and over
-    const dup = entries.some(
-      (e) =>
-        (e.device ?? e.code) === (entry.device ?? entry.code) &&
-        e.line === entry.line &&
-        (e.endLine ?? e.line) === (entry.endLine ?? entry.line) &&
-        e.range[0] === entry.range[0] &&
-        e.range[1] === entry.range[1],
-    );
-    if (dup) {
+    if (isDuplicateEntry(entries, entry)) {
       if (fromEditor && view) view.dispatch({ selection: { anchor: to } });
       return;
     }
@@ -956,25 +687,12 @@
     scheduleCommit();
   }
   /* the cursor tag + the bar hint show the short tag, not the numeric code */
-  /** palette key of the armed device (numeric display code) */
-  const armedCode = $derived(armed === null ? "" : (displayByDevice.get(armed) ?? armed));
   /** what the cursor tag shows: the short tag, not the numeric code */
   const armedLabel = $derived(armed === null ? "" : quickLabel(armed));
 
   // cursor-following ctag while armed (article parity)
   let cursor = $state({ x: 0, y: 0 });
   let dragging = $state(false);
-
-  function markerVars(code: string): string {
-    const c = palette.get(code);
-    if (!c) return "";
-    return [
-      `--marker:${c.light.marker}`,
-      `--marker-d:${c.dark.marker}`,
-      `--on-marker:${c.light.on}`,
-      `--on-marker-d:${c.dark.on}`,
-    ].join("; ");
-  }
 
   // anchor any entry that has no live geometry yet (initial load, server import,
   // undo bringing back an entry) using its stored line/range against the doc.
@@ -1051,10 +769,7 @@
   async function save() {
     if (key === "" || (!view && !mounted)) return;
     saving = true;
-    if (commitTimer !== undefined) {
-      clearTimeout(commitTimer);
-      commitTimer = undefined;
-    }
+    cancelCommit();
     await flushCommit();
     saving = false;
   }
@@ -1113,10 +828,7 @@
    */
   async function revertTo(v: ArticleVersion): Promise<void> {
     if (key === "") return;
-    if (commitTimer !== undefined) {
-      clearTimeout(commitTimer);
-      commitTimer = undefined;
-    }
+    cancelCommit();
     const dirty = hasPendingChanges();
     await flushCommit();
     if (dirty) await addVersion(key, undefined, headVersion);
@@ -1138,27 +850,6 @@
     if (h === null) return true;
     if (h.text !== liveDocText()) return true;
     return codesKey(deriveCodes()) !== codesKey(h.codes);
-  }
-
-  /**
-   * Canonical coding-state fingerprint for the dirty check: content only (uid is
-   * identity, not content), key order fixed, entries order-independent — stored
-   * snapshots come back from RxDB with different key order than `deriveCodes` writes.
-   */
-  function codesKey(list: CodeEntry[]): string {
-    const items = list.map((e) =>
-      JSON.stringify([
-        e.device ?? null,
-        e.code ?? null,
-        e.line,
-        e.endLine ?? null,
-        e.range[0],
-        e.range[1],
-        e.excerpt,
-        e.note ?? null,
-      ]),
-    );
-    return JSON.stringify(items.sort());
   }
 
   /** relabel a snapshot from the graph's editable label inputs */
@@ -1324,10 +1015,7 @@
       if (msgTimer !== undefined) clearTimeout(msgTimer);
       pop.destroy();
       // a document switch remounts this component (keyed +page.svelte): flush queued edits first
-      if (commitTimer !== undefined) {
-        clearTimeout(commitTimer);
-        commitTimer = undefined;
-      }
+      cancelCommit();
       if (pending) void flushCommit();
       unsubDocs();
       unsubFolders();
@@ -1541,7 +1229,7 @@
                 class:minimapon={showMinimap}
                 class:arm={armed !== null}
                 class:smartsel={smart}
-                style={armed !== null ? markerVars(armedCode) : ""}
+                style={armed !== null ? paint.markerVars(armedCode) : ""}
                 bind:this={parent}
               ></div>
               {#if showMinimap}
@@ -1576,7 +1264,7 @@
         ondelete={() => popupEntry !== undefined && removeCode(popupEntry)}
       />
       {#if armed !== null && !dragging}
-        <div class="ctag" style={`left: ${cursor.x + 14}px; top: ${cursor.y + 14}px; ${markerVars(armedCode)}`}>
+        <div class="ctag" style={`left: ${cursor.x + 14}px; top: ${cursor.y + 14}px; ${paint.markerVars(armedCode)}`}>
           {armedLabel}
         </div>
       {/if}

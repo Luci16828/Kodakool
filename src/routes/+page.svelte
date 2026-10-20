@@ -1,22 +1,14 @@
 <script lang="ts">
-  import { resolve } from "$app/paths";
-  import { goto } from "$app/navigation";
   import { onMount } from "svelte";
   import { Dialog } from "bits-ui";
   import "material-symbols/rounded.css";
   import ColorsDialog from "$lib/coding/ColorsDialog.svelte";
+  import { compareDocs, compareNames } from "$lib/coding/display";
   import { EXAMPLE_PROJECT, seedExampleProject } from "$lib/client/examples";
   import { downloadText } from "$lib/client/download";
   import { lastDoc } from "$lib/client/last-doc";
-  import {
-    createArticle,
-    createFolder,
-    exportDatabase,
-    getArticle,
-    importDatabase,
-    listArticles,
-    listFolders,
-  } from "$lib/client/coding-db";
+  import { exportDatabase, getArticle, importDatabase, listArticles, listFolders } from "$lib/client/coding-db";
+  import { createProjectDoc, openDoc, openNewDoc } from "$lib/client/open-doc";
 
   /**
    * The app's entry point. The coding page is the app's single screen (its sidebar
@@ -43,17 +35,15 @@
       const arts = await listArticles();
       const set = new Set(await listFolders());
       for (const a of arts) set.add(a.project);
-      projects = [...set].sort((x, y) => x.localeCompare(y));
+      projects = [...set].sort(compareNames);
 
       const last = lastDoc();
       if (last && (await getArticle(last.folder, last.name))) {
-        await goto(resolve("/text/[folder]/[name]", { folder: last.folder, name: last.name }));
+        await openDoc(last.folder, last.name);
         return;
       }
-      const first = [...arts].sort(
-        (x, y) => x.project.localeCompare(y.project) || x.name.localeCompare(y.name, undefined, { numeric: true }),
-      )[0];
-      if (first) await goto(resolve("/text/[folder]/[name]", { folder: first.project, name: first.name }));
+      const first = [...arts].sort(compareDocs)[0];
+      if (first) await openDoc(first.project, first.name);
       resolving = false;
     })();
   });
@@ -64,10 +54,8 @@
     busy = true;
     errMsg = "";
     try {
-      // createFolder is idempotent: an existing name just opens its first document
-      await createFolder(name);
-      const a = await createArticle(name);
-      await goto(resolve("/text/[folder]/[name]", { folder: a.project, name: a.name }));
+      // createProjectDoc: createFolder is idempotent, a taken name just opens a fresh document
+      await createProjectDoc(name);
     } catch (e) {
       errMsg = String(e);
       busy = false;
@@ -78,8 +66,7 @@
     busy = true;
     errMsg = "";
     try {
-      const a = await createArticle(project);
-      await goto(resolve("/text/[folder]/[name]", { folder: a.project, name: a.name }));
+      await openNewDoc(project);
     } catch (e) {
       errMsg = String(e);
       busy = false;

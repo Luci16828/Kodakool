@@ -18,7 +18,8 @@
     "lint": "prettier --check .",
     "format": "prettier --write .",
     "test:unit": "vitest",
-    "test": "npm run test:unit -- --run"
+    "test": "npm run test:unit -- --run",
+    "test:coverage": "vitest run --coverage"
   },
   "devDependencies": {
     "@codemirror/state": "^6.7.5",
@@ -29,6 +30,7 @@
     "@sveltejs/vite-plugin-svelte": "^7.1.2",
     "@types/node": "^26.6.2",
     "@vitest/browser-playwright": "^4.1.8",
+    "@vitest/coverage-v8": "^4.1.12",
     "mdsvex": "^0.12.7",
     "playwright": "^1.60.0",
     "prettier": "^3.8.3",

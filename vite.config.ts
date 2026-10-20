@@ -36,6 +36,32 @@ export default defineConfig({
   ssr: { noExternal: ["@material/material-color-utilities"] },
   test: {
     expect: { requireAssertions: true },
+    // `pnpm test:coverage` — app-code coverage only: specs, fixtures and the
+    // bundled example assets are not the measured code. The SvelteKit load
+    // functions and the app shell are routing glue: specs render pages directly
+    // (ColorProvider.svelte replaces +layout.svelte as the render wrapper), so
+    // they never execute under test.
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "html"],
+      include: ["src/lib/**", "src/routes/**"],
+      exclude: [
+        "src/lib/vitest-examples/**",
+        "src/lib/assets/**",
+        "**/*.spec.ts",
+        "**/*.test.ts",
+        "src/routes/**/+layout.ts",
+        "src/routes/**/+page.ts",
+        "src/routes/+layout.svelte",
+      ],
+      thresholds: {
+        // floor set from the measured baseline (pnpm test:coverage), raised only by design
+        lines: 90,
+        functions: 89,
+        statements: 88,
+        branches: 74,
+      },
+    },
     projects: [
       {
         extends: "./vite.config.ts",

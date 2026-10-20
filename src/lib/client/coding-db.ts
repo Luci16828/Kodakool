@@ -1,4 +1,5 @@
 import { entryId } from "$lib/coding/edit";
+import { compareDocs, compareNames } from "$lib/coding/display";
 import { instructionsSchema, uniqueIds, type Instructions } from "$lib/coding/instructions";
 import { codeEntrySchema, type CodeEntry } from "$lib/coding/types";
 
@@ -418,7 +419,7 @@ export async function listArticles(): Promise<ArticleSummary[]> {
   const codeDocs = await codes.find().exec();
   const counts = new Map<string, number>();
   for (const c of codeDocs) counts.set(c.articleId, (counts.get(c.articleId) ?? 0) + 1);
-  return docs.map((d) => toSummary(d.toJSON(), counts.get(d.id) ?? 0)).sort(compareSummary);
+  return docs.map((d) => toSummary(d.toJSON(), counts.get(d.id) ?? 0)).sort(compareDocs);
 }
 
 function toSummary(a: ArticleData, codes: number): ArticleSummary {
@@ -434,10 +435,6 @@ function toSummary(a: ArticleData, codes: number): ArticleSummary {
   };
 }
 
-function compareSummary(a: ArticleSummary, b: ArticleSummary): number {
-  return a.project.localeCompare(b.project) || a.name.localeCompare(b.name, undefined, { numeric: true });
-}
-
 /** Live list of all articles (sorted) with current per-article code counts. */
 export function watchArticles(next: (list: ArticleSummary[]) => void): () => void {
   let stopped = false;
@@ -445,7 +442,7 @@ export function watchArticles(next: (list: ArticleSummary[]) => void): () => voi
   let cUnsub: Unsubscribable | undefined;
   let arts: ArticleData[] = [];
   let counts = new Map<string, number>();
-  const emit = () => next(arts.map((a) => toSummary(a, counts.get(a.id) ?? 0)).sort(compareSummary));
+  const emit = () => next(arts.map((a) => toSummary(a, counts.get(a.id) ?? 0)).sort(compareDocs));
 
   void getDb().then(({ articles, codes }) => {
     if (stopped) return;
@@ -635,7 +632,7 @@ export async function deleteArticle(id: string): Promise<void> {
 /** Names of all locally created folders (sorted). */
 export async function listFolders(): Promise<string[]> {
   const { folders } = await getDb();
-  return (await folders.find().exec()).map((d) => d.name).sort((a, b) => a.localeCompare(b));
+  return (await folders.find().exec()).map((d) => d.name).sort(compareNames);
 }
 
 /** Live list of local folder names (sorted). */
@@ -644,7 +641,7 @@ export function watchFolders(next: (names: string[]) => void): () => void {
   let unsub: Unsubscribable | undefined;
   void getDb().then(({ folders }) => {
     if (stopped) return;
-    unsub = folders.find().$.subscribe((docs) => next(docs.map((d) => d.name).sort((a, b) => a.localeCompare(b))));
+    unsub = folders.find().$.subscribe((docs) => next(docs.map((d) => d.name).sort(compareNames)));
   });
   return () => {
     stopped = true;

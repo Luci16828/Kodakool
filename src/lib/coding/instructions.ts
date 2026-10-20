@@ -79,3 +79,75 @@ export function idByCode(instr: Instructions): Map<string, string> {
   for (const [id, code] of codeIndex(instr)) out.set(code, id);
   return out;
 }
+
+// ----- device-tree editing operations -----
+// Shared by the catalog aside's draft editing and its direct edits of the
+// stored local catalog: both mutate a FrameDevice[] tree the same way.
+
+/** Depth-first lookup by stable id. */
+export function findDevice(devices: FrameDevice[], id: string): FrameDevice | null {
+  for (const n of devices) {
+    if (n.id === id) return n;
+    const f = findDevice(n.children, id);
+    if (f) return f;
+  }
+  return null;
+}
+
+/** The sibling list that directly contains `id` (null when the id is unknown). */
+export function siblingsOf(devices: FrameDevice[], id: string): FrameDevice[] | null {
+  if (devices.some((d) => d.id === id)) return devices;
+  for (const n of devices) {
+    const f = siblingsOf(n.children, id);
+    if (f) return f;
+  }
+  return null;
+}
+
+/** Add `dev` under `parentId` (null = top level). False when the parent is unknown. */
+export function addChildDevice(devices: FrameDevice[], parentId: string | null, dev: FrameDevice): boolean {
+  if (parentId === null) {
+    devices.push(dev);
+    return true;
+  }
+  const parent = findDevice(devices, parentId);
+  if (!parent) return false;
+  parent.children.push(dev);
+  return true;
+}
+
+/** Insert `dev` directly after `id` in its sibling list. False when `id` is unknown. */
+export function addBelowDevice(devices: FrameDevice[], id: string, dev: FrameDevice): boolean {
+  const list = siblingsOf(devices, id);
+  if (!list) return false;
+  const at = list.findIndex((d) => d.id === id);
+  if (at < 0) return false;
+  list.splice(at + 1, 0, dev);
+  return true;
+}
+
+/** Remove `id` from its sibling list (its children go with it). Null when unknown. */
+export function removeDeviceById(devices: FrameDevice[], id: string): FrameDevice | null {
+  const list = siblingsOf(devices, id);
+  if (!list) return null;
+  const i = list.findIndex((d) => d.id === id);
+  if (i < 0) return null;
+  return list.splice(i, 1)[0];
+}
+
+/**
+ * Drop `dragId` onto `targetId` within one sibling list: downward moves land
+ * after the target, upward moves before it. False when either id is unknown
+ * or they are not siblings.
+ */
+export function moveDevice(devices: FrameDevice[], dragId: string, targetId: string): boolean {
+  if (dragId === targetId) return false;
+  const list = siblingsOf(devices, dragId);
+  if (!list || !list.some((d) => d.id === targetId)) return false;
+  const from = list.findIndex((d) => d.id === dragId);
+  const to = list.findIndex((d) => d.id === targetId);
+  const [moved] = list.splice(from, 1);
+  const at = list.findIndex((d) => d.id === targetId);
+  list.splice(from <= to ? at + 1 : at, 0, moved);
+  return true;
+}

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { entryFromOffsets, entryId, lineAt, lineStarts } from "./edit";
+import { codesKey, entryFromOffsets, entryId, isDuplicateEntry, lineAt, lineStarts } from "./edit";
 import { verifyEntry } from "./verify";
 
 const text = "Alpha bravo charlie.\nDelta echo.\nFoxtrot.";
@@ -62,5 +62,56 @@ describe("entryId", () => {
     expect(entryId("s.txt", a)).toBe(entryId("s.txt", a));
     expect(entryId("s.txt", a)).not.toBe(entryId("s.txt", b));
     expect(entryId("s.txt", { ...a, endLine: 3 })).not.toBe(entryId("s.txt", a));
+  });
+});
+
+describe("codesKey", () => {
+  const a = { device: "d1", line: 2, range: [0, 5] as [number, number], excerpt: "x" };
+  const b = { device: "d2", line: 1, range: [3, 9] as [number, number], excerpt: "yz" };
+
+  test("is order-independent", () => {
+    expect(codesKey([a, b])).toBe(codesKey([b, a]));
+  });
+
+  test("ignores uid (identity, not content)", () => {
+    expect(codesKey([{ ...a, uid: "u1" }])).toBe(codesKey([a]));
+  });
+
+  test("content changes move the fingerprint", () => {
+    expect(codesKey([a])).not.toBe(codesKey([{ ...a, note: "n" }]));
+    expect(codesKey([a])).not.toBe(codesKey([{ ...a, endLine: 3 }]));
+    expect(codesKey([a])).not.toBe(codesKey([{ ...a, excerpt: "x!" }]));
+  });
+
+  test("device and legacy code keys are distinct content", () => {
+    expect(codesKey([{ code: "1.1", line: 1, range: [0, 4], excerpt: "x" }])).not.toBe(
+      codesKey([{ device: "1.1", line: 1, range: [0, 4], excerpt: "x" }]),
+    );
+  });
+});
+
+describe("isDuplicateEntry", () => {
+  const e = { device: "d1", line: 2, range: [4, 9] as [number, number], excerpt: "x" };
+
+  test("same device + same span is a duplicate", () => {
+    expect(isDuplicateEntry([e], { ...e, uid: "fresh", excerpt: "x" })).toBe(true);
+  });
+
+  test("endLine defaults to line when comparing", () => {
+    expect(isDuplicateEntry([e], { ...e, endLine: 2 })).toBe(true);
+    expect(isDuplicateEntry([e], { ...e, endLine: 3 })).toBe(false);
+  });
+
+  test("a different device codes the same span legally", () => {
+    expect(isDuplicateEntry([e], { ...e, device: "d2" })).toBe(false);
+  });
+
+  test("legacy code keys compare against device keys by value", () => {
+    const legacy = { code: "d1", line: 2, range: [4, 9] as [number, number], excerpt: "x" };
+    expect(isDuplicateEntry([e], legacy)).toBe(true);
+  });
+
+  test("range shifts are new coding", () => {
+    expect(isDuplicateEntry([e], { ...e, range: [4, 10] })).toBe(false);
   });
 });

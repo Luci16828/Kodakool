@@ -4,7 +4,7 @@
   import { ScrollArea, Select } from "bits-ui";
   import { slide } from "svelte/transition";
   import "material-symbols/rounded.css";
-  import { docIcon, displayName } from "$lib/coding/display";
+  import { compareNames, docIcon, displayName } from "$lib/coding/display";
   import { openRowMenu } from "$lib/coding/context-menu";
   import { toQdc } from "$lib/coding/qdc";
   import { useColors } from "$lib/coding/prefs.svelte";
@@ -12,14 +12,13 @@
   import type { ConfirmAsk } from "$lib/coding/confirm.svelte";
   import type { Instructions } from "$lib/coding/instructions";
   import {
-    createArticle,
-    createFolder,
     deleteArticle,
     deleteFolder,
     exportDatabase,
     importDatabase,
     type ArticleSummary,
   } from "$lib/client/coding-db";
+  import { createProjectDoc, openDoc, openNewDoc } from "$lib/client/open-doc";
   import { downloadArticle, downloadText } from "$lib/client/download";
   import UploadZone from "$lib/client/UploadZone.svelte";
 
@@ -94,14 +93,13 @@
   async function newDoc(): Promise<void> {
     busy = true;
     try {
-      const a = await createArticle(folder);
-      await goto(resolve("/text/[folder]/[name]", { folder: a.project, name: a.name }));
+      await openNewDoc(folder);
     } finally {
       busy = false;
     }
   }
-  function openDoc(a: ArticleSummary): void {
-    void goto(resolve("/text/[folder]/[name]", { folder: a.project, name: a.name }));
+  function openArticle(a: ArticleSummary): void {
+    void openDoc(a.project, a.name);
   }
   async function deleteDoc(a: ArticleSummary): Promise<void> {
     await deleteArticle(a.id);
@@ -111,7 +109,7 @@
   /** the tree row's context menu: open / download / delete (replaces the old per-row trash) */
   function docMenu(a: ArticleSummary): { label: string; icon: string; danger?: boolean; onSelect: () => void }[] {
     return [
-      { label: "Open document", icon: "open_in_new", onSelect: () => openDoc(a) },
+      { label: "Open document", icon: "open_in_new", onSelect: () => openArticle(a) },
       { label: "Download document", icon: "download", onSelect: () => void downloadArticle(a) },
       {
         label: "Delete document",
@@ -132,11 +130,10 @@
     if (name === "" || name === folder) return;
     busy = true;
     try {
-      const mine = allDocs
-        .filter((a) => a.project === name)
-        .sort((x, y) => x.name.localeCompare(y.name, undefined, { numeric: true }));
-      const a = mine[0] ?? (await createArticle(name));
-      await goto(resolve("/text/[folder]/[name]", { folder: name, name: a.name }));
+      const mine = allDocs.filter((a) => a.project === name).sort((x, y) => compareNames(x.name, y.name));
+      const first = mine[0];
+      if (first) await openDoc(name, first.name);
+      else await openNewDoc(name);
     } finally {
       busy = false;
     }
@@ -159,10 +156,8 @@
     busy = true;
     projErr = "";
     try {
-      // createFolder is idempotent: an existing name simply opens its first document
-      await createFolder(name);
-      const a = await createArticle(name);
-      await goto(resolve("/text/[folder]/[name]", { folder: a.project, name: a.name }));
+      // createProjectDoc: createFolder is idempotent, a taken name simply opens a fresh document
+      await createProjectDoc(name);
     } catch (e) {
       projErr = String(e);
       busy = false;

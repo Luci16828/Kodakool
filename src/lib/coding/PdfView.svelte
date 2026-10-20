@@ -10,7 +10,7 @@
    */
   import { SvelteSet } from "svelte/reactivity";
   import { base64ToBytes } from "$lib/client/coding-db";
-  import { alphaVar } from "$lib/coding/css-var";
+  import { markFill, markGradient } from "$lib/coding/paint";
   import type { PdfSpan } from "$lib/coding/pdf";
   import { elementSpan, sentenceSpan, snapWords } from "$lib/coding/segment";
 
@@ -351,20 +351,6 @@
 
   // ----- coverage rectangles (span runs with identical covering marks) -----
 
-  function hatch(stops: string[]): string {
-    const w = 4;
-    const p = w + 2;
-    const total = stops.length * p;
-    const stopsStr = stops
-      .flatMap((col, k) => [
-        `${col} ${k * p}px ${k * p + w}px`,
-        `var(--surface, white) ${k * p + w}px ${(k + 1) * p}px`,
-      ])
-      .concat(`${stops[0]} ${total}px ${total}px`)
-      .join(", ");
-    return `repeating-linear-gradient(45deg, ${stopsStr})`;
-  }
-
   interface Run {
     cov: PdfMark[];
     x0: number;
@@ -411,23 +397,10 @@
     const cov = run.cov;
     // editor parity: normal/hot fills render opaque, faded coverage stays
     // translucent — the .pdfmarks container's multiply blend makes opaque
-    // stripes behave like a real highlighter (dark glyphs stay readable)
-    const fill = (m: PdfMark, dark: boolean) => {
-      const col = dark ? (m.hot ? m.colorHotD : m.colorD) : m.hot ? m.colorHot : m.color;
-      const base = m.faded && !m.hot ? `color-mix(in srgb, ${col} 32%, transparent)` : col;
-      // the sidebar hover fade is a per-device alpha variable (see css-var.ts)
-      const dev = m.devices[0];
-      return dev ? `color-mix(in srgb, ${base} ${alphaVar(dev)}, transparent)` : base;
-    };
-    const grad = (dark: boolean): string => {
-      if (cov.length === 0) return "none";
-      // focus mode parity with the editor: hot marks fully cover faded ones
-      const focus = cov.some((m) => m.faded) && cov.some((m) => !m.faded || m.hot);
-      const vis = focus ? cov.filter((m) => !m.faded || m.hot) : cov;
-      const stops = vis.map((m) => fill(m, dark));
-      const uniq = focus ? [...new Set(stops)] : stops;
-      return uniq.length === 1 ? `linear-gradient(${uniq[0]}, ${uniq[0]})` : hatch(uniq);
-    };
+    // stripes behave like a real highlighter (dark glyphs stay readable);
+    // the fill/gradient math is shared with the editor in paint.ts
+    const focus = cov.some((m) => m.faded) && cov.some((m) => !m.faded || m.hot);
+    const grad = (dark: boolean): string => markGradient(cov, dark, focus);
     const geo = [
       `left:${run.x0 * scale}px`,
       `bottom:${run.y * scale}px`,
@@ -554,18 +527,10 @@
   });
 
   // ----- sidebar-hover overlay (viewport only) -----
-  function pdfFill(m: PdfMark, dark: boolean): string {
-    const col = dark ? (m.hot ? m.colorHotD : m.colorD) : m.hot ? m.colorHot : m.color;
-    const base = m.faded && !m.hot ? `color-mix(in srgb, ${col} 32%, transparent)` : col;
-    const dev = m.devices[0];
-    return dev ? `color-mix(in srgb, ${base} ${alphaVar(dev)}, transparent)` : base;
-  }
   function pdfFocusStyle(cov: PdfMark[]): string {
-    const grad = (dark: boolean): string => {
-      const stops = cov.map((m) => pdfFill(m, dark));
-      const uniq = [...new Set(stops)];
-      return uniq.length === 1 ? `linear-gradient(${uniq[0]}, ${uniq[0]})` : hatch(uniq);
-    };
+    // the overlay only renders while no selection fade is active, so every
+    // hovered mark is visible: focus mode just merges same-color stops
+    const grad = (dark: boolean): string => markGradient(cov, dark, true);
     return `--m:${grad(false)}; --m-d:${grad(true)}`;
   }
 
