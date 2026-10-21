@@ -8,7 +8,7 @@
 
   /**
    * The account selector at the bottom of the document-tree sidebar: the virtual
-   * Local account (this browser's RxDB store) plus every connected collaboration
+   * Local account (this browser's SharedWorker store) plus every connected collaboration
    * server account. "Connect server" opens the add dialog — username/password
    * (login or signup) or OIDC (issuer + client id, the browser redirects to the
    * identity provider and lands on /auth/callback). Removing an account signs out
