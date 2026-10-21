@@ -23,14 +23,19 @@
     moveArticleProject,
     renameArticle,
     renameSubfolder,
-    watchSubfolders,
-    type ArticleSummary,
-  } from "$lib/client/coding-db";
+    watchSubfoldersLocal,
+  } from "$lib/local/local-api";
+  import type { ArticleSummary } from "$lib/coding/doc";
   import DatabaseControls from "$lib/client/DatabaseControls.svelte";
-  import { createProjectDoc, openDoc, openNewDoc } from "$lib/client/open-doc";
+  import { createProjectDoc, openDoc, openNewDoc, openRemoteDoc } from "$lib/client/open-doc";
   import { downloadArticle, downloadText } from "$lib/client/download";
   import { uploadArticleFile, uploadArticleFolder } from "$lib/client/upload";
   import UploadZone from "$lib/client/UploadZone.svelte";
+  import AccountPanel from "$lib/coding/AccountPanel.svelte";
+  import { LOCAL_ACCOUNT_ID, useAccounts, type RemoteAccount } from "$lib/remote/accounts.svelte";
+  import { useRemote } from "$lib/remote/remote-cache.svelte";
+  import type { RemoteApi } from "$lib/remote/api";
+  import type { RemoteCache } from "$lib/remote/remote-cache.svelte";
 
   /**
    * The coding page's document-tree sidebar — the app's whole file explorer (the
@@ -61,6 +66,7 @@
     projects,
     instr,
     confirm,
+    account = LOCAL_ACCOUNT_ID,
   }: {
     folder: string;
     currentName: string;
@@ -72,9 +78,14 @@
     /** this project's frame-device catalog (drives the .qdc export), null when none */
     instr: Instructions | null;
     confirm: ConfirmAsk;
+    /** the account whose projects this sidebar shows: LOCAL_ACCOUNT_ID (default) or an account id */
+    account?: string;
   } = $props();
 
   const prefs = useColors();
+  const accounts = useAccounts();
+  const remote = useRemote();
+  const isLocal = $derived(account === LOCAL_ACCOUNT_ID);
 
   let busy = $state(false);
   /** inline "new project" row of the switcher (opened by the dropdown's last row) */
@@ -145,16 +156,51 @@
   }
 
   const others = $derived(projects.filter((name) => name !== folder));
+  /** every cached remote project (all accounts), the open one excluded */
+  const remoteProjects = $derived.by(() => {
+    if (!accounts || !remote) return [];
+    const out: { accId: string; accLabel: string; name: string }[] = [];
+    for (const a of accounts.accounts) {
+      const c = remote.cache(a.id);
+      for (const p of c.projects) {
+        if (a.id === account && p.name === folder) continue;
+        out.push({ accId: a.id, accLabel: a.label, name: p.name });
+      }
+    }
+    return out;
+  });
   /** select items so the trigger keeps its label while the menu is closed */
   const items = $derived([
-    ...others.map((name) => ({ value: name, label: name })),
+    ...others.map((name) => ({ value: `local:${name}`, label: name })),
+    ...remoteProjects.map((p) => ({ value: `remote:${p.accId}::${p.name}`, label: `${p.name} · ${p.accLabel}` })),
     { value: NEW_PROJECT, label: "New project" },
   ]);
 
-  const tree = $derived(buildTree(docs, subs));
-  const rows = $derived(flattenRows(tree, new Set(subs.filter((p) => !closed.has(p)))));
+  /** remote documents of the open project, mapped onto the tree's summary shape */
+  const remoteDocs = $derived.by(() => {
+    if (isLocal || !remote) return [];
+    const c = remote.cache(account);
+    const proj = c.projects.find((p) => p.name === folder);
+    if (!proj) return [];
+    return (c.docs[proj.id] ?? [])
+      .map((d): ArticleSummary => ({
+        id: d.id,
+        project: d.project,
+        name: d.name,
+        kind: d.kind === "pdf" ? "pdf" : "text",
+        folder: d.folder,
+        updatedAt: d.updated,
+        codes: d.codes,
+        versions: 0,
+      }))
+      .sort((x, y) => compareNames(x.name, y.name));
+  });
+  /** the tree renders local documents or the open remote project's documents */
+  const treeDocs = $derived(isLocal ? docs : remoteDocs);
+  const tree = $derived(buildTree(treeDocs, isLocal ? subs : []));
+  const rows = $derived(flattenRows(tree, new Set(isLocal ? subs.filter((p) => !closed.has(p)) : [])));
   /** documents at the project root render after the folder rows */
-  const rootDocs = $derived(docs.filter((a) => a.folder === ""));
+  const rootDocs = $derived(treeDocs.filter((a) => a.folder === ""));
 
   /** every subfolder path, parents first (for "Move to" menus) */
   const subPaths = $derived([...subs].sort((a, b) => a.split("/").length - b.split("/").length || compareNames(a, b)));
@@ -173,11 +219,37 @@
       busy = false;
     }
   }
+  /** api + live token + cache for the open remote account (null when not signed in) */
+  function remoteCtx(): { api: RemoteApi; token: string; cache: RemoteCache } | null {
+    if (!accounts || !remote) return null;
+    const acc = accounts.accounts.find((a) => a.id === account);
+    if (!acc) return null;
+    const token = accounts.tokenOf(account);
+    if (token === null) return null;
+    return { api: accounts.api(acc), token, cache: remote.cache(account) };
+  }
   function openArticle(a: ArticleSummary): void {
-    void openDoc(a.project, a.name);
+    if (isLocal) void openDoc(a.project, a.name);
+    else void openRemoteDoc(account, a.project, a.name);
+  }
+  async function downloadDoc(a: ArticleSummary): Promise<void> {
+    if (isLocal) {
+      await downloadArticle(a);
+      return;
+    }
+    const ctx = remoteCtx();
+    if (ctx === null) return;
+    // remote documents are text (the server stores extracted text only)
+    downloadText(a.name, (await ctx.api.doc(ctx.token, a.id)).text, a.kind);
   }
   async function deleteDoc(a: ArticleSummary): Promise<void> {
-    await deleteArticle(a.id);
+    if (isLocal) await deleteArticle(a.id);
+    else {
+      const ctx = remoteCtx();
+      if (ctx === null) return;
+      await ctx.api.deleteDoc(ctx.token, a.id);
+      await ctx.cache.refreshDocs(ctx.api, ctx.token, a.project);
+    }
     // deleting the document we are looking at returns to the root, which reopens the last document
     if (a.project === folder && a.name === currentName) await goto(resolve("/"));
   }
@@ -200,10 +272,18 @@
     renamingId = null;
     if (!name || name === a.name) return;
     try {
-      await renameArticle(a.id, name);
+      if (isLocal) await renameArticle(a.id, name);
+      else {
+        const ctx = remoteCtx();
+        if (ctx === null) return;
+        await ctx.api.patchDoc(ctx.token, a.id, { name });
+        await ctx.cache.refreshDocs(ctx.api, ctx.token, a.project);
+      }
       treeErr = "";
-      if (a.project === folder && a.name === currentName)
-        await goto(resolve("/text/[folder]/[name]", { folder, name }));
+      if (a.project === folder && a.name === currentName) {
+        if (isLocal) await goto(resolve("/text/[folder]/[name]", { folder, name }));
+        else await openRemoteDoc(account, folder, name);
+      }
     } catch (e) {
       treeErr = String(e);
     }
@@ -226,6 +306,26 @@
   function docMenu(
     a: ArticleSummary,
   ): { label: string; icon: string; danger?: boolean; sep?: boolean; onSelect: () => void }[] {
+    if (!isLocal) {
+      // remote documents: open / download / rename / delete (no local moves, no duplicate)
+      return [
+        { label: "Open document", icon: "open_in_new", onSelect: () => openArticle(a) },
+        { label: "Download document", icon: "download", onSelect: () => void downloadDoc(a) },
+        { label: "Rename document", icon: "edit", onSelect: () => startRename(a) },
+        {
+          label: "Delete document",
+          icon: "delete",
+          danger: true,
+          sep: true,
+          onSelect: () =>
+            confirm.ask(
+              `Delete "${displayName(a.name, a.kind)}"?`,
+              "This removes the document and its entries on the server.",
+              () => void deleteDoc(a),
+            ),
+        },
+      ];
+    }
     const moves: { label: string; icon: string; onSelect: () => void }[] = [
       ...(a.folder !== ""
         ? [{ label: "Move to project root", icon: "drive_file_move", onSelect: () => void moveTo(a, "") }]
@@ -344,9 +444,38 @@
       busy = false;
     }
   }
+  /** the switcher opens a REMOTE project's first document (creating one when empty) */
+  async function switchRemoteProject(accId: string, name: string): Promise<void> {
+    if (!accounts || !remote) return;
+    const acc = accounts.accounts.find((a) => a.id === accId);
+    if (!acc) return;
+    busy = true;
+    treeErr = "";
+    try {
+      let token = accounts.tokenOf(accId);
+      if (token === null && (await accounts.refresh(accId))) token = accounts.tokenOf(accId);
+      if (token === null) {
+        treeErr = `${acc.label}: not connected`;
+        return;
+      }
+      const api = accounts.api(acc);
+      const cache = remote.cache(accId);
+      await cache.refreshProjects(api, token);
+      const proj = cache.projects.find((p) => p.name === name);
+      if (!proj) return;
+      await cache.refreshDocs(api, token, proj.id);
+      const first = [...(cache.docs[proj.id] ?? [])].sort((x, y) => compareNames(x.name, y.name))[0];
+      const doc = first ?? (await api.createDoc(token, proj.id, "Untitled"));
+      await openRemoteDoc(accId, name, doc.name);
+    } catch (e) {
+      treeErr = String(e);
+    } finally {
+      busy = false;
+    }
+  }
   /** dropdown pick: a project switches, the "new project" row opens the name input */
-  function pickProject(name: string): void {
-    if (name === NEW_PROJECT) {
+  function pickProject(value: string): void {
+    if (value === NEW_PROJECT) {
       // the sentinel is not a project: restore the chip label and open the name row
       picked = folder;
       newProj = true;
@@ -354,7 +483,13 @@
       projErr = "";
       return;
     }
-    void switchProject(name);
+    if (value.startsWith("remote:")) {
+      const rest = value.slice("remote:".length);
+      const sep = rest.indexOf("::");
+      void switchRemoteProject(rest.slice(0, sep), rest.slice(sep + 2));
+      return;
+    }
+    void switchProject(value.slice("local:".length));
   }
   async function newProject(): Promise<void> {
     const name = projName.trim();
@@ -381,7 +516,10 @@
     await goto(resolve("/"));
   }
 
-  $effect(() => watchSubfolders(folder, (paths) => (subs = paths)));
+  $effect(() => {
+    if (!isLocal) return; // remote projects have no local subfolder registry
+    return watchSubfoldersLocal(folder, (paths: string[]) => (subs = paths));
+  });
 </script>
 
 <aside class="docs">
@@ -396,12 +534,15 @@
         <span class="material-symbols-rounded switchmore" aria-hidden="true">unfold_more</span>
       </Select.Trigger>
       <Select.Content class="switchlist" side="bottom" align="start" sideOffset={8}>
-        {#each others as name (name)}
-          <Select.Item class="switchopt" value={name} label={name}>{name}</Select.Item>
+        {#each items as it (it.value)}
+          {#if it.value === NEW_PROJECT}
+            <Select.Item class="switchopt newopt" value={NEW_PROJECT} label="New project">
+              <span class="material-symbols-rounded" aria-hidden="true">create_new_folder</span>New project
+            </Select.Item>
+          {:else}
+            <Select.Item class="switchopt" value={it.value} label={it.label}>{it.label}</Select.Item>
+          {/if}
         {/each}
-        <Select.Item class="switchopt newopt" value={NEW_PROJECT} label="New project">
-          <span class="material-symbols-rounded" aria-hidden="true">create_new_folder</span>New project
-        </Select.Item>
       </Select.Content>
     </Select.Root>
   </div>
@@ -431,90 +572,74 @@
     </div>
   {/if}
   {#if projErr}<p class="pmsg">{projErr}</p>{/if}
-  <div class="dbrow">
-    <DatabaseControls compact project={folder} />
-  </div>
-  <div class="docshead">
-    <button
-      type="button"
-      class="newdoc"
-      disabled={busy}
-      title="New document in {target === '' ? folder : `${folder}/${target}`}"
-      aria-label="New document in {target === '' ? folder : `${folder}/${target}`}"
-      onclick={() => void newDoc()}
-    >
-      <span class="material-symbols-rounded" aria-hidden="true">note_add</span>
-    </button>
-  </div>
+  {#if isLocal}
+    <div class="dbrow">
+      <DatabaseControls compact project={folder} />
+    </div>
+  {/if}
+  {#if isLocal}
+    <div class="docshead">
+      <button
+        type="button"
+        class="newdoc"
+        disabled={busy}
+        title="New document in {target === '' ? folder : `${folder}/${target}`}"
+        aria-label="New document in {target === '' ? folder : `${folder}/${target}`}"
+        onclick={() => void newDoc()}
+      >
+        <span class="material-symbols-rounded" aria-hidden="true">note_add</span>
+      </button>
+    </div>
+  {/if}
   <div class="docsbody">
     <ScrollArea.Root class="wsarea" type="hover">
       <ScrollArea.Viewport class="wsview treeview">
-        <UploadZone {folder} sub={target} compact />
-        <!-- context-menu upload pickers: the menu items click these, the change handlers upload into menuSub -->
-        <input
-          class="menufile"
-          type="file"
-          multiple
-          accept=".txt,.md,.pdf,text/plain,application/pdf"
-          bind:this={menuFile}
-          onchange={(e) => void menuFilesChange(e)}
-        />
-        <input
-          class="menufile"
-          type="file"
-          webkitdirectory={true}
-          bind:this={menuDir}
-          onchange={(e) => void menuDirChange(e)}
-        />
-        {#if menuMsg}
-          <p class="menumsg">{menuMsg}</p>
+        {#if isLocal}
+          <UploadZone {folder} sub={target} compact />
+          <!-- context-menu upload pickers: the menu items click these, the change handlers upload into menuSub -->
+          <input
+            class="menufile"
+            type="file"
+            multiple
+            accept=".txt,.md,.pdf,text/plain,application/pdf"
+            bind:this={menuFile}
+            onchange={(e) => void menuFilesChange(e)}
+          />
+          <input
+            class="menufile"
+            type="file"
+            webkitdirectory={true}
+            bind:this={menuDir}
+            onchange={(e) => void menuDirChange(e)}
+          />
+          {#if menuMsg}
+            <p class="menumsg">{menuMsg}</p>
+          {/if}
         {/if}
         <div class="fgrow">
-          <RowMenu
-            items={[
-              { label: `New document in ${folder}`, icon: "note_add", onSelect: () => void newDoc() },
-              { label: "New folder", icon: "create_new_folder", onSelect: () => startNewSub("") },
-              { label: "Upload File", icon: "upload_file", onSelect: () => pickFiles(target) },
-              { label: "Upload Folder", icon: "drive_folder_upload", onSelect: () => pickFolder(target) },
-              ...(instr
-                ? [{ label: "Export .qdc", icon: "file_download", sep: true, onSelect: () => exportQdc() }]
-                : []),
-              {
-                label: "Delete project",
-                icon: "delete",
-                danger: true,
-                sep: true,
-                onSelect: () =>
-                  confirm.ask(
-                    `Delete project ${folder}/?`,
-                    "Deletes the project with all its documents, coding entries and its frame-device catalog.",
-                    () => void removeProject(),
-                  ),
-              },
-            ]}
-          >
-            {#snippet trigger({ props }: { props: Record<string, unknown> })}
-              <!-- role=button div (not a <button>): the menu pill nests inside it -->
-              <div
-                {...props}
-                class="fgroup sel"
-                role="button"
-                tabindex="0"
-                aria-pressed="true"
-                aria-expanded={open}
-                title="Selected upload target — uploads and new documents land in {target === ''
-                  ? `${folder}/`
-                  : `${folder}/${target}/`} · click folds the document list · right-click for project actions"
-                onclick={() => (open = !open)}
-                onkeydown={(e) => {
-                  if (e.key !== "Enter" && e.key !== " ") return;
-                  e.preventDefault();
-                  open = !open;
-                }}
-              >
-                <span class="material-symbols-rounded" aria-hidden="true">{open ? "folder_open" : "folder"}</span
-                >{target === "" ? `${folder}/` : `${folder}/${target}/`}
-                <span class="fcodes">{docs.length}</span>
+          {#snippet header(props: Record<string, unknown>)}
+            <!-- role=button div (not a <button>): the menu pill nests inside it -->
+            <div
+              {...props}
+              class="fgroup sel"
+              role="button"
+              tabindex="0"
+              aria-pressed="true"
+              aria-expanded={open}
+              title={isLocal
+                ? `Selected upload target — uploads and new documents land in ${target === "" ? `${folder}/` : `${folder}/${target}/`} · click folds the document list · right-click for project actions`
+                : "Click folds the document list"}
+              onclick={() => (open = !open)}
+              onkeydown={(e) => {
+                if (e.key !== "Enter" && e.key !== " ") return;
+                e.preventDefault();
+                open = !open;
+              }}
+            >
+              <span class="material-symbols-rounded" aria-hidden="true">{open ? "folder_open" : "folder"}</span
+              >{target === "" ? `${folder}/` : `${folder}/${target}/`}
+              <span class="fcodes">{treeDocs.length}</span>
+              {#if isLocal}
                 <button
                   type="button"
                   class="menubtn"
@@ -527,9 +652,40 @@
                 >
                   <span class="material-symbols-rounded" aria-hidden="true">more_vert</span>
                 </button>
-              </div>
-            {/snippet}
-          </RowMenu>
+              {/if}
+            </div>
+          {/snippet}
+          {#if isLocal}
+            <RowMenu
+              items={[
+                { label: `New document in ${folder}`, icon: "note_add", onSelect: () => void newDoc() },
+                { label: "New folder", icon: "create_new_folder", onSelect: () => startNewSub("") },
+                { label: "Upload File", icon: "upload_file", onSelect: () => pickFiles(target) },
+                { label: "Upload Folder", icon: "drive_folder_upload", onSelect: () => pickFolder(target) },
+                ...(instr
+                  ? [{ label: "Export .qdc", icon: "file_download", sep: true, onSelect: () => exportQdc() }]
+                  : []),
+                {
+                  label: "Delete project",
+                  icon: "delete",
+                  danger: true,
+                  sep: true,
+                  onSelect: () =>
+                    confirm.ask(
+                      `Delete project ${folder}/?`,
+                      "Deletes the project with all its documents, coding entries and its frame-device catalog.",
+                      () => void removeProject(),
+                    ),
+                },
+              ]}
+            >
+              {#snippet trigger({ props }: { props: Record<string, unknown> })}
+                {@render header(props)}
+              {/snippet}
+            </RowMenu>
+          {:else}
+            {@render header({})}
+          {/if}
         </div>
         {#if newSubAt === ""}
           <div class="nfrow subnew">
@@ -750,6 +906,7 @@
       </ScrollArea.Scrollbar>
     </ScrollArea.Root>
   </div>
+  <AccountPanel {confirm} />
 </aside>
 
 <style lang="scss">

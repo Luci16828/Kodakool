@@ -1,5 +1,5 @@
 import { compareNames } from "./display";
-import type { ArticleSummary } from "$lib/client/coding-db";
+import type { ArticleSummary } from "$lib/coding/doc";
 
 /**
  * Pure document-tree builder for the sidebar: registered subfolder paths +

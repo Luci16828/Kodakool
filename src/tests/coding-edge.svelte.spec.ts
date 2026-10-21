@@ -1,6 +1,12 @@
 import { userEvent } from "vitest/browser";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getArticle, listArticles, readCodes, saveLocalCatalog, savePdfData } from "$lib/client/coding-db";
+import {
+  getArticleByName as getArticle,
+  listArticles,
+  readCodes,
+  saveLocalCatalog,
+  savePdfData,
+} from "$lib/local/local-api";
 import { extractPdfDoc } from "$lib/coding/pdf";
 import { buildPdf } from "$lib/coding/pdf-sample";
 import type { CodeEntry } from "$lib/coding/types";
@@ -155,7 +161,7 @@ describe("coding page edge cases", () => {
     const doc = await extractPdfDoc(bytes);
     const entry: CodeEntry = { device: DEVICE_QUOTE, line: 1, range: [0, 19], excerpt: "Hello coding world." };
     const id = await seedArticle({ project: FOLDER, name: NAME, text: doc.text, kind: "pdf", entries: [entry] });
-    await savePdfData(id, bytes, doc.pages);
+    await savePdfData(id, bytes);
 
     renderArticle();
     await expect.element(page.getByRole("textbox")).toBeInTheDocument();

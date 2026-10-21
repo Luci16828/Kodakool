@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { getArticle, getLocalCatalog, listFolders, readCodes } from "$lib/client/coding-db";
+import { getArticleByName as getArticle, getLocalCatalog, listFolders, readCodes } from "$lib/local/local-api";
 import { EXAMPLE_DOC, EXAMPLE_PROJECT, seedExampleProject } from "$lib/client/examples";
-import { deleteFolder } from "$lib/client/coding-db";
+import { deleteFolder } from "$lib/local/local-api";
 import { resetArticles } from "./fixtures";
 
 /**

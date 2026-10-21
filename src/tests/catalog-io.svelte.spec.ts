@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { render } from "vitest-browser-svelte";
 import ColorProvider from "./ColorProvider.svelte";
 import ArticlePage from "../routes/text/[folder]/[name]/+page.svelte";
-import { getLocalCatalog, saveLocalCatalog } from "$lib/client/coding-db";
+import { getLocalCatalog, saveLocalCatalog } from "$lib/local/local-api";
 import { parseCatalogFile, parseCatalogJson, parseQdc } from "$lib/coding/import";
 import { toQdc } from "$lib/coding/qdc";
 import {

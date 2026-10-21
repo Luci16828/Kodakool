@@ -2,7 +2,7 @@
   import { Popover } from "bits-ui";
   import "material-symbols/rounded.css";
   import { snapshotLabel } from "$lib/coding/history-graph";
-  import type { ArticleVersion } from "$lib/client/coding-db";
+  import type { ArticleVersion } from "$lib/coding/doc";
 
   /**
    * The bar's snapshot-history popover: the `versions (N)` pill and the commit graph

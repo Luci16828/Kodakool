@@ -1,0 +1,662 @@
+/* Shared coding-page stylesheet: the full-viewport app layout, the workspace panes,
+   the bar, the CodeMirror surface + mark/chip styling. `@use`d by CodingDoc.svelte and
+   RemoteDoc.svelte so both coding pages render identically (each component gets its
+   own scoped copy, so the :global() rules keep working per component). */
+
+main {
+  max-width: 90cm;
+  margin: 0 auto;
+  /* no bottom padding: the panes scroll all the way down to the viewport edge */
+  padding: 1rem 2rem 0;
+  font-family: var(--font-sans, system-ui, sans-serif);
+  /* full-viewport app layout: side panels fill the viewport, bar sits above the editor */
+  height: 100vh;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+h1 {
+  margin: 0;
+  font-size: 1.3rem;
+}
+
+/* view tabs: one pill shell, one segment per available tab, active filled
+     (Bits renders these as plain buttons — the tablist is the app's own markup) */
+.tabs {
+  display: inline-flex;
+  flex: 0 0 auto; // never shrink — the segments would overflow the shrunk shell
+  border: 1px solid var(--outline, #888);
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--surface, white);
+
+  .tabbtn {
+    font: inherit;
+    font-size: 0.8rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    white-space: nowrap;
+    color: var(--on-surface-variant, #666);
+    padding: 0.15rem 0.7rem;
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+
+    .material-symbols-rounded {
+      font-size: 1rem;
+    }
+
+    & + .tabbtn {
+      border-left: 1px solid var(--outline, #888);
+    }
+
+    &:hover {
+      color: var(--primary, #6750a4);
+    }
+
+    &.on {
+      color: var(--on-primary-container, #21005d);
+      background: var(--primary-container, #e9ddff);
+    }
+  }
+}
+
+.rename {
+  font: inherit;
+  font-size: 1.3rem;
+  font-weight: 700;
+  margin: 0 0 0.45rem; /* keep the focus border clear of the bar's finish button */
+  width: min(100%, 26rem);
+  /* no global border-box in this app: without this the 0.4rem padding + 1px
+       border are ADDED to the width, so the input sticks 15px past the column */
+  box-sizing: border-box;
+  padding: 0.1rem 0.4rem;
+  background: var(--surface, white);
+  color: var(--on-surface);
+  border: 1px solid var(--primary, #6750a4);
+  border-radius: 6px;
+}
+
+.title {
+  font: inherit;
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  cursor: pointer;
+
+  &:hover {
+    text-decoration: underline dotted;
+  }
+}
+
+/* resizable workspace: PaneForge lays the panes out as a flex row and writes its
+     own inline display/width/height styles, so the overrides here need !important.
+     The group renders its own element → :global (scoped CSS cannot match it) */
+:global(.workspace) {
+  gap: 0.75rem;
+  flex: 1;
+  min-height: 0;
+  height: auto !important;
+  /* bleed into the main's right padding: the catalog pane's scrollbar rail lands
+       on the very right edge of the window. PaneForge pins inline `width: 100%`, and a
+       definite width makes a negative margin a no-op — so the width goes auto first */
+  width: auto !important;
+  margin-right: -2rem;
+}
+
+/* the panes render their own divs: they carry the column layout the asides expect */
+:global([data-pane]) {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* drag handle between two panes: a fixed-width hit area (so thickening never shifts
+     the layout) with a 1px line centered in it; the line thickens + takes the primary
+     color under the pointer, while dragged, and on keyboard focus */
+:global(.wshandle) {
+  position: relative;
+  flex: 0 0 9px;
+  align-self: stretch;
+  padding: 0;
+  border: none;
+  background: transparent;
+  touch-action: none;
+
+  &::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 50%;
+    width: 1px;
+    margin-left: -0.5px;
+    border-radius: 999px;
+    background: var(--outline, #888);
+    opacity: 0.5;
+    transition:
+      width 0.14s ease,
+      margin-left 0.14s ease,
+      opacity 0.14s ease,
+      background 0.14s ease;
+  }
+
+  &:hover::before,
+  &:focus-visible::before,
+  &:global([data-active])::before {
+    width: 5px;
+    margin-left: -2.5px;
+    opacity: 1;
+    background: var(--primary, #6750a4);
+  }
+}
+
+/* center column: title + bar sit directly above the editor, and the column fills
+     the pane so the editor's own scroller takes the whole remaining height */
+.doccol {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 0.5rem;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* colors customization popup (Melt Dialog) */
+@media (max-width: 50rem) {
+  /* stacked: back to normal page flow + scrolling */
+  main {
+    height: auto;
+    display: block;
+    overflow: visible;
+    padding-bottom: 1rem;
+  }
+
+  :global(.workspace) {
+    /* stacked: the panes become plain full-width blocks and the rails go away */
+    display: block !important;
+    height: auto !important;
+    /* no bleed in page flow: it would overflow the viewport sideways */
+    margin-right: 0;
+
+    :global([data-pane]) {
+      flex: none !important;
+      width: 100%;
+      overflow: visible !important;
+    }
+
+    :global(.wshandle) {
+      display: none;
+    }
+  }
+
+  .editor {
+    height: 70vh;
+  }
+}
+
+/* Bits ScrollArea (tree + catalog panes): the Root fills its flex parent, the
+     Viewport is the scroller (Bits sets its overflow inline), and Bits' own content
+     wrapper carries the column layout while staying tall enough to fill the pane */
+:global(.wsarea) {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+:global(.wsview) {
+  /* the app has no global border-box reset: without this the 10px gutter would add
+       to the viewport's width and the rail would sit on top of the rows */
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  /* gutter for the overlay rail: the content ends before it, so the rail never
+       sits on top of the rows it scrolls */
+  padding-right: 10px;
+}
+:global(.wsview > [data-scroll-area-content]) {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  min-width: 0;
+}
+:global(.treeview > [data-scroll-area-content]) {
+  gap: 0.15rem;
+}
+:global(.catview > [data-scroll-area-content]) {
+  gap: 0.4rem;
+}
+/* hover-fade scrollbar in the theme's colors (Bits fades it via data-state) */
+:global(.wsbar) {
+  width: 8px;
+  /* Bits pins the rail at right:0 of the Root: keep it flush with the pane's edge
+       (the catalog pane's rail therefore lands on the very right of the window) */
+  margin-right: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-variant, #ddd) 55%, transparent);
+  transition: opacity 0.18s ease;
+
+  &:global([data-state="hidden"]) {
+    opacity: 0;
+  }
+
+  &:global([data-state="visible"]) {
+    opacity: 1;
+  }
+}
+:global(.wsthumb) {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary, #6750a4) 55%, transparent);
+}
+
+/* the editor keeps CodeMirror's own scroller (sticky gutters, decorations and
+     scrollIntoView all anchor to it) — themed to match the panes above */
+:global(.cm-scroller) {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--primary, #6750a4) 45%, transparent) transparent;
+}
+:global(.cm-scroller::-webkit-scrollbar) {
+  width: 10px;
+  height: 10px;
+}
+:global(.cm-scroller::-webkit-scrollbar-thumb) {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary, #6750a4) 45%, transparent);
+  background-clip: content-box;
+}
+:global(.cm-scroller::-webkit-scrollbar-track) {
+  background: transparent;
+}
+
+/* with the minimap on, the strip IS the scrollbar: hide CodeMirror's native one
+     (Firefox `scrollbar-width` + the WebKit pseudo-element) so there is no second rail */
+.editor.minimapon :global(.cm-scroller) {
+  scrollbar-width: none;
+}
+.editor.minimapon :global(.cm-scroller::-webkit-scrollbar) {
+  width: 0;
+  height: 0;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  /* the bar never wraps: fixed pills keep their size, the flexible parts shrink */
+  flex-wrap: nowrap;
+  /* narrow window: the pills overflow sideways instead of being clipped away,
+       so every control stays reachable (a hidden overflow also let floating-ui
+       scroll the bar out from under an open popover) */
+  overflow-x: auto;
+  scrollbar-width: none;
+  gap: 0.75rem;
+  min-height: 1.6rem;
+  font-size: 0.8rem;
+  margin-bottom: 0.5rem;
+
+  > * {
+    flex: 0 0 auto;
+    /* nowrap bar: a shrinking pill must never break its own label */
+    white-space: nowrap;
+  }
+
+  .msg {
+    color: #0a6b2d;
+
+    /* the dark green is unreadable on the dark surface — use a light green there */
+    :root[data-theme="dark"] & {
+      color: #86d9a0;
+    }
+
+    &.err {
+      color: #b3261e;
+    }
+  }
+
+  .spacer {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+}
+/* editor + minimap share a row: the editor fills it, the minimap is a fixed strip
+     on the right. The row collapses (display:none) on the Analysis / Preview tabs,
+     exactly like the editor did, so those surfaces take the whole column */
+.editorrow {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  gap: 0.5rem;
+
+  &.hidden {
+    display: none;
+  }
+}
+
+.editor {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+
+  /* the Analysis / Preview surfaces take the column: the editor stays mounted
+       (CodeMirror keeps its DOM in here) and only steps out of the layout */
+  &.hidden {
+    display: none;
+  }
+
+  /* CodeMirror must fill the box so .cm-scroller scrolls internally —
+       otherwise the growing document pushes the whole page into scrolling */
+  :global(.cm-editor) {
+    height: 100%;
+  }
+}
+
+/* tab-content fade wrapper (transitions are element-only, so the PdfView /
+     AnalysisPanel components ride inside it): fills the column like the editor */
+.surfacefade {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+:global(.cm-editor.cm-focused) {
+  outline: none;
+}
+
+/* CodeMirror draws the caret as a border on .cm-cursor — the default dark caret
+     is invisible on the dark surface, so follow the theme (white caret in dark mode) */
+:global(.cm-editor .cm-cursor) {
+  border-left-color: var(--on-surface, #1c1b1f);
+}
+:root[data-theme="dark"] :global(.cm-editor .cm-cursor) {
+  border-left-color: #ffffff;
+}
+
+/* armed keeps the normal text cursor (the floating ctag already signals arming);
+     only smart select changes the cursor, to a crosshair, where it would be text */
+.editor.smartsel :global(.cm-content) {
+  cursor: crosshair;
+}
+
+/* selection is drawn by our own .cm-underline mark (see specs) instead of the
+     drawSelection layer: hide the native highlight */
+:global(.cm-editor ::selection) {
+  background: transparent;
+}
+
+/* save pill + versions popover trigger (Bits Popover.Trigger renders the button) */
+:global(.bar .save) {
+  font: inherit;
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  white-space: nowrap;
+  gap: 0.3rem;
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid var(--outline, #888);
+  background: var(--surface, white);
+  cursor: pointer;
+
+  .material-symbols-rounded {
+    font-size: 1rem;
+  }
+}
+:global(.bar .save.ghost) {
+  border-style: dashed;
+  opacity: 0.8;
+  /* the history glyph is sized in HistoryPanel.svelte: the span is rendered by that
+       component, so a nested rule here compiles scoped and never matches it — the glyph
+       silently fell back to the Material Symbols default (24px, oversized vs the bar's
+       16px icons, and it made the pill 8px taller than its neighbours) */
+}
+
+:global(.smart) {
+  cursor: pointer;
+  user-select: none;
+  flex: 0 0 auto;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  padding: 0.15rem 0.7rem;
+  border: 1px solid var(--outline, #888);
+  border-radius: 999px;
+  background: var(--surface, white);
+  color: var(--on-surface-variant, #666);
+
+  .material-symbols-rounded {
+    font-size: 1rem;
+  }
+}
+:global(.smart.on) {
+  background: var(--primary-container, #e8def8);
+  border-color: var(--primary, #6750a4);
+  color: var(--on-primary-container, #21005d);
+}
+
+/* cursor-following tag while armed (article .ctag parity) */
+.ctag {
+  position: fixed;
+  z-index: 10;
+  pointer-events: none;
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 3px;
+  background: var(--marker, #666);
+  color: var(--on-marker, white);
+  white-space: nowrap;
+}
+
+:root[data-theme="dark"] .ctag {
+  background: var(--marker-d, #aaa);
+  color: var(--on-marker-d, black);
+}
+
+:global(.cm-content) {
+  font-family: var(--font-serif, Georgia, serif);
+  line-height: 2.55;
+  padding: 1.35rem 0 0.5rem;
+}
+
+/* highlight bar hugging the text (article .coded parity); base and hover
+     gradients are both precomputed, the hot class swaps in --bars-hot. No abs
+     ::after: it misplaces itself on fragmented (wrapped, multi-line) marks */
+:global(.cm-underline) {
+  border-radius: 2px;
+  background-image: var(--bars, none);
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 100% 1.2em;
+  color: var(--on-bars, inherit);
+}
+
+:global(.cm-underline.cm-hot) {
+  background-image: var(--bars-hot, var(--bars, none));
+  color: var(--on-bars-hot, var(--on-bars, inherit));
+}
+
+:global(:root[data-theme="dark"] .cm-underline) {
+  background-image: var(--bars-d, none);
+  color: var(--on-bars-d, inherit);
+}
+
+:global(:root[data-theme="dark"] .cm-underline.cm-hot) {
+  background-image: var(--bars-hot-d, var(--bars-d, none));
+  color: var(--on-bars-hot-d, var(--on-bars-d, inherit));
+}
+
+/* YAML frontmatter block tint (.md documents, see code-md.ts) */
+:global(.cm-frontmatter) {
+  background: color-mix(in srgb, var(--outline, #888) 16%, transparent);
+  border-radius: 3px;
+}
+
+/* markdown + frontmatter token styles (.md documents, see code-md.ts) */
+:global(.cm-header-1) {
+  font-weight: 700;
+  font-size: 1.35em;
+}
+:global(.cm-header-2) {
+  font-weight: 700;
+  font-size: 1.2em;
+}
+:global(.cm-header-3) {
+  font-weight: 700;
+  font-size: 1.1em;
+}
+:global(.cm-header-4),
+:global(.cm-header-5),
+:global(.cm-header-6) {
+  font-weight: 700;
+}
+:global(.cm-strong) {
+  font-weight: 700;
+}
+:global(.cm-em) {
+  font-style: italic;
+}
+:global(.cm-link) {
+  color: var(--primary, #6750a4);
+  text-decoration: underline;
+}
+:global(.cm-url) {
+  color: var(--primary, #6750a4);
+}
+:global(.cm-code) {
+  font-family: var(--font-mono, monospace);
+  background: color-mix(in srgb, var(--outline, #888) 14%, transparent);
+  border-radius: 3px;
+}
+:global(.cm-quote) {
+  color: var(--on-surface-variant, #666);
+  font-style: italic;
+}
+:global(.cm-list) {
+  color: var(--primary, #6750a4);
+  font-weight: 700;
+}
+:global(.cm-hr),
+:global(.cm-processing) {
+  color: var(--outline, #888);
+}
+:global(.cm-property) {
+  color: #0080cc;
+}
+:global(.cm-string) {
+  color: #b11;
+}
+:global(.cm-number) {
+  color: #164;
+}
+:global(.cm-bool) {
+  color: #708;
+}
+:root[data-theme="dark"] :global(.cm-property) {
+  color: #7fc4ff;
+}
+:root[data-theme="dark"] :global(.cm-string) {
+  color: #ff9c9c;
+}
+:root[data-theme="dark"] :global(.cm-number) {
+  color: #9fd0ff;
+}
+:root[data-theme="dark"] :global(.cm-bool) {
+  color: #d8b4fe;
+}
+
+/* code label chips floating above the segment start (article .cid parity),
+     rendered by the zero-width inline widget */
+:global(.cm-tagline) {
+  position: relative;
+  display: inline-block;
+  width: 0;
+  height: 0;
+}
+
+/* line-height 2.55 with the 1.2em bar centered puts the bar top ~0.9em above
+     the baseline, where the chip row anchors */
+:global(.cm-tagrow) {
+  position: absolute;
+  bottom: 0.9em;
+  left: 0;
+  z-index: 2;
+  display: inline-flex;
+  gap: 3px;
+  white-space: nowrap;
+}
+
+:global(.cm-tag) {
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1.5;
+  padding: 1px 3px;
+  border-radius: 3px 3px 0 0;
+  background: var(--tag, #888);
+  color: var(--tag-on, #fff);
+  cursor: pointer;
+}
+
+:global(:root[data-theme="dark"] .cm-tag) {
+  background: var(--tag-d, #888);
+  color: var(--tag-on-d, #fff);
+}
+
+/* when a selection dims unrelated marks, the tags fade their color too
+     (color-mix toward transparent, never text opacity) */
+:global(.cm-tag.cm-tag-faded) {
+  background: color-mix(in srgb, var(--tag, #888) 16%, transparent);
+  color: color-mix(in srgb, var(--tag, #888) 72%, transparent);
+}
+
+:global(:root[data-theme="dark"] .cm-tag.cm-tag-faded) {
+  background: color-mix(in srgb, var(--tag-d, #888) 20%, transparent);
+  color: color-mix(in srgb, var(--tag-d, #888) 78%, transparent);
+}
+
+/* the chip whose popup is open (above it) drops its top corners so the popup
+     (bottom corners square, same color) reads as one connected card */
+:global(.cm-tag.cm-tag-open) {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+/* article .id:hover/.hot parity */
+:global(.cm-tag:hover),
+:global(.cm-tag-hot) {
+  filter: brightness(1.2);
+}
+
+:global(:root[data-theme="dark"] .cm-tag:hover),
+:global(:root[data-theme="dark"] .cm-tag-hot) {
+  filter: brightness(1.35);
+}
+
+/* entry detail popup: fixed card anchored above its tag, sharing the tag color
+     (bottom corners square + borderless bottom so it joins the chip below) */
+
+.status {
+  max-width: 40rem;
+  margin: 6rem auto;
+  padding: 0 2rem;
+  text-align: center;
+  color: var(--on-surface-variant);
+}
+
+:global(:root[data-theme="dark"] .tpopup) {
+  background: var(--tag-d, #888);
+  color: var(--tag-on-d, #fff);
+  border-color: var(--tag-d, #888);
+}

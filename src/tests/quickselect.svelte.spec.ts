@@ -1,6 +1,6 @@
 import { userEvent } from "vitest/browser";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { saveLocalCatalog } from "$lib/client/coding-db";
+import { saveLocalCatalog } from "$lib/local/local-api";
 import { Q_OPEN_MS } from "$lib/coding/quickselect";
 import type { CodeEntry } from "$lib/coding/types";
 import {

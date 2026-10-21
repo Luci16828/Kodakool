@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildSnapshotGraph, listSnapshots, MAIN_BRANCH, snapshotLabel } from "./history-graph";
-import type { ArticleVersion } from "$lib/client/coding-db";
+import type { ArticleVersion } from "$lib/coding/doc";
 
 /** Minimal snapshot: only the graph fields matter here. */
 function v(id: string, savedAt: number, parent: string | null, label?: string): ArticleVersion {

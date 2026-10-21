@@ -4,7 +4,7 @@
   import { useColors } from "$lib/coding/prefs.svelte";
   import { useTheme } from "$lib/coding/theme.svelte";
   import { buildSnapshotGraph, listSnapshots, snapshotLabel } from "$lib/coding/history-graph";
-  import type { ArticleVersion } from "$lib/client/coding-db";
+  import type { ArticleVersion } from "$lib/coding/doc";
 
   /**
    * Snapshot history drawn as a git-style commit graph in plain HTML + SVG:

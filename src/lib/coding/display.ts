@@ -1,4 +1,4 @@
-import type { ArticleKind, ArticleSummary } from "$lib/client/coding-db";
+import type { ArticleKind, ArticleSummary } from "$lib/coding/doc";
 
 /**
  * Document display helpers shared by every surface that lists articles

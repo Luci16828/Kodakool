@@ -45,7 +45,7 @@ const browser = await chromium.launch();
 const page = await browser.newPage();
 const problems = [];
 page.on("pageerror", (e) => problems.push(`pageerror: ${e.message}`));
-page.on("console", (m) => m.type() === "error" && problems.push(`console: ${m.text()}`));
+page.on("console", (m) => m.type() === "error" && problems.push(`console: ${m.text()} @ ${m.location().url}`));
 
 // 1. the root URL opens the app's single screen: with a fresh profile the example
 //    seeds, and the root redirects into its coding page
@@ -123,7 +123,9 @@ console.log(
 // 6. a sidebar document row opens its coding page
 const docLink = page.locator('.docs a[href*="Junge"]').first();
 await docLink.click();
-await page.waitForLoadState("networkidle");
+// networkidle is unusable with a SharedWorker: the worker's connection is a
+// permanent in-flight request — wait for the route + the editor instead
+await page.waitForURL(/\/text\//, { timeout: 20000 });
 const navEditor = await page
   .waitForSelector(".cm-content", { timeout: 20000 })
   .then(() => true)

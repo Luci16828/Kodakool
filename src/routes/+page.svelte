@@ -5,7 +5,7 @@
   import ColorsDialog from "$lib/coding/ColorsDialog.svelte";
   import { compareDocs, compareNames } from "$lib/coding/display";
   import { EXAMPLE_PROJECT, seedExampleProject } from "$lib/client/examples";
-  import { getArticle, listArticles, listFolders } from "$lib/client/coding-db";
+  import { listArticles, listProjects } from "$lib/local/local-api";
   import DatabaseControls from "$lib/client/DatabaseControls.svelte";
   import { lastDoc } from "$lib/client/last-doc";
   import { createProjectDoc, openDoc, openNewDoc } from "$lib/client/open-doc";
@@ -14,13 +14,14 @@
    * The app's entry point. The coding page is the app's single screen (its sidebar
    * is the project switcher + file explorer), so `/` resolves to a document: the
    * last one the user worked on (when it still exists), else the first document.
-   * With an empty database this minimal start screen stays visible: create a
+   * With an empty store this minimal start screen stays visible: create a
    * project, create a document in an existing project, import a database export.
+   * All reads go through the Local account's API — the in-worker server.
    */
   let colorsOpen = $state(false);
   let busy = $state(false);
   let errMsg = $state("");
-  /** every project: registered folders + projects that hold documents (sorted) */
+  /** every project name (sorted) */
   let projects = $state<string[]>([]);
   let resolving = $state(true);
   let newProj = $state(false);
@@ -30,29 +31,28 @@
     void (async () => {
       // this page's onMount runs BEFORE the layout's, so the layout's fire-and-forget
       // seed may not have started yet: seedExampleProject() is once-per-profile and
-      // coalesces an in-flight run, so awaiting it covers both orders
-      // a failed DB open (e.g. a migration cancelled by a second tab opening the
-      // store mid-migration) must not blank the start screen: getDb() retries on
-      // the next call, so a plain reload of a single tab recovers
-      let arts: Awaited<ReturnType<typeof listArticles>>;
+      // coalesces an in-flight run, so awaiting it covers both orders.
+      // A failed worker open must not blank the start screen: the next call retries.
       try {
         await seedExampleProject();
-        arts = await listArticles();
-      } catch {
-        resolving = false;
-        return;
-      }
-      const set = new Set(await listFolders());
-      for (const a of arts) set.add(a.project);
-      projects = [...set].sort(compareNames);
+        const projs = await listProjects();
+        projects = projs.map((p) => p.name).sort(compareNames);
+        const all: { project: string; name: string }[] = [];
+        for (const p of projs) for (const d of await listArticles(p.name)) all.push({ project: p.name, name: d.name });
 
-      const last = lastDoc();
-      if (last && (await getArticle(last.folder, last.name))) {
-        await openDoc(last.folder, last.name);
-        return;
+        const last = lastDoc();
+        if (last && all.some((d) => d.project === last.folder && d.name === last.name)) {
+          await openDoc(last.folder, last.name);
+          return;
+        }
+        const first = [...all].sort(compareDocs)[0];
+        if (first) {
+          await openDoc(first.project, first.name);
+          return;
+        }
+      } catch {
+        /* empty or unavailable store: the start screen below is the right answer */
       }
-      const first = [...arts].sort(compareDocs)[0];
-      if (first) await openDoc(first.project, first.name);
       resolving = false;
     })();
   });

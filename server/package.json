@@ -1,0 +1,36 @@
+{
+  "name": "kodakool-server",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Optional collaboration server for Kodakool: OIDC/password auth, shared projects, real-time Yjs document rooms.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.6"
+  },
+  "scripts": {
+    "dev": "node --experimental-strip-types --experimental-sqlite --watch src/main.ts",
+    "start": "node --experimental-strip-types --experimental-sqlite src/main.ts",
+    "check": "tsc --noEmit",
+    "test": "NODE_OPTIONS=--experimental-sqlite vitest run"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.1.5",
+    "@sqlite.org/sqlite-wasm": "3.54.1-build1",
+    "hono": "^4.13.13",
+    "jose": "6.2.12",
+    "lib0": "^0.2.114",
+    "openid-client": "^6.8.8",
+    "sql.js": "^1.15.1",
+    "ws": "^8.22.0",
+    "y-protocols": "^1.0.6",
+    "yjs": "^13.6.33",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "@types/sql.js": "^1.4.11",
+    "@types/ws": "^8.18.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8"
+  }
+}

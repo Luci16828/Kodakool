@@ -34,6 +34,9 @@ export default defineConfig({
   // material-color-utilities ships ESM with extensionless internal imports;
   // it must be bundled rather than externalized (build/prerender + vitest).
   ssr: { noExternal: ["@material/material-color-utilities"] },
+  // the Local account's in-worker server lives in the `server` workspace package:
+  // vite must be allowed to serve it into the module worker (dev fs allow-list)
+  server: { fs: { allow: ["."] } },
   test: {
     expect: { requireAssertions: true },
     // `pnpm test:coverage` — app-code coverage only: specs, fixtures and the
@@ -76,8 +79,10 @@ export default defineConfig({
             // squeezed the bar into overflow, so clicks landed on shifted pills
             viewport: { width: 1280, height: 900 },
           },
-          // every client test file shares one Dexie/RxDB store in parallel:
-          // the default 1s `expect.poll` timeout is too tight under that load
+          // every client test file drives the worker store through IndexedDB;
+          // one file at a time keeps the debounced full-image export a
+          // single-writer exchange (parallel files would overwrite each other's image)
+          fileParallelism: false,
           expect: { requireAssertions: true, poll: { timeout: 5000 } },
           include: ["src/**/*.svelte.{test,spec}.{js,ts}"],
           exclude: ["src/lib/server/**"],

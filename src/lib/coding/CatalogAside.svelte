@@ -17,7 +17,7 @@
   import { parseCatalogFile } from "$lib/coding/import";
   import type { PaletteOptions } from "$lib/coding/palette";
   import { toQdc } from "$lib/coding/qdc";
-  import { clearLocalCatalog, saveLocalCatalog } from "$lib/client/coding-db";
+  import { clearLocalCatalog, saveLocalCatalog } from "$lib/local/local-api";
   import { downloadText } from "$lib/client/download";
 
   /**
@@ -39,6 +39,8 @@
     onpick,
     onhover,
     styleFor,
+    onsave = saveLocalCatalog,
+    onclear = clearLocalCatalog,
   }: {
     folder: string;
     localCatalog?: Instructions | null;
@@ -51,6 +53,9 @@
     onpick: (id: string) => void;
     onhover: (id: string | null) => void;
     styleFor: (node: CatalogView) => string;
+    /** catalog persistence: RxDB by default, the remote page passes the server API */
+    onsave?: (folder: string, instr: Instructions) => Promise<void>;
+    onclear?: (folder: string) => Promise<void>;
   } = $props();
 
   let editCat = $state(false);
@@ -123,7 +128,7 @@
   }
   /** write a mutated catalog copy back to the store (view-mode row-menu edits) */
   function persist(copy: Instructions, note: string, failLabel: string): Promise<void> {
-    return saveLocalCatalog(folder, copy)
+    return onsave(folder, copy)
       .then(() => {
         localCatalog = copy;
         catIoMsg = note;
@@ -200,7 +205,7 @@
     catBusy = true;
     catMsg = "";
     try {
-      await saveLocalCatalog(folder, draft);
+      await onsave(folder, draft);
       localCatalog = plainClone(draft);
       editCat = false;
       draft = null;
@@ -211,7 +216,7 @@
     }
   }
   async function resetCat(): Promise<void> {
-    await clearLocalCatalog(folder);
+    await onclear(folder);
     localCatalog = null;
     cancelCat();
   }
@@ -235,7 +240,7 @@
     if (!file) return;
     try {
       const parsed = parseCatalogFile(file.name, await file.text());
-      await saveLocalCatalog(folder, parsed);
+      await onsave(folder, parsed);
       localCatalog = parsed;
       catIoMsg = `imported ${parsed.devices.length} top-level devices`;
     } catch (err) {

@@ -3,7 +3,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import ColorProvider from "./ColorProvider.svelte";
 import Root from "../routes/+page.svelte";
-import { createFolder, exportDatabase, getArticle, listFolders, saveLocalCatalog } from "$lib/client/coding-db";
+import {
+  createFolder,
+  exportDatabase,
+  getArticleByName as getArticle,
+  listFolders,
+  saveLocalCatalog,
+} from "$lib/local/local-api";
 import { resetArticles, seedArticle, testInstructions, uploadTo } from "./fixtures";
 
 const navigated = vi.hoisted(() => [] as string[]);

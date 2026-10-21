@@ -1,8 +1,7 @@
-import { createArticle, deleteArticle, getArticle, renameArticle, saveArticle, savePdfData } from "./coding-db";
+import { createArticleNamed, deleteArticle, listArticles, savePdfData } from "$lib/local/local-api";
 
 /**
- * File → article uploads, shared by the project page and the coding page
- * (both target one specific project).
+ * File → document uploads (the Local account's in-worker server owns the store).
  */
 
 export interface UploadResult {
@@ -13,7 +12,7 @@ export interface UploadResult {
 }
 
 /**
- * Turn one picked/dropped `.txt`/`.md`/`.pdf` file into an article inside `project`.
+ * Turn one picked/dropped `.txt`/`.md`/`.pdf` file into a document inside `project`.
  * A picked folder's `webkitRelativePath` is deliberately ignored: uploads always
  * target the project the UI states. `.pdf` is extracted in the browser (unpdf stays
  * out of the main bundle) and its original bytes are stored for the PDF view.
@@ -27,22 +26,22 @@ export async function uploadArticleFile(
 ): Promise<UploadResult> {
   const segs = (f.webkitRelativePath || f.name).split("/");
   const isPdfFile = /\.pdf$/i.test(f.name);
-  const name = segs[segs.length - 1].replace(/\.(txt|pdf)$/i, "").trim();
+  const keep = /\.(md|markdown)$/i.test(f.name);
+  const name = (keep ? segs[segs.length - 1] : segs[segs.length - 1].replace(/\.(txt|pdf)$/i, "")).trim();
   if (!name) return { ok: false, message: "" };
-  if (await getArticle(project, name)) return { ok: false, message: `"${name}" already exists` };
+  if ((await listArticles(project)).some((d) => d.name === name))
+    return { ok: false, message: `"${name}" already exists` };
 
   let text: string;
   let pdfBytes: Uint8Array | null = null;
-  let pdfPages = 0;
   if (isPdfFile) {
-    // client-side extraction (unpdf in the browser): the PDF never touches the server
+    // client-side extraction (unpdf in the browser): the PDF bytes then ride to the store
     onProgress?.(`extracting ${name}…`);
     try {
       const { extractPdfDoc } = await import("$lib/coding/pdf");
       pdfBytes = new Uint8Array(await f.arrayBuffer());
-      const doc = await extractPdfDoc(pdfBytes);
+      const doc = await extractPdfDoc(pdfBytes.slice());
       text = doc.text;
-      pdfPages = doc.pages;
     } catch (e) {
       return { ok: false, message: `pdf: ${String(e)}` };
     }
@@ -50,21 +49,17 @@ export async function uploadArticleFile(
     text = await f.text();
   }
 
-  const created = await createArticle(project, isPdfFile ? "pdf" : "text", folder);
   try {
-    await saveArticle(created.id, text, []);
-    if (pdfBytes !== null) await savePdfData(created.id, pdfBytes, pdfPages);
-    await renameArticle(created.id, name);
+    const created = await createArticleNamed(project, name, text, folder, isPdfFile ? "pdf" : "text");
+    if (pdfBytes !== null) await savePdfData(created.id, pdfBytes);
   } catch {
-    // a concurrent upload won the name (renameArticle keeps (project, name) unique):
-    // remove the scratch article so the store stays clean
-    await deleteArticle(created.id);
+    // a concurrent upload won the name ((project, name) is unique server-side)
     return { ok: false, message: `"${name}" already exists` };
   }
   return { ok: true, message: `uploaded ${name}` };
 }
 
-/** Folder picker: every `.txt`/`.md`/`.pdf` file inside becomes an article in `project` (in `folder`). */
+/** Folder picker: every `.txt`/`.md`/`.pdf` file inside becomes a document in `project` (in `folder`). */
 export async function uploadArticleFolder(project: string, input: HTMLInputElement, folder = ""): Promise<string[]> {
   const files = [...(input.files ?? [])].filter((f) => /\.(txt|md|markdown|pdf)$/i.test(f.name));
   input.value = "";

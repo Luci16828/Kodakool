@@ -9,7 +9,6 @@
    * popup anchors to them like editor chips.
    */
   import { SvelteSet } from "svelte/reactivity";
-  import { base64ToBytes } from "$lib/client/coding-db";
   import { markFill, markGradient } from "$lib/coding/paint";
   import type { PdfSpan } from "$lib/coding/pdf";
   import { elementSpan, sentenceSpan, snapWords } from "$lib/coding/segment";
@@ -38,9 +37,9 @@
     to: number;
   }
 
-  let props = $props<{
-    /** base64 PDF bytes (RxDB pdfs collection) */
-    data: string;
+  let props: {
+    /** original PDF bytes */
+    bytes: Uint8Array;
     /** canonical extracted text (entry offsets reference it) */
     text: string;
     marks: PdfMark[];
@@ -58,7 +57,7 @@
     onselect: (r: Range | null) => void;
     onpreview: (r: Range | null) => void;
     onhovermark: (id: string | null) => void;
-  }>();
+  } = $props();
 
   interface PageState {
     page: number;
@@ -87,12 +86,13 @@
   // ----- load + render pipeline -----
 
   $effect(() => {
-    const data = props.data;
+    // private copy: unpdf/pdf.js transfer (detach) the buffer they are handed,
+    // which would poison the caller's Uint8Array
+    const bytes = props.bytes.slice();
     let alive = true;
     void (async () => {
       const unpdf = await import("unpdf");
       const { extractPdfDoc } = await import("$lib/coding/pdf");
-      const bytes = base64ToBytes(data);
       // every consumer transfers (detaches) the buffer it is handed → private copies
       const copy = () => {
         const c = new Uint8Array(bytes.length);

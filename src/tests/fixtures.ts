@@ -1,10 +1,18 @@
-import { addVersion, createArticle, getDb, renameArticle, saveArticle, skipConflict } from "$lib/client/coding-db";
+import {
+  addVersion,
+  createArticleNamed,
+  deleteFolder,
+  listProjects,
+  setLocalCodes,
+  setLocalBackend,
+} from "$lib/local/local-api";
+import { AccountStore } from "$lib/remote/accounts.svelte";
 import type { Instructions } from "$lib/coding/instructions";
 import type { CodeEntry } from "$lib/coding/types";
 
 /**
  * Shared fixtures for the UI (browser) tests: a small frame-device catalog and
- * helpers to seed/wipe the local-first RxDB article store.
+ * helpers to seed/wipe the Local account — the server running in the SharedWorker.
  */
 
 export const DEVICE_FRAME = "11111111-1111-4111-8111-111111111111";
@@ -28,6 +36,19 @@ export const testInstructions: Instructions = {
 };
 
 /**
+ * Specs render pages directly (no layout), so the worker-backed Local store
+ * needs its backend wired by hand — a bare AccountStore (its localStorage
+ * $effect only runs for component-mounted stores, which the page wrappers do).
+ */
+let storeBound = false;
+export function localBackend(): void {
+  if (!storeBound) {
+    setLocalBackend(new AccountStore());
+    storeBound = true;
+  }
+}
+
+/**
  * Drive a file input in the browser (vitest has no setInputFiles): build a
  * DataTransfer with the files and fire `change` — the pattern every upload
  * spec needs (db import, catalog import, dropzone, folder picker).
@@ -43,16 +64,14 @@ export function uploadTo(selector: string, ...files: File[]): void {
   input.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
-/** Remove every article + entry + PDF + folder + local catalog so a test file never depends on the previous one. */
+/** Wipe every project (the server cascades docs + entries + PDFs + catalogs). */
 export async function resetArticles(): Promise<void> {
-  // a previous page's unmount autosave flush may race here: conflicts are expected, skip them —
-  // but a skipped delete would leak a stale doc into the next test, so re-pass until empty
+  localBackend();
+  // a previous page's unmount autosave flush may race here: re-pass until empty
   for (let pass = 0; pass < 6; pass++) {
-    const { articles, codes, catalogs, pdfs, folders } = await getDb();
-    const cols = [codes, articles, catalogs, pdfs, folders];
-    for (const c of cols) await Promise.all((await c.find().exec()).map((d) => d.remove().catch(skipConflict)));
-    const left = await Promise.all(cols.map((c) => c.find().exec()));
-    if (left.every((l) => l.length === 0)) break;
+    const projects = await listProjects();
+    if (projects.length === 0) break;
+    for (const p of projects) await deleteFolder(p.name);
     await new Promise((r) => setTimeout(r, 60));
   }
 }
@@ -68,11 +87,11 @@ export interface SeedArticle {
   versions?: string[];
 }
 
-/** Create an article with a fixed name/body/entries; returns its id. */
+/** Create a document with a fixed name/body/entries; returns its id. */
 export async function seedArticle(seed: SeedArticle): Promise<string> {
-  const created = await createArticle(seed.project, seed.kind ?? "text");
-  await saveArticle(created.id, seed.text, seed.entries ?? []);
-  await renameArticle(created.id, seed.name);
+  localBackend();
+  const created = await createArticleNamed(seed.project, seed.name, seed.text, "", seed.kind ?? "text");
+  if (seed.entries && seed.entries.length > 0) await setLocalCodes(created.id, seed.entries);
   for (const label of seed.versions ?? []) await addVersion(created.id, label);
   return created.id;
 }

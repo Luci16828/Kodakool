@@ -17,7 +17,7 @@ import {
   createFolder,
   createSubfolder,
   exportDatabase,
-  getArticle,
+  getArticleByName as getArticle,
   getLocalCatalog,
   getPdfData,
   listFolders,
@@ -25,7 +25,7 @@ import {
   readCodes,
   saveLocalCatalog,
   savePdfData,
-} from "$lib/client/coding-db";
+} from "$lib/local/local-api";
 import { extractPdfDoc } from "$lib/coding/pdf";
 import { buildPdf } from "$lib/coding/pdf-sample";
 import type { CodeEntry } from "$lib/coding/types";
@@ -154,7 +154,7 @@ describe("article coding page", () => {
   it("reports an article that is not in local storage", async () => {
     renderArticle("missing");
 
-    await expect.element(page.getByText("This article does not exist in local storage.")).toBeInTheDocument();
+    await expect.element(page.getByText("This document is not available on that account.")).toBeInTheDocument();
     await expect.element(page.getByRole("textbox")).not.toBeInTheDocument();
   });
 
@@ -164,12 +164,12 @@ describe("article coding page", () => {
     // status screen, but it must never LATCH there — the live query has to take over.
     renderArticle(NAME);
 
-    await expect.element(page.getByText("This article does not exist in local storage.")).toBeInTheDocument();
+    await expect.element(page.getByText("This document is not available on that account.")).toBeInTheDocument();
 
     await seedArticle({ project: FOLDER, name: NAME, text: TEXT, entries: [quoteEntry] });
 
     await ready();
-    await expect.element(page.getByText("This article does not exist in local storage.")).not.toBeInTheDocument();
+    await expect.element(page.getByText("This document is not available on that account.")).not.toBeInTheDocument();
     await expect.poll(marks).toBe(1);
   });
 
@@ -420,7 +420,7 @@ describe("article coding page", () => {
     await caretAtEnd();
     await userEvent.keyboard("!");
 
-    await expect.element(page.getByRole("button", { name: "Save" })).toBeInTheDocument();
+    // no Save pill: the Yjs room IS the store — the edit flows to REST by itself
     await expect.poll(editorText).toMatch(/Text\.!$/);
     await expect.poll(async () => (await getArticle(FOLDER, NAME))?.text).toMatch(/Text\.!$/);
   });
@@ -438,6 +438,7 @@ describe("article coding page", () => {
 
     // session undo (CodeMirror Mod-z): the entry remap must follow it back
     await userEvent.keyboard("{Control>}z{/Control}");
+    await expect.poll(editorText).toBe(TEXT);
     await expect.poll(async () => (await readCodes(id))[0]?.range).toEqual([4, 9]);
   });
 
@@ -769,7 +770,7 @@ describe("article coding page", () => {
     const list = await page.getByRole("listbox").element();
     await expect
       .poll(() => [...list.querySelectorAll("[data-value]")].map((el) => el.getAttribute("data-value")))
-      .toEqual(["archive", "other", "__new__"]);
+      .toEqual(["local:archive", "local:other", "__new__"]);
 
     await page.getByRole("option", { name: "other" }).click();
     // switching opens the target project's FIRST document
@@ -792,7 +793,8 @@ describe("article coding page", () => {
     await page.getByRole("button", { name: "Create" }).click();
 
     await expect.poll(async () => (await listFolders()).includes("field study")).toBe(true);
-    expect(navigated).toEqual(["/text/field study/Untitled 1.md"]);
+    // the document creation + open navigation lands just after the project appears
+    await expect.poll(() => navigated).toEqual(["/text/field study/Untitled 1.md"]);
   });
 
   it("opens an existing project when the new-project name is taken", async () => {
@@ -809,7 +811,7 @@ describe("article coding page", () => {
 
     // createFolder is idempotent: the name is registered once, a fresh document opens in it
     await expect.poll(async () => (await listFolders()).length).toBe(1);
-    expect(navigated).toEqual(["/text/test/Untitled 1.md"]);
+    await expect.poll(() => navigated).toEqual(["/text/test/Untitled 1.md"]);
   });
 
   it("returns to the root when the open document is deleted", async () => {
@@ -828,7 +830,7 @@ describe("article coding page", () => {
     await page.getByRole("button", { name: "Confirm" }).click();
 
     await expect.poll(async () => await getArticle(FOLDER, NAME)).toBeNull();
-    expect(navigated).toEqual(["/"]);
+    await expect.poll(() => navigated).toEqual(["/"]);
   });
 
   it("deletes a document from the tree after the confirmation countdown", async () => {
@@ -1148,7 +1150,7 @@ describe("article coding page", () => {
     const bytes = buildPdf(["Hello coding world.", "Zweite Zeile."]);
     const doc = await extractPdfDoc(bytes);
     const id = await seedArticle({ project: FOLDER, name: NAME, text: doc.text, kind: "pdf" });
-    await savePdfData(id, bytes, doc.pages);
+    await savePdfData(id, bytes);
 
     renderArticle();
     await expect.element(page.getByRole("textbox")).toBeInTheDocument();
@@ -1178,7 +1180,7 @@ describe("article coding page", () => {
     const doc = await extractPdfDoc(bytes);
     const entry: CodeEntry = { device: DEVICE_QUOTE, line: 1, range: [0, 19], excerpt: "Hello coding world." };
     const id = await seedArticle({ project: FOLDER, name: NAME, text: doc.text, kind: "pdf", entries: [entry] });
-    await savePdfData(id, bytes, doc.pages);
+    await savePdfData(id, bytes);
 
     renderArticle();
     await expect.element(page.getByRole("textbox")).toBeInTheDocument();
@@ -1191,7 +1193,7 @@ describe("article coding page", () => {
     const doc = await extractPdfDoc(bytes);
     const entry: CodeEntry = { device: DEVICE_QUOTE, line: 1, range: [0, 19], excerpt: "Hello coding world." };
     const id = await seedArticle({ project: FOLDER, name: NAME, text: doc.text, kind: "pdf", entries: [entry] });
-    await savePdfData(id, bytes, doc.pages);
+    await savePdfData(id, bytes);
 
     renderArticle();
     await expect.element(page.getByRole("textbox")).toBeInTheDocument();
@@ -1229,7 +1231,7 @@ describe("article coding page", () => {
     const bytes = buildPdf(["Hello coding world.", "Zweite Zeile."]);
     const doc = await extractPdfDoc(bytes);
     const id = await seedArticle({ project: FOLDER, name: NAME, text: doc.text, kind: "pdf", entries: [] });
-    await savePdfData(id, bytes, doc.pages);
+    await savePdfData(id, bytes);
 
     renderArticle();
     await expect.element(page.getByRole("textbox")).toBeInTheDocument();
@@ -1257,7 +1259,7 @@ describe("article coding page", () => {
     const bytes = buildPdf(["Hello coding world.", "Zweite Zeile."]);
     const doc = await extractPdfDoc(bytes);
     const id = await seedArticle({ project: FOLDER, name: NAME, text: doc.text, kind: "pdf", entries: [] });
-    await savePdfData(id, bytes, doc.pages);
+    await savePdfData(id, bytes);
 
     renderArticle();
     await ready();
@@ -1275,7 +1277,7 @@ describe("article coding page", () => {
     const bytes = buildPdf(["Hello coding world.", "Zweite Zeile."]);
     const doc = await extractPdfDoc(bytes);
     const id = await seedArticle({ project: FOLDER, name: NAME, text: doc.text, kind: "pdf", entries: [] });
-    await savePdfData(id, bytes, doc.pages);
+    await savePdfData(id, bytes);
 
     renderArticle();
     await ready();
@@ -1321,7 +1323,7 @@ describe("article coding page", () => {
     const doc = await extractPdfDoc(bytes);
     const entry: CodeEntry = { device: DEVICE_QUOTE, line: 1, range: [0, 19], excerpt: "Hello coding world." };
     const id = await seedArticle({ project: FOLDER, name: NAME, text: doc.text, kind: "pdf", entries: [entry] });
-    await savePdfData(id, bytes, doc.pages);
+    await savePdfData(id, bytes);
 
     renderArticle();
     await ready();

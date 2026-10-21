@@ -4,19 +4,19 @@ import {
   deleteSubfolder,
   duplicateArticle,
   exportDatabase,
-  getArticle,
-  getArticleById,
-  getDb,
+  getArticleByName as getArticle,
+  getArticle as getArticleById,
+  getPdfData,
   importDatabase,
-  integritySweep,
   listArticles,
   moveArticle,
   moveArticleProject,
   readCodes,
   renameSubfolder,
   savePdfData,
-  watchSubfolders,
-} from "$lib/client/coding-db";
+  type StoreBlob,
+  watchSubfoldersLocal as watchSubfolders,
+} from "$lib/local/local-api";
 import { DEVICE_QUOTE, resetArticles, seedArticle, testInstructions } from "./fixtures";
 import type { CodeEntry } from "$lib/coding/types";
 
@@ -70,13 +70,12 @@ describe("subfolders + file operations", () => {
 
   it("duplicates a document with its entries and PDF bytes", async () => {
     const id = await seedArticle({ project: FOLDER, name: "a", text: TEXT, entries: [quoteEntry] });
-    await savePdfData(id, new TextEncoder().encode("%PDF-1.4 fake"), 1);
+    await savePdfData(id, new TextEncoder().encode("%PDF-1.4 fake"));
     const copy = await duplicateArticle(id);
     expect(copy?.name).toBe("a copy");
     expect((await getArticleById(copy?.id ?? ""))?.text).toBe(TEXT);
     expect((await readCodes(copy?.id ?? "")).map((c) => c.device)).toEqual([DEVICE_QUOTE]);
-    const { pdfs } = await getDb();
-    expect(await pdfs.findOne(copy?.id ?? "").exec()).toBeTruthy();
+    expect(await getPdfData(copy?.id ?? "")).toBeTruthy();
     const again = await duplicateArticle(id);
     expect(again?.name).toBe("a copy 2");
     // duplicating the copy strips the suffix: "a copy" → base "a" → "a copy 3"
@@ -112,28 +111,14 @@ describe("subfolders + file operations", () => {
     const id = await seedArticle({ project: FOLDER, name: "a", text: TEXT, entries: [quoteEntry] });
     await createSubfolder(FOLDER, "sources");
     await moveArticle(id, "sources");
-    const dump = await exportDatabase();
-    expect(dump.version).toBe(5);
-    expect(dump.articles[0].folder).toBe("sources");
+    const dump = (await exportDatabase()) as StoreBlob;
+    expect(dump.version).toBe(1);
+    expect(dump.documents[0].folder).toBe("sources");
 
     await resetArticles();
     expect(await getArticle(FOLDER, "a")).toBeNull();
     await importDatabase(dump);
     expect((await getArticle(FOLDER, "a"))?.folder).toBe("sources");
     expect(await subsOf(FOLDER)).toEqual(["sources"]);
-  });
-
-  it("the sweep normalizes pre-v3 articles and pre-v1 folder docs", async () => {
-    const id = await seedArticle({ project: FOLDER, name: "a", text: TEXT });
-    const { articles, folders } = await getDb();
-    // simulate a pre-v3 store: strip the folder field + the subfolder registry
-    const art = await articles.findOne(id).exec();
-    await art?.patch({ folder: undefined });
-    await createSubfolder(FOLDER, "sources");
-    const fd = await folders.findOne(FOLDER).exec();
-    await fd?.patch({ subs: undefined });
-    await integritySweep();
-    expect((await getArticleById(id))?.folder).toBe("");
-    expect(await subsOf(FOLDER)).toEqual([]);
   });
 });

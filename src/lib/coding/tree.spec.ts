@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildTree, flattenRows, type TreeNode } from "./tree";
-import type { ArticleSummary } from "$lib/client/coding-db";
+import type { ArticleSummary } from "$lib/coding/doc";
 
 const doc = (name: string, folder = ""): ArticleSummary => ({
   id: name,

@@ -1,4 +1,10 @@
+packages:
+  - "."
+  - "server"
+
 allowBuilds:
-  "@parcel/watcher": false
-  esbuild: true
-  msgpackr-extract: false
+  "@parcel/watcher": true
+  msgpackr-extract: true
+  # y-websocket's optional y-leveldb server persistence is never imported
+  # (the room relay in server/src/realtime.ts persists into node:sqlite itself)
+  leveldown: false

@@ -37,10 +37,8 @@ async function mount(
 ) {
   const bytes = buildPdf(opts.lines ?? ["Hello coding world.", "Zweite Zeile."]);
   const doc = await extractPdfDoc(bytes);
-  let bin = "";
-  for (const b of bytes) bin += String.fromCharCode(b);
   render(PdfView, {
-    data: btoa(bin),
+    bytes: bytes.slice(),
     text: doc.text,
     marks,
     armed: opts.armed ?? false,

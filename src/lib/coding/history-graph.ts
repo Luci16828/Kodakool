@@ -1,4 +1,4 @@
-import type { ArticleVersion } from "$lib/client/coding-db";
+import type { ArticleVersion } from "$lib/coding/doc";
 
 /**
  * Snapshot history as a commit graph.

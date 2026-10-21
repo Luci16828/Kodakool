@@ -5,16 +5,24 @@
   import "material-symbols/rounded.css";
   import favicon from "$lib/assets/favicon.svg";
   import { provideColors } from "$lib/coding/prefs.svelte";
+  import { provideAccounts } from "$lib/remote/accounts.svelte";
+  import { provideRemote } from "$lib/remote/remote-cache.svelte";
+  import { setLocalBackend } from "$lib/local/local-api";
   import { seedExampleProject } from "$lib/client/examples";
 
   let { children } = $props();
 
   // the single color source for the whole app (theme + every marker palette)
   const prefs = provideColors();
+  // the collaboration layer: account sessions + their reactive caches;
+  // the Local account's data layer routes through the in-worker server
+  const accounts = provideAccounts();
+  provideRemote();
+  setLocalBackend(accounts);
 
   // first visit: seed the bundled example project into the local store
   onMount(() => {
-    void seedExampleProject();
+    seedExampleProject().catch((e) => console.warn("example seed failed:", e));
   });
   const vars = (t: Record<string, string>) =>
     [

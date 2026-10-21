@@ -1,11 +1,13 @@
 <script lang="ts">
-  import CodingDoc from "./CodingDoc.svelte";
+  import { LOCAL_ACCOUNT_ID } from "$lib/remote/accounts.svelte";
+  import RemoteDoc from "$lib/coding/RemoteDoc.svelte";
 
-  const { data } = $props();
+  const { data }: { data: { folder: string; name: string } } = $props();
 </script>
 
-<!-- SvelteKit reuses this component between documents on the same route; the key
-     forces a full remount (fresh editor, RxDB subscription, catalog) per document -->
+<!-- The Local account IS the in-worker server now: the local coding page is the SAME
+     RemoteDoc the remote accounts use, pointed at the worker (account "local").
+     The key forces a full remount (fresh Y.Doc + provider) per document. -->
 {#key `${data.folder}/${data.name}`}
-  <CodingDoc {data} />
+  <RemoteDoc data={{ account: LOCAL_ACCOUNT_ID, folder: data.folder, name: data.name }} />
 {/key}

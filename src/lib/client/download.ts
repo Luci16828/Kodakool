@@ -3,7 +3,8 @@
  * (database snapshot, .qdc / JSON catalogs, document downloads).
  */
 import { displayName } from "$lib/coding/display";
-import { base64ToBytes, getArticleById, getPdfData, type ArticleSummary } from "./coding-db";
+import { getArticle, getPdfData } from "$lib/local/local-api";
+import type { ArticleSummary } from "../coding/doc";
 
 /** Trigger a browser download for a Blob (object URL + click + revoke). */
 export function downloadBlob(filename: string, blob: Blob): void {
@@ -28,10 +29,10 @@ export async function downloadArticle(a: ArticleSummary): Promise<void> {
     const pdf = await getPdfData(a.id);
     if (pdf === null) return;
     // .slice() gives a fresh ArrayBuffer-backed view (BlobPart requires it)
-    downloadBlob(displayName(a.name, "pdf"), new Blob([base64ToBytes(pdf.data).slice()], { type: "application/pdf" }));
+    downloadBlob(displayName(a.name, "pdf"), new Blob([pdf.slice()], { type: "application/pdf" }));
     return;
   }
-  const text = (await getArticleById(a.id))?.text ?? "";
+  const text = (await getArticle(a.id))?.text ?? "";
   if (text === "") return;
   const filename = displayName(a.name, a.kind);
   downloadText(filename, text, /\.(md|markdown)$/i.test(filename) ? "text/markdown" : "text/plain");

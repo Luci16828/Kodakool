@@ -3,25 +3,32 @@
   import "material-symbols/rounded.css";
   import { SvelteSet } from "svelte/reactivity";
   import { displayName } from "$lib/coding/display";
-  import { base64ToBytes, getArticleById, getPdfData, type ArticleSummary } from "$lib/client/coding-db";
+  import type { ArticleSummary } from "$lib/coding/doc";
   import { downloadBlob, downloadText } from "$lib/client/download";
 
   /**
    * The bar's download picker: checkboxes over this project's documents,
    * PDFs download their original bytes, texts as .md/.txt. `liveText` supplies
-   * the open document's editor body (incl. unsaved edits).
+   * the open document's editor body (incl. unsaved edits). The picker touches no
+   * store itself: `getDocText`/`getPdfBytes` are the parent's account-aware accessors.
    */
   let {
     folder,
     docs,
     liveId,
     liveText,
+    getDocText,
+    getPdfBytes,
     open = $bindable(false),
   }: {
     folder: string;
     docs: ArticleSummary[];
     liveId: string;
     liveText: () => string;
+    /** stored text of a document, null when gone */
+    getDocText: (id: string) => Promise<string | null>;
+    /** original PDF bytes of a document, null when gone */
+    getPdfBytes: (id: string) => Promise<Uint8Array | null>;
     open?: boolean;
   } = $props();
 
@@ -43,17 +50,14 @@
     for (const a of docs) {
       if (!sel.has(a.id)) continue;
       if (a.kind === "pdf") {
-        const pdf = await getPdfData(a.id);
-        if (pdf !== null) {
+        const bytes = await getPdfBytes(a.id);
+        if (bytes !== null) {
           // .slice() gives a fresh ArrayBuffer-backed view (BlobPart requires it)
-          downloadBlob(
-            displayName(a.name, "pdf"),
-            new Blob([base64ToBytes(pdf.data).slice()], { type: "application/pdf" }),
-          );
+          downloadBlob(displayName(a.name, "pdf"), new Blob([bytes.slice()], { type: "application/pdf" }));
           continue;
         }
       }
-      const text = a.id === liveId ? liveText() : ((await getArticleById(a.id))?.text ?? "");
+      const text = a.id === liveId ? liveText() : ((await getDocText(a.id)) ?? "");
       if (text === "") continue;
       const filename = displayName(a.name, a.kind);
       downloadText(filename, text, /\.(md|markdown)$/i.test(filename) ? "text/markdown" : "text/plain");
