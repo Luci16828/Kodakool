@@ -83,4 +83,12 @@ describe("connect server dialog (auth methods + presets)", () => {
     await expect.element(page.getByLabelText("Account label")).toHaveValue("preset.example");
     await expect.element(page.getByRole("button", { name: "garbage" }).first()).not.toBeInTheDocument();
   });
+
+  it("marks the open account and gates its switch control", async () => {
+    await seedArticle({ project: "acc", name: "n.md", text: "x" });
+    renderArticle("n.md", "acc");
+    await ready();
+    // the open account (Local here) is marked — its own switch control is disabled
+    await expect.element(page.getByRole("button", { name: "Switch to Local" })).toBeDisabled();
+  });
 });

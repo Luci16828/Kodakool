@@ -906,7 +906,7 @@
       </ScrollArea.Scrollbar>
     </ScrollArea.Root>
   </div>
-  <AccountPanel {confirm} />
+  <AccountPanel {confirm} current={account} />
 </aside>
 
 <style lang="scss">

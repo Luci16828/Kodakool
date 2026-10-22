@@ -1,10 +1,12 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { goto } from "$app/navigation";
+  import { resolve } from "$app/paths";
   import { Dialog } from "bits-ui";
   import "material-symbols/rounded.css";
   import type { ConfirmAsk } from "$lib/coding/confirm.svelte";
   import { fetchAuthMethods, type AuthMethods } from "$lib/remote/api";
-  import { serverHost, useAccounts } from "$lib/remote/accounts.svelte";
+  import { LOCAL_ACCOUNT_ID, serverHost, useAccounts } from "$lib/remote/accounts.svelte";
   import { serverPresets } from "$lib/remote/presets";
   import { useRemote } from "$lib/remote/remote-cache.svelte";
 
@@ -19,8 +21,19 @@
    * The dialog ADAPTS to the server: GET /api/auth/methods decides which sign-in
    * methods are offered, the server's own OIDC provider arrives pre-filled (no URL
    * typing), and build-time presets (VITE_SERVERS) become one-click targets.
+   *
+   * Every account ROW is a switch control: Local opens the root page (last
+   * document), a remote account opens its first project's first document —
+   * the same contract as the project switcher. The open account's row is marked.
    */
-  let { confirm }: { confirm: ConfirmAsk } = $props();
+  let {
+    confirm,
+    current = LOCAL_ACCOUNT_ID,
+  }: {
+    confirm: ConfirmAsk;
+    /** the account the open document belongs to */
+    current?: string;
+  } = $props();
 
   // null when the component is mounted outside the app layout (unit specs): the panel renders nothing
   const accounts = useAccounts();
@@ -93,6 +106,51 @@
     if (label.trim() === "") label = serverHost(url);
   }
 
+  let switching = $state(false);
+
+  /** Local row: the root page reopens the last local document (start screen when empty) */
+  async function goLocal(): Promise<void> {
+    await goto(resolve("/"));
+  }
+
+  /**
+   * Remote row: open the account's FIRST project's first document (creating one
+   * when empty) — the account-side mirror of DocTree's switchRemoteProject.
+   */
+  async function switchTo(id: string): Promise<void> {
+    if (!accounts || !remote) return;
+    const acc = accounts.accounts.find((a) => a.id === id);
+    if (!acc) return;
+    switching = true;
+    msg = "";
+    try {
+      let token = accounts.tokenOf(id);
+      if (token === null && (await accounts.refresh(id))) token = accounts.tokenOf(id);
+      if (token === null) {
+        msg = `${acc.label}: not connected — sign in again`;
+        return;
+      }
+      const api = accounts.api(acc);
+      const cache = remote.cache(id);
+      await cache.refreshProjects(api, token);
+      const proj = [...cache.projects].sort((x, y) => x.name.localeCompare(y.name))[0];
+      if (!proj) {
+        msg = `${acc.label}: no projects on that server`;
+        return;
+      }
+      await cache.refreshDocs(api, token, proj.id);
+      const first = [...(cache.docs[proj.id] ?? [])].sort((x, y) => x.name.localeCompare(y.name))[0];
+      const doc = first ?? (await api.createDoc(token, proj.id, "Untitled"));
+      await goto(
+        resolve(`/text/${encodeURIComponent(id)}/${encodeURIComponent(proj.name)}/${encodeURIComponent(doc.name)}`),
+      );
+    } catch (e) {
+      msg = e instanceof Error ? e.message : String(e);
+    } finally {
+      switching = false;
+    }
+  }
+
   const canConnect = $derived(
     serverUrl.trim() !== "" &&
       (mode === "password" ? email.trim() !== "" && password !== "" : iss.trim() !== "" && clientId.trim() !== ""),
@@ -162,19 +220,39 @@
         </Dialog.Trigger>
       </div>
       <ul class="acctlist">
-        <li class="acctrow on" title="This browser's local database — always available">
-          <span class="material-symbols-rounded" aria-hidden="true">inventory_2</span>
-          <span class="acctmeta"><span class="acctname">Local</span><span class="acctsub">this browser</span></span>
+        <li
+          class="acctrow"
+          class:on={current === LOCAL_ACCOUNT_ID}
+          title="This browser's local database — always available"
+        >
+          <button
+            type="button"
+            class="acctswitch"
+            aria-label="Switch to Local"
+            disabled={current === LOCAL_ACCOUNT_ID}
+            onclick={() => void goLocal()}
+          >
+            <span class="material-symbols-rounded" aria-hidden="true">inventory_2</span>
+            <span class="acctmeta"><span class="acctname">Local</span><span class="acctsub">this browser</span></span>
+          </button>
         </li>
         {#each accounts.accounts as a (a.id)}
-          <li class="acctrow">
-            <span class="material-symbols-rounded" aria-hidden="true"
-              >{a.token === null ? "cloud_off" : "cloud_done"}</span
+          <li class="acctrow" class:on={current === a.id}>
+            <button
+              type="button"
+              class="acctswitch"
+              aria-label={`Switch to ${a.label}`}
+              disabled={current === a.id || switching}
+              onclick={() => void switchTo(a.id)}
             >
-            <span class="acctmeta">
-              <span class="acctname">{a.label}</span>
-              <span class="acctsub">{a.user?.name ?? "signed out"} · {serverHost(a.serverUrl)}</span>
-            </span>
+              <span class="material-symbols-rounded" aria-hidden="true"
+                >{a.token === null ? "cloud_off" : "cloud_done"}</span
+              >
+              <span class="acctmeta">
+                <span class="acctname">{a.label}</span>
+                <span class="acctsub">{a.user?.name ?? "signed out"} · {serverHost(a.serverUrl)}</span>
+              </span>
+            </button>
             <button
               type="button"
               class="menubtn"
@@ -187,6 +265,7 @@
           </li>
         {/each}
       </ul>
+      {#if msg}<p class="acctmsg">{msg}</p>{/if}
     </div>
   {/if}
 
@@ -349,6 +428,35 @@
       font-size: 1.05rem;
       flex: 0 0 auto;
     }
+  }
+  /* the row IS the switch control: transparent full-width button */
+  .acctswitch {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    flex: 1;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    border-radius: 6px;
+
+    &:disabled {
+      cursor: default;
+    }
+
+    &:not(:disabled):hover {
+      background: var(--surface-variant, rgba(0, 0, 0, 0.06));
+    }
+  }
+  .acctmsg {
+    margin: 0.25rem 0 0;
+    font-size: 0.7rem;
+    color: #b3261e;
   }
   .acctmeta {
     display: flex;
