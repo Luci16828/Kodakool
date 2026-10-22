@@ -3,7 +3,9 @@
   import { Dialog } from "bits-ui";
   import "material-symbols/rounded.css";
   import type { ConfirmAsk } from "$lib/coding/confirm.svelte";
+  import { fetchAuthMethods, type AuthMethods } from "$lib/remote/api";
   import { serverHost, useAccounts } from "$lib/remote/accounts.svelte";
+  import { serverPresets } from "$lib/remote/presets";
   import { useRemote } from "$lib/remote/remote-cache.svelte";
 
   /**
@@ -13,6 +15,10 @@
    * (login or signup) or OIDC (issuer + client id, the browser redirects to the
    * identity provider and lands on /auth/callback). Removing an account signs out
    * and drops its session; local data is never touched.
+   *
+   * The dialog ADAPTS to the server: GET /api/auth/methods decides which sign-in
+   * methods are offered, the server's own OIDC provider arrives pre-filled (no URL
+   * typing), and build-time presets (VITE_SERVERS) become one-click targets.
    */
   let { confirm }: { confirm: ConfirmAsk } = $props();
 
@@ -32,6 +38,60 @@
   let signup = $state(false);
   let iss = $state("");
   let clientId = $state("");
+
+  /** what the entered server supports: null until the probe lands */
+  let probe = $state<AuthMethods | null>(null);
+  let probeState = $state<"idle" | "checking" | "ok" | "down">("idle");
+  /** manual edits win over the server's pre-fill */
+  let issTouched = $state(false);
+  let clientIdTouched = $state(false);
+
+  const presets = $derived(open ? serverPresets() : []);
+  const normUrl = $derived(serverUrl.trim().replace(/\/+$/, ""));
+
+  // probe the entered URL (debounced); stale answers are discarded
+  $effect(() => {
+    const url = normUrl;
+    if (!open) return;
+    if (url === "") {
+      probe = null;
+      probeState = "idle";
+      return;
+    }
+    probeState = "checking";
+    const t = setTimeout(() => {
+      void (async () => {
+        try {
+          const m = await fetchAuthMethods(url);
+          if (normUrl !== url) return;
+          probe = m;
+          probeState = "ok";
+          if (m.oidc.enabled && m.oidc.issuer && m.oidc.clientId) {
+            if (!issTouched) iss = m.oidc.issuer;
+            if (!clientIdTouched) clientId = m.oidc.clientId;
+          }
+          if (!m.password.enabled && m.oidc.enabled) mode = "oidc";
+          if (!m.password.register) signup = false;
+        } catch {
+          if (normUrl !== url) return;
+          probe = null;
+          probeState = "down";
+        }
+      })();
+    }, 350);
+    return () => clearTimeout(t);
+  });
+
+  // a server without OIDC never leaves the dialog on the OIDC tab
+  $effect(() => {
+    if (!open) return;
+    if (!probe?.oidc.enabled && mode === "oidc") mode = "password";
+  });
+
+  function pickPreset(url: string): void {
+    serverUrl = url;
+    if (label.trim() === "") label = serverHost(url);
+  }
 
   const canConnect = $derived(
     serverUrl.trim() !== "" &&
@@ -133,6 +193,16 @@
   <Dialog.Overlay class="dlg-overlay" />
   <Dialog.Content class="accdlg" aria-label="Connect server">
     <h2>Connect server</h2>
+    {#if presets.length > 0}
+      <div class="accpresets" role="group" aria-label="Known servers">
+        {#each presets as p (p.url)}
+          <button type="button" class="pill accchip" class:used={normUrl === p.url} onclick={() => pickPreset(p.url)}>
+            <span class="material-symbols-rounded" aria-hidden="true">cloud</span>
+            {serverHost(p.url)}
+          </button>
+        {/each}
+      </div>
+    {/if}
     <label class="accfld">
       <span>Name</span>
       <input type="text" placeholder="my server" aria-label="Account label" bind:value={label} spellcheck="false" />
@@ -147,6 +217,15 @@
         spellcheck="false"
       />
     </label>
+    {#if probeState !== "idle"}
+      <p class="accprobe" class:down={probeState === "down"}>
+        {probeState === "checking"
+          ? "checking server…"
+          : probeState === "down"
+            ? "server not reachable — check the URL"
+            : `server ok: sign-in${probe?.password.register ? " + signup" : ""}${probe?.oidc.enabled ? " + OIDC" : ""}`}
+      </p>
+    {/if}
     <div class="acctabs" role="tablist" aria-label="Sign-in method">
       <button
         type="button"
@@ -158,16 +237,18 @@
       >
         Password
       </button>
-      <button
-        type="button"
-        role="tab"
-        class={`tabbtn ${mode === "oidc" ? "on" : ""}`}
-        aria-selected={mode === "oidc"}
-        aria-label="OIDC sign-in"
-        onclick={() => (mode = "oidc")}
-      >
-        OIDC
-      </button>
+      {#if probe?.oidc.enabled}
+        <button
+          type="button"
+          role="tab"
+          class={`tabbtn ${mode === "oidc" ? "on" : ""}`}
+          aria-selected={mode === "oidc"}
+          aria-label="OIDC sign-in"
+          onclick={() => (mode = "oidc")}
+        >
+          OIDC
+        </button>
+      {/if}
     </div>
     {#if mode === "password"}
       <label class="accfld">
@@ -178,10 +259,12 @@
         <span>Password</span>
         <input type="password" aria-label="Password" bind:value={password} autocomplete="current-password" />
       </label>
-      <label class="accchk">
-        <input type="checkbox" aria-label="Create the account first" bind:checked={signup} />
-        create the account first (signup)
-      </label>
+      {#if probe === null || probe.password.register}
+        <label class="accchk">
+          <input type="checkbox" aria-label="Create the account first" bind:checked={signup} />
+          create the account first (signup)
+        </label>
+      {/if}
     {:else}
       <label class="accfld">
         <span>Issuer (OIDC)</span>
@@ -337,6 +420,39 @@
     font-size: 0.75rem;
     color: var(--on-surface-variant, #666);
   }
+  /* build-time server presets: one-click sign-in targets */
+  .accpresets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin: 0 0 0.6rem;
+  }
+  .accchip {
+    font-size: 0.72rem;
+    padding: 0.2rem 0.6rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+
+    .material-symbols-rounded {
+      font-size: 0.95rem;
+    }
+
+    &.used {
+      background: var(--primary-container, #e8def8);
+      color: var(--on-primary-container, #21005d);
+      font-weight: 700;
+    }
+  }
+  .accprobe {
+    margin: 0 0 0.55rem;
+    font-size: 0.72rem;
+    color: var(--on-surface-variant, #666);
+
+    &.down {
+      color: #b3261e;
+    }
+  }
   .acctabs {
     display: flex;
     gap: 0;
@@ -353,6 +469,12 @@
 
     &:first-child {
       border-radius: 999px 0 0 999px;
+    }
+
+    /* a server with only one method: fully rounded pill */
+    &:first-child:last-child {
+      border-radius: 999px;
+      border-left: 1px solid var(--outline, #888);
     }
 
     &:last-child {

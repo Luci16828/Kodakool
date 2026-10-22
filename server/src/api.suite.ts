@@ -18,6 +18,8 @@ export function runApiSuite(newDb: () => Db | Promise<Db>): void {
     secret: new TextEncoder().encode("0123456789012345678901234567890123"),
     allowRegister: true,
     oidcAllow: null,
+    oidcIssuer: null,
+    oidcClientId: null,
   };
 
   async function app(): Promise<Hono> {
@@ -70,6 +72,38 @@ export function runApiSuite(newDb: () => Db | Promise<Db>): void {
       const h = await app();
       expect((await h.request("/api/projects")).status).toBe(401);
       expect((await h.request("/api/projects", { headers: { authorization: "Bearer garbage" } })).status).toBe(401);
+    });
+
+    it("reports its auth methods (public) and gates OIDC on its own provider", async () => {
+      const h = await app();
+      // public: no token — the connect dialog probes this before sign-in
+      const off = await (await h.request("/api/auth/methods")).json();
+      expect(off).toEqual({ password: { enabled: true, register: true }, oidc: { enabled: false } });
+      // an unconfigured server refuses OIDC flows: no open redirect via arbitrary issuers
+      const beg = await h.request("/api/auth/oidc/begin", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          iss: "https://evil.example",
+          clientId: "x",
+          redirectUri: "http://localhost:5173/auth/callback",
+        }),
+      });
+      expect(beg.status).toBe(403);
+      // with the server's own provider configured, the report advertises it
+      // (issuer + client id included → the client pre-fills, no URL typing)
+      const on = createApp({
+        cfg: { ...cfg, oidcIssuer: "https://id.example/realms/main", oidcClientId: "kodakool" },
+        db: await newDb(),
+        kdf: nodeCrypto,
+      });
+      expect(await (await on.request("/api/auth/methods")).json()).toEqual({
+        password: { enabled: true, register: true },
+        oidc: { enabled: true, issuer: "https://id.example/realms/main", clientId: "kodakool" },
+      });
+      // invite-only servers report register: false
+      const invite = createApp({ cfg: { ...cfg, allowRegister: false }, db: await newDb(), kdf: nodeCrypto });
+      expect((await (await invite.request("/api/auth/methods")).json()).password.register).toBe(false);
     });
 
     it("rotates refresh tokens", async () => {

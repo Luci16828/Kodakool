@@ -5,6 +5,9 @@
  * - DATA_DIR: directory for the SQLite file.
  * - ALLOW_REGISTER: "0" disables open username/password registration (invite-only servers).
  * - OIDC_ALLOW: comma-separated issuer allow-list; empty allows any issuer.
+ * - OIDC_ISSUER + OIDC_CLIENT_ID: the server's own OIDC provider. When BOTH are set,
+ *   OIDC is enabled and reported by GET /api/auth/methods so clients can offer a
+ *   one-click sign-in with the issuer/client id pre-filled. Without them OIDC is off.
  */
 export interface Config {
   port: number;
@@ -14,6 +17,9 @@ export interface Config {
   allowRegister: boolean;
   /** allowed OIDC issuers; null = any https issuer */
   oidcAllow: string[] | null;
+  /** the server's own OIDC provider (both set = OIDC enabled + advertised) */
+  oidcIssuer: string | null;
+  oidcClientId: string | null;
 }
 
 export function loadConfig(env: Record<string, string | undefined> = process.env): Config {
@@ -32,5 +38,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     secret: new TextEncoder().encode(secret),
     allowRegister: (env.ALLOW_REGISTER ?? "1") !== "0",
     oidcAllow: allow.length === 0 ? null : allow,
+    oidcIssuer: (env.OIDC_ISSUER ?? "").trim() || null,
+    oidcClientId: (env.OIDC_CLIENT_ID ?? "").trim() || null,
   };
 }

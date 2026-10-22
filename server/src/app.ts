@@ -58,6 +58,22 @@ export function createApp({ cfg, db, kdf }: AppDeps): Hono {
 
   app.get("/api/health", (c) => c.json({ ok: true, name: "kodakool-server" }));
 
+  /**
+   * Public auth-methods report: the client shows ONLY what this server supports —
+   * password sign-in (with the signup flag) and the server's own OIDC provider,
+   * issuer + client id included, so the connect dialog offers one-click sign-in
+   * instead of asking the user to type provider URLs.
+   */
+  app.get("/api/auth/methods", (c) =>
+    c.json({
+      password: { enabled: true, register: cfg.allowRegister },
+      oidc:
+        cfg.oidcIssuer && cfg.oidcClientId
+          ? { enabled: true, issuer: cfg.oidcIssuer, clientId: cfg.oidcClientId }
+          : { enabled: false },
+    }),
+  );
+
   /* ----- auth ----- */
 
   app.post("/api/auth/register", async (c) => {
@@ -91,6 +107,11 @@ export function createApp({ cfg, db, kdf }: AppDeps): Hono {
   });
 
   app.post("/api/auth/oidc/begin", async (c) => {
+    // OIDC is opt-in: the server advertises it only when its own provider is
+    // configured (OIDC_ISSUER + OIDC_CLIENT_ID) — no open redirect via arbitrary issuers
+    if (!cfg.oidcIssuer || !cfg.oidcClientId) {
+      return c.json({ error: "oidc is not enabled on this server" }, 403);
+    }
     const body = oidcBeginBody.safeParse(await c.req.json().catch(() => null));
     if (!body.success) return c.json({ error: body.error.issues[0]?.message ?? "invalid body" }, 400);
     try {

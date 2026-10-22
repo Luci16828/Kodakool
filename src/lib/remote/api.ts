@@ -26,6 +26,22 @@ export class ApiError extends Error {
   }
 }
 
+export const authMethodsSchema = z.object({
+  password: z.object({ enabled: z.boolean(), register: z.boolean() }),
+  oidc: z.object({
+    enabled: z.boolean(),
+    /** the server's own provider — pre-fills the connect dialog when advertised */
+    issuer: z.string().url().optional(),
+    clientId: z.string().min(1).optional(),
+  }),
+});
+export type AuthMethods = z.infer<typeof authMethodsSchema>;
+
+/** Probe a server URL's auth methods before sign-in (public endpoint). */
+export function fetchAuthMethods(serverUrl: string): Promise<AuthMethods> {
+  return new RemoteApi(serverUrl.replace(/\/+$/, "")).methods();
+}
+
 /**
  * REST client for the optional collaboration server. One instance per server URL;
  * the bearer token is passed per call (accounts are independent sessions).
@@ -70,6 +86,14 @@ export class RemoteApi {
   }
 
   /* ----- auth ----- */
+
+  /**
+   * Public auth-methods report (no token — probe BEFORE sign-in): shows only the
+   * sign-in options this server supports, and its own OIDC provider pre-filled.
+   */
+  methods(): Promise<AuthMethods> {
+    return this.call("/api/auth/methods", authMethodsSchema);
+  }
 
   register(
     email: string,

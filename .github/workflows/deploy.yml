@@ -44,6 +44,9 @@ jobs:
           # (see vite.config.ts) has to match. Derived from the repo name, so the same
           # workflow works on any repo the app is published from.
           BASE_PATH: /${{ github.event.repository.name }}
+          # Optional repo variable: comma-separated collaboration-server URLs baked
+          # into the client as one-click sign-in presets (Settings → Secrets → Variables)
+          VITE_SERVERS: ${{ vars.VITE_SERVERS }}
         run: pnpm build
 
       - name: Upload artifact

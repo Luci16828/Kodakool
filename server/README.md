@@ -25,14 +25,24 @@ Requires Node >= 22.6 (`--experimental-strip-types --experimental-sqlite`).
 
 ## Configuration (environment)
 
-| Var              | Default   | Meaning                                                        |
-| ---------------- | --------- | -------------------------------------------------------------- |
-| `SECRET`         | —         | session JWT signing key, **min 32 chars** (required)           |
-| `PORT`           | `8787`    | listen port                                                    |
-| `HOST`           | `0.0.0.0` | bind address                                                   |
-| `DATA_DIR`       | `./data`  | directory of the SQLite file (+ room state)                    |
-| `ALLOW_REGISTER` | `1`       | `0` disables open username/password registration (invite-only) |
-| `OIDC_ALLOW`     | —         | comma-separated issuer allow-list; empty = any `https` issuer  |
+| Var              | Default   | Meaning                                                                    |
+| ---------------- | --------- | -------------------------------------------------------------------------- |
+| `SECRET`         | —         | session JWT signing key, **min 32 chars** (required)                       |
+| `PORT`           | `8787`    | listen port                                                                |
+| `HOST`           | `0.0.0.0` | bind address                                                               |
+| `DATA_DIR`       | `./data`  | directory of the SQLite file (+ room state)                                |
+| `ALLOW_REGISTER` | `1`       | `0` disables open username/password registration (invite-only)             |
+| `OIDC_ALLOW`     | —         | comma-separated issuer allow-list; empty = any `https` issuer              |
+| `OIDC_ISSUER`    | —         | the server's own OIDC provider issuer (enables OIDC with `OIDC_CLIENT_ID`) |
+| `OIDC_CLIENT_ID` | —         | the OAuth client id registered at that issuer for this app                 |
+
+**Auth methods are advertised**: `GET /api/auth/methods` (public) reports
+`{ password: { enabled, register }, oidc: { enabled, issuer?, clientId? } }`.
+The app's connect dialog probes it and shows ONLY what the server supports —
+with `OIDC_ISSUER` + `OIDC_CLIENT_ID` set, the OIDC tab appears with the
+provider pre-filled (no URL typing). OIDC flows are **off by default**:
+`/api/auth/oidc/begin` answers 403 on a server without its own provider
+configured, so there is no open redirect via arbitrary issuers.
 
 ## API surface
 

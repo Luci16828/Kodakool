@@ -118,6 +118,8 @@ function appReady(): Promise<ReturnType<typeof createApp>> {
         secret,
         allowRegister: true,
         oidcAllow: null,
+        oidcIssuer: null, // the Local store never signs anyone in: no OIDC provider
+        oidcClientId: null,
       };
       return createApp({ cfg, db, kdf: webCrypto });
     });
