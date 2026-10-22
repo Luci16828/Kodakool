@@ -32,7 +32,9 @@
 
   /** snapshot under the dot cursor — the panel's text preview */
   let preview = $state<ArticleVersion | null>(null);
-  let HistoryGraphComp = $state<typeof import("$lib/coding/HistoryGraph.svelte").default | null>(null);
+  // a component function must stay UNproxied — a $state proxy wraps it and the mounted
+  // component loses its init context (effect_orphan on a cold/reloaded module graph)
+  let HistoryGraphComp = $state.raw<typeof import("$lib/coding/HistoryGraph.svelte").default | null>(null);
 
   // the graph is only needed once the popover opens: keep it out of the main chunk
   $effect(() => {

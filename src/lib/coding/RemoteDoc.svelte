@@ -121,7 +121,9 @@
   const isPdf = $derived(kind === "pdf");
   /** stored PDF bytes + lazily loaded PdfView chunk (unpdf stays out of the main bundle) */
   let pdfBytes = $state<Uint8Array | null>(null);
-  let PdfViewComp = $state<typeof import("$lib/coding/PdfView.svelte").default | null>(null);
+  // component functions stay UNPROXIED: a $state proxy wraps the function and the
+  // mounted component loses its init context (effect_orphan on a cold module graph)
+  let PdfViewComp = $state.raw<typeof import("$lib/coding/PdfView.svelte").default | null>(null);
   let dlOpen = $state(false);
   let smart = $state(true);
   let tab = $state<Tab>("coding");

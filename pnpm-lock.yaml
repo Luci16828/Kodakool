@@ -133,6 +133,12 @@ importers:
       bits-ui:
         specifier: ^2.19.5
         version: 2.19.5(@internationalized/date@3.12.4)(@sveltejs/kit@2.70.3(@sveltejs/vite-plugin-svelte@7.3.1(svelte@5.57.2)(vite@8.3.4(@types/node@26.6.5)(sass@1.105.2)(yaml@2.9.1)))(svelte@5.57.2)(typescript@6.0.3)(vite@8.3.4(@types/node@26.6.5)(sass@1.105.2)(yaml@2.9.1)))(svelte@5.57.2)
+      hono:
+        specifier: ^4.13.13
+        version: 4.13.13
+      jose:
+        specifier: 6.2.12
+        version: 6.2.12
       material-symbols:
         specifier: ^0.47.5
         version: 0.47.6
@@ -142,12 +148,18 @@ importers:
       oidc-client-ts:
         specifier: ^3.5.0
         version: 3.5.0
+      openid-client:
+        specifier: ^6.8.8
+        version: 6.8.8
       paneforge:
         specifier: ^1.0.2
         version: 1.0.2(svelte@5.57.2)
       rxdb:
         specifier: ^17.5.0
         version: 17.6.0(rxjs@7.8.2)(supports-color@7.2.0)(typescript@6.0.3)
+      sql.js:
+        specifier: ^1.15.1
+        version: 1.15.1
       unpdf:
         specifier: ^1.8.1
         version: 1.9.1
