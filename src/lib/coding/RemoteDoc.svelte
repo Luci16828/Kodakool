@@ -40,6 +40,7 @@
   import type { CodeEntry } from "$lib/coding/types";
   import type { ArticleSummary, ArticleVersion } from "$lib/coding/doc";
   import { watchArticlesLocal, watchLocalCatalog, watchProjectsLocal } from "$lib/local/local-api";
+  import { onLocalMutated } from "$lib/local/worker-client";
   import {
     codingMarks,
     smartSelect,
@@ -885,6 +886,7 @@
           await cache.refreshAll(a, tk);
           if (pid !== "" && cache.projects.some((p) => p.id === pid)) localCatalog = await cache.getCatalog(a, tk, pid);
         })().catch(() => undefined);
+        scheduleVersionsRefresh();
       }, 250);
     };
     const base = acc.kind === "remote" ? acc.serverUrl.replace(/\/+$/, "") : "";
@@ -906,6 +908,28 @@
       window.removeEventListener("focus", onActive);
       es.close();
     };
+  }
+
+  /**
+   * The snapshot list is REST data (the pill shows `versions (N)`): a snapshot
+   * taken in ANOTHER tab must move this tab's graph too. A whole-doc fetch per
+   * mutation burst would be noise, so the refresh waits for the store to go
+   * quiet (typing materializes in bursts; snapshots arrive as single events).
+   */
+  let versionsTimer: ReturnType<typeof setTimeout> | undefined;
+  function scheduleVersionsRefresh(): void {
+    if (versionsTimer !== undefined) clearTimeout(versionsTimer);
+    versionsTimer = setTimeout(() => {
+      versionsTimer = undefined;
+      if (api === null || token === "" || docId === "") return;
+      void (async () => {
+        try {
+          setVersions((await api.doc(token, docId)).versions);
+        } catch {
+          /* the doc was deleted under us: the tree watch owns the recovery */
+        }
+      })();
+    }, 2000);
   }
 
   /* ----- load: account → project → document → room ----- */
@@ -1052,6 +1076,8 @@
       if (missing && docs.some((d) => d.project === data.folder && d.name === data.name)) void load();
     });
     const unsubFolders = watchProjectsLocal((names) => (folders = names));
+    // local snapshot list follows snapshots taken in other tabs
+    const offVersions = accounts?.byId(data.account)?.kind === "local" ? onLocalMutated(scheduleVersionsRefresh) : null;
     // local catalog follows every store change, from this tab AND the other tabs.
     // Broadcast echoes carry identical content: re-assigning them would re-key the
     // catalog tree mid-animation, so only real changes flow through.
@@ -1065,12 +1091,14 @@
       : null;
     return () => {
       if (recommitTimer !== undefined) clearTimeout(recommitTimer);
+      if (versionsTimer !== undefined) clearTimeout(versionsTimer);
       pop.destroy();
       provider?.destroy();
       ydoc?.destroy();
       view?.destroy();
       unsubDocs();
       unsubFolders();
+      offVersions?.();
       unsubCatalog?.();
       live?.();
       live = null;

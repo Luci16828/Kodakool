@@ -3,13 +3,16 @@ import * as Y from "yjs";
 import { LOCAL_BASE, ensureLocalSession, localFetch, onLocalMutated } from "$lib/local/worker-client";
 import { PortProvider } from "$lib/local/port-provider";
 import {
+  addVersion,
   createArticleNamed,
   createFolder,
   saveLocalCatalog,
   watchLocalCatalog,
   watchProjectsLocal,
 } from "$lib/local/local-api";
-import { localBackend, resetArticles, testInstructions } from "./fixtures";
+import { localBackend, resetArticles, seedArticle, testInstructions } from "./fixtures";
+import { ready, renderArticle, unmountArticle } from "./article-harness";
+import { page } from "vitest/browser";
 import type { Instructions } from "$lib/coding/instructions";
 
 /**
@@ -37,6 +40,7 @@ describe("live store sync (worker broadcast)", () => {
   beforeAll(() => localBackend());
 
   afterEach(async () => {
+    unmountArticle();
     await resetArticles();
     await quiet();
   });
@@ -116,5 +120,19 @@ describe("live store sync (worker broadcast)", () => {
     provider.destroy();
     ydoc.destroy();
     off();
+  });
+
+  it("a snapshot created through REST re-renders the open document's version pill", async () => {
+    // versions are REST data: the broadcast must reach the OPEN coding page too
+    // (idle-coalesced whole-doc refetch, 2 s after the store goes quiet)
+    const id = await seedArticle({ project: "live", name: "snaps.md", text: "snapshot target" });
+    renderArticle("snaps.md", "live");
+    await ready();
+    await expect.element(page.getByRole("button", { name: "versions (0)" })).toBeInTheDocument();
+    await addVersion(id, "snap one");
+    // broadcast → 2 s idle-coalesced doc refetch → pill re-renders (Title Case label!)
+    await expect
+      .poll(() => [...document.querySelectorAll("button")].some((b) => (b.textContent ?? "").includes("Versions (1)")))
+      .toBe(true);
   });
 });

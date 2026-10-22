@@ -70,8 +70,8 @@ pageB.on("pageerror", (e) => console.log("B pageerror:", e.message.slice(0, 300)
 pageA.on("console", (m) => m.type() === "error" && console.log("A console:", m.text().slice(0, 200)));
 pageB.on("console", (m) => m.type() === "error" && console.log("B console:", m.text().slice(0, 200)));
 
-await pageA.goto(urlA, { waitUntil: "networkidle" });
-await pageB.goto(urlB, { waitUntil: "networkidle" });
+await pageA.goto(urlA, { waitUntil: "domcontentloaded" });
+await pageB.goto(urlB, { waitUntil: "domcontentloaded" });
 
 const ok = [];
 const check = (name, cond) => {
@@ -129,7 +129,7 @@ check("B shows peer chip (Ada)", (await pageB.textContent(".peers"))?.includes("
 check("A shows live pill", (await pageA.textContent(".sync"))?.includes("live"));
 
 // persistence: reload A, text survives through the server room
-await pageA.reload({ waitUntil: "networkidle" });
+await pageA.reload({ waitUntil: "domcontentloaded" });
 await pageA.waitForSelector(".cm-content", { timeout: 15000 });
 await pageA
   .waitForFunction(() => document.querySelector(".cm-content")?.textContent?.includes("A sees me"), undefined, {
