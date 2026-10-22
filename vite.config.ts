@@ -53,6 +53,7 @@ export default defineConfig({
       "lib0/*",
       "unpdf",
       "hono",
+      "hono/streaming",
       "jose",
       "jose/*",
       "openid-client",

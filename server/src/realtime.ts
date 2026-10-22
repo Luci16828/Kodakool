@@ -4,6 +4,7 @@ import * as syncProtocol from "y-protocols/sync";
 import * as awarenessProtocol from "y-protocols/awareness";
 import * as encoding from "lib0/encoding";
 import * as decoding from "lib0/decoding";
+import { storeEvents } from "./events.ts";
 
 /**
  * Real-time document rooms: the y-websocket wire protocol (sync + awareness relay)
@@ -209,6 +210,11 @@ export function materialize(db: Db, docId: string, ydoc: Y.Doc): void {
     Date.now(),
     docId,
   );
+  // the tree's codes/updated columns just moved — tell every SSE client to refetch.
+  // (Debounced by the room's persist timer; clients coalesce the resulting refetches.)
+  const row = db.prepare("SELECT project_id FROM documents WHERE id = ?").get(docId) as
+    { project_id: string } | undefined;
+  if (row) storeEvents.emit({ kind: "docs", project: row.project_id });
 }
 
 /** rooms are created lazily per document and kept warm (state loaded once) */

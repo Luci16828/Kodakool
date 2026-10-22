@@ -112,7 +112,8 @@ export async function dropSession(db: Db, kdf: Crypto, refresh: string): Promise
 export function requireAuth(cfg: Config, db: Db): MiddlewareHandler {
   return async (c, next) => {
     const header = c.req.header("authorization") ?? "";
-    const token = header.startsWith("Bearer ") ? header.slice(7) : "";
+    // EventSource (SSE) cannot send headers — `?token=` is accepted too, as on the realtime WS
+    const token = header.startsWith("Bearer ") ? header.slice(7) : (c.req.query("token") ?? "");
     const verified = token === "" ? null : await verifyAccessToken(cfg.secret, token);
     const user = verified === null ? null : userById(db, verified.sub);
     if (!user) return c.json({ error: "unauthorized" }, 401);

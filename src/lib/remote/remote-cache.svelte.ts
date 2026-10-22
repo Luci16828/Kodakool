@@ -72,6 +72,25 @@ export class RemoteCache {
     return data;
   }
 
+  /**
+   * Re-pull every slice this cache currently holds (projects + the loaded projects'
+   * docs + catalogs). The live triggers that call this: the account's SSE store-events
+   * stream (server push) and the window focus/visibility handler (catch-up after the
+   * tab was asleep). Slices are refetched in parallel; a failing slice keeps its data.
+   */
+  async refreshAll(api: RemoteApi, token: string): Promise<void> {
+    const projectIds = Object.keys(this.docs);
+    const catalogIds = Object.keys(this.catalogs);
+    await this.refreshProjects(api, token);
+    const projects = this.projects;
+    await Promise.all([
+      ...projectIds.map((id) => (projects.some((p) => p.id === id) ? this.refreshDocs(api, token, id) : undefined)),
+      ...catalogIds.map((id) =>
+        projects.some((p) => p.id === id) ? this.getCatalog(api, token, id).catch(() => undefined) : undefined,
+      ),
+    ]);
+  }
+
   async saveCatalog(api: RemoteApi, token: string, projectId: string, data: Instructions | null): Promise<void> {
     await api.saveCatalog(token, projectId, data);
     this.catalogs = { ...this.catalogs, [projectId]: data };

@@ -4,6 +4,7 @@ import type { AccountStore } from "$lib/remote/accounts.svelte";
 import { LOCAL_ACCOUNT_ID } from "$lib/remote/accounts.svelte";
 import type { Instructions } from "$lib/coding/instructions";
 import type { CodeEntry } from "$lib/coding/types";
+import { onLocalMutated } from "./worker-client";
 
 /**
  * The Local account's data layer — the exact operations the UI used to call on RxDB,
@@ -68,6 +69,26 @@ export function watchProjectsLocal(cb: ProjectsCb): () => void {
   void refreshLocalTree().catch(() => undefined);
   return () => projectListeners.delete(cb);
 }
+
+/* ----- live cross-tab refresh (the worker's `mutated` broadcast) ----- */
+
+/**
+ * The worker broadcasts `{type:"mutated"}` to every connected tab after every
+ * successful REST mutation, so a mutation performed in ANOTHER tab (or by a smoke
+ * script) lands here too. Bursts are coalesced into one refetch round: a local
+ * mutation arrives twice (direct refresh + broadcast echo) and typing in a room
+ * materializes repeatedly.
+ */
+let liveTimer: ReturnType<typeof setTimeout> | undefined;
+export function scheduleLocalRefresh(): void {
+  if (liveTimer !== undefined) clearTimeout(liveTimer);
+  liveTimer = setTimeout(() => {
+    liveTimer = undefined;
+    void refreshLocalTree().catch(() => undefined);
+    void refreshLocalCatalogs().catch(() => undefined);
+  }, 120);
+}
+onLocalMutated(scheduleLocalRefresh);
 
 /* ----- projects ----- */
 
@@ -353,6 +374,38 @@ export async function clearLocalCatalog(project: string): Promise<void> {
   const { api, token } = await ctx();
   const p = await projectByName(api, token, project);
   if (p) await api.saveCatalog(token, p.id, null);
+}
+
+/* ----- reactive catalog watch (same notify pattern as the tree) ----- */
+
+type CatalogCb = (data: Instructions | null) => void;
+const catalogListeners = new Map<string, Set<CatalogCb>>();
+
+async function refreshLocalCatalogs(): Promise<void> {
+  for (const [project, set] of [...catalogListeners]) {
+    const data = await getLocalCatalog(project);
+    if (!set.size) continue;
+    for (const cb of [...set]) cb(data);
+  }
+}
+
+/** reactive catalog for one project (initial value + every store change, any tab) */
+export function watchLocalCatalog(project: string, cb: CatalogCb): () => void {
+  let set = catalogListeners.get(project);
+  if (!set) {
+    set = new Set();
+    catalogListeners.set(project, set);
+  }
+  set.add(cb);
+  void getLocalCatalog(project)
+    .then((d) => {
+      if (set.has(cb)) cb(d);
+    })
+    .catch(() => undefined);
+  return () => {
+    set.delete(cb);
+    if (set.size === 0) catalogListeners.delete(project);
+  };
 }
 
 export async function exportDatabase(): Promise<unknown> {

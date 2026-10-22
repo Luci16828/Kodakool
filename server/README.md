@@ -60,6 +60,13 @@ Requires Node >= 22.6 (`--experimental-strip-types --experimental-sqlite`).
   (SyncStep1/2, updates, awareness). Every debounced room update is persisted
   as the Yjs binary state **and materialized** (text + entries) into the
   documents row, so REST reads always reflect the live room.
+- **Store events (SSE)** — `GET /api/events?token=<access token>` streams every
+  structural store change (`docs`, `project`, `catalog`, `subs` + periodic
+  `ping`; opens with a `hello` frame). Mutating routes and room materializations
+  emit here; clients react by refetching their tree/catalog through the normal
+  authorized endpoints (the events carry ids only). `requireAuth` accepts the
+  `?token=` fallback on every protected route because EventSource cannot send
+  an Authorization header.
 
 ## Docker
 

@@ -29,6 +29,18 @@ let seq = 0;
 const pending = new Map<number, (m: any) => void>();
 const roomRejects = new Map<string, () => void>();
 
+/**
+ * Local store-change listeners: the worker broadcasts `{type:"mutated"}` to EVERY
+ * connected tab after each successful REST mutation, so a tab's tree/catalog follows
+ * changes made in other tabs (and the networked server's SSE feed, for remote
+ * accounts, is the exact analogue).
+ */
+const mutatedListeners = new Set<() => void>();
+export function onLocalMutated(cb: () => void): () => void {
+  mutatedListeners.add(cb);
+  return () => mutatedListeners.delete(cb);
+}
+
 function ensureWorker(): Chan {
   if (chan) return chan;
   const sw = typeof SharedWorker !== "undefined" ? new LocalSharedWorker({ name: "kodakool-server" }) : null;
@@ -53,6 +65,8 @@ function ensureWorker(): Chan {
         roomRejects.delete(m.docId);
         cb();
       }
+    } else if (m?.type === "mutated") {
+      for (const l of [...mutatedListeners]) l();
     }
   };
   c.onerror = (e) => {

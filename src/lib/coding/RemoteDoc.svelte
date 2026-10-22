@@ -39,7 +39,7 @@
   import type { CatalogView } from "$lib/coding/catalog-view";
   import type { CodeEntry } from "$lib/coding/types";
   import type { ArticleSummary, ArticleVersion } from "$lib/coding/doc";
-  import { watchArticlesLocal, watchProjectsLocal } from "$lib/local/local-api";
+  import { watchArticlesLocal, watchLocalCatalog, watchProjectsLocal } from "$lib/local/local-api";
   import {
     codingMarks,
     smartSelect,
@@ -49,6 +49,7 @@
   } from "$lib/coding/code-mark";
   import { cssVar, hoverFadeCss } from "$lib/coding/css-var";
   import { realtimeBase, useAccounts, LOCAL_ACCOUNT_ID } from "$lib/remote/accounts.svelte";
+  import type { AnyAccount } from "$lib/remote/accounts.svelte";
   import { PortProvider } from "$lib/local/port-provider";
   import { useRemote } from "$lib/remote/remote-cache.svelte";
   import type { RemoteApi } from "$lib/remote/api";
@@ -859,6 +860,54 @@
     return `hsl(${h} 65% 45%)`;
   }
 
+  /**
+   * Live structural sync for a REMOTE account. The room syncs text + entries over
+   * the WebSocket; the server additionally pushes store changes (project/doc/catalog
+   * mutations, room materializations) over the SSE feed `GET /api/events`. Every
+   * event coalesces into one `cache.refreshAll` round (typing materializes in
+   * bursts). EventSource cannot send headers, so the session rides `?token=`.
+   * Window focus/visibility refetches too: catch-up after a backgrounded tab.
+   * The Local account needs none of this — its worker broadcasts mutations directly.
+   */
+  let live: (() => void) | null = null;
+  function startRemoteLive(acc: AnyAccount, tk: string, pid: string): void {
+    live?.();
+    live = null;
+    const cache = remote?.cache(acc.id);
+    const a = accounts?.api(acc);
+    if (!cache || !a) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const refetch = () => {
+      if (timer !== undefined) clearTimeout(timer);
+      timer = setTimeout(() => {
+        timer = undefined;
+        void (async () => {
+          await cache.refreshAll(a, tk);
+          if (pid !== "" && cache.projects.some((p) => p.id === pid)) localCatalog = await cache.getCatalog(a, tk, pid);
+        })().catch(() => undefined);
+      }, 250);
+    };
+    const base = acc.kind === "remote" ? acc.serverUrl.replace(/\/+$/, "") : "";
+    if (base === "") return;
+    const es = new EventSource(`${base}/api/events?token=${encodeURIComponent(tk)}`);
+    // the server keeps the stream alive with pings; EventSource auto-reconnects on drops
+    es.addEventListener("docs", refetch);
+    es.addEventListener("project", refetch);
+    es.addEventListener("catalog", refetch);
+    es.addEventListener("subs", refetch);
+    const onActive = () => {
+      if (document.visibilityState === "visible") refetch();
+    };
+    document.addEventListener("visibilitychange", onActive);
+    window.addEventListener("focus", onActive);
+    live = () => {
+      if (timer !== undefined) clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onActive);
+      window.removeEventListener("focus", onActive);
+      es.close();
+    };
+  }
+
   /* ----- load: account → project → document → room ----- */
   async function load(): Promise<void> {
     loading = true;
@@ -968,6 +1017,7 @@
 
       localCatalog = await a.catalog(tk, proj.id);
       initialText = info.text;
+      if (acc.kind === "remote") startRemoteLive(acc, tk, proj.id);
     } catch (e) {
       barMsg = String(e);
       missing = true;
@@ -1002,6 +1052,17 @@
       if (missing && docs.some((d) => d.project === data.folder && d.name === data.name)) void load();
     });
     const unsubFolders = watchProjectsLocal((names) => (folders = names));
+    // local catalog follows every store change, from this tab AND the other tabs.
+    // Broadcast echoes carry identical content: re-assigning them would re-key the
+    // catalog tree mid-animation, so only real changes flow through.
+    const isLocal = accounts?.byId(data.account)?.kind === "local";
+    const unsubCatalog = isLocal
+      ? watchLocalCatalog(data.folder, (d) => {
+          const incoming = d === null ? "null" : JSON.stringify(d);
+          const current = localCatalog === null ? "null" : JSON.stringify(localCatalog);
+          if (incoming !== current) localCatalog = d;
+        })
+      : null;
     return () => {
       if (recommitTimer !== undefined) clearTimeout(recommitTimer);
       pop.destroy();
@@ -1010,6 +1071,9 @@
       view?.destroy();
       unsubDocs();
       unsubFolders();
+      unsubCatalog?.();
+      live?.();
+      live = null;
     };
   });
 

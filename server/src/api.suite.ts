@@ -454,4 +454,54 @@ export function runApiSuite(newDb: () => Db | Promise<Db>): void {
       expect(back.projects.find((p: any) => p.id === pid).subs).toEqual(["sources"]);
     });
   });
+
+  describe("store events (SSE feed)", () => {
+    async function readUntil(reader: ReadableStreamDefaultReader<Uint8Array>, needle: string): Promise<string> {
+      const dec = new TextDecoder();
+      let text = "";
+      const deadline = Date.now() + 5000;
+      while (!text.includes(needle) && Date.now() < deadline) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        text += dec.decode(value, { stream: true });
+      }
+      return text;
+    }
+
+    it("streams store changes to an authenticated SSE client", async () => {
+      const h = await app();
+      const tok = await register(h, "sse@b.de");
+      const proj = (await (
+        await h.request("/api/projects", { method: "POST", headers: json(tok), body: JSON.stringify({ name: "feed" }) })
+      ).json()) as any;
+      // EventSource cannot send headers — the stream authenticates via ?token=
+      const res = await h.request(`/api/events?token=${encodeURIComponent(tok)}`);
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-type")).toContain("text/event-stream");
+      const reader = res.body!.getReader();
+      expect(await readUntil(reader, "event: hello")).toContain("event: hello");
+      const created = await h.request(`/api/projects/${proj.id}/docs`, {
+        method: "POST",
+        headers: json(tok),
+        body: JSON.stringify({ name: "note.md" }),
+      });
+      expect(created.status).toBe(201);
+      const feed = await readUntil(reader, "event: docs");
+      expect(feed).toContain(`"kind":"docs"`);
+      expect(feed).toContain(`"project":"${proj.id}"`);
+      await reader.cancel();
+    });
+
+    it("rejects an unauthenticated events stream", async () => {
+      const h = await app();
+      expect((await h.request("/api/events")).status).toBe(401);
+      expect((await h.request("/api/events?token=garbage")).status).toBe(401);
+    });
+
+    it("accepts the ?token= fallback on protected REST routes too", async () => {
+      const h = await app();
+      const tok = await register(h, "qtok@b.de");
+      expect((await h.request(`/api/projects?token=${encodeURIComponent(tok)}`)).status).toBe(200);
+    });
+  });
 }

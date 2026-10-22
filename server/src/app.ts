@@ -6,6 +6,8 @@ import type { UserRow } from "./db.ts";
 import { userByEmail, userById } from "./db.ts";
 import { dropSession, issueSession, publicUser, requireAuth, rotateSession, type Crypto } from "./auth.ts";
 import { beginFlow, exchangeFlow } from "./oidc.ts";
+import { storeEvents } from "./events.ts";
+import { streamSSE } from "hono/streaming";
 import { docAccess, docFull, docSummary, parseJson, projectAccess, projectAccessByName } from "./access.ts";
 import {
   catalogBody,
@@ -133,6 +135,7 @@ export function createApp({ cfg, db, kdf }: AppDeps): Hono {
   app.use("/api/docs/*", requireAuth(cfg, db));
   app.use("/api/export", requireAuth(cfg, db));
   app.use("/api/import", requireAuth(cfg, db));
+  app.use("/api/events", requireAuth(cfg, db));
 
   app.get("/api/me", (c) => c.json({ user: publicUser(me(c)) }));
 
@@ -180,6 +183,7 @@ export function createApp({ cfg, db, kdf }: AppDeps): Hono {
     if (taken) return c.json({ error: `"${name}" already exists` }, 409);
     const id = crypto.randomUUID();
     db.prepare("INSERT INTO projects (id, owner, name, created) VALUES (?, ?, ?, ?)").run(id, u.id, name, Date.now());
+    storeEvents.emit({ kind: "project", project: id });
     return c.json({ id, name, owner: u.id, ownerName: u.name, role: "owner", docs: 0, subs: [] }, 201);
   });
 
@@ -192,6 +196,7 @@ export function createApp({ cfg, db, kdf }: AppDeps): Hono {
     if (!body.success) return c.json({ error: "invalid body" }, 400);
     const subs = [...new Set(body.data.subs.map((s) => normalizeSub(s)))].filter((s) => s !== "");
     db.prepare("UPDATE projects SET subs = ? WHERE id = ?").run(JSON.stringify(subs), p.id);
+    storeEvents.emit({ kind: "subs", project: p.id });
     return c.json({ subs });
   });
 
@@ -207,6 +212,7 @@ export function createApp({ cfg, db, kdf }: AppDeps): Hono {
     db.prepare("DELETE FROM catalogs WHERE project_id = ?").run(p.id);
     db.prepare("DELETE FROM members WHERE project_id = ?").run(p.id);
     db.prepare("DELETE FROM projects WHERE id = ?").run(p.id);
+    storeEvents.emit({ kind: "project", project: p.id });
     return c.body(null, 204);
   });
 
@@ -233,6 +239,7 @@ export function createApp({ cfg, db, kdf }: AppDeps): Hono {
       "INSERT INTO documents (id, project_id, name, folder, kind, text, codes, versions, updated) VALUES (?, ?, ?, ?, ?, ?, '[]', '[]', ?)",
     ).run(id, p.id, name, body.data.folder ?? "", body.data.kind ?? "text", body.data.text ?? "", Date.now());
     const row = db.prepare("SELECT * FROM documents WHERE id = ?").get(id) as DocRowLike;
+    storeEvents.emit({ kind: "docs", project: p.id });
     return c.json(docSummary(db, toDoc(row, p.id)), 201);
   });
 
@@ -255,6 +262,7 @@ export function createApp({ cfg, db, kdf }: AppDeps): Hono {
       db.prepare(
         "INSERT INTO catalogs (project_id, data, updated) VALUES (?, ?, ?) ON CONFLICT(project_id) DO UPDATE SET data = excluded.data, updated = excluded.updated",
       ).run(p.id, JSON.stringify(body.data.data), Date.now());
+    storeEvents.emit({ kind: "catalog", project: p.id });
     return c.json({ data: body.data.data });
   });
 
@@ -270,6 +278,7 @@ export function createApp({ cfg, db, kdf }: AppDeps): Hono {
     db.prepare(
       "INSERT INTO members (project_id, user_id, role) VALUES (?, ?, 'member') ON CONFLICT(project_id, user_id) DO NOTHING",
     ).run(p.id, target.id);
+    storeEvents.emit({ kind: "project", project: p.id });
     return c.json({ shared: publicUser(target) });
   });
 
@@ -279,6 +288,7 @@ export function createApp({ cfg, db, kdf }: AppDeps): Hono {
     if (!p) return c.json({ error: "not found" }, 404);
     if (p.owner !== u.id) return c.json({ error: "only the owner can unshare a project" }, 403);
     db.prepare("DELETE FROM members WHERE project_id = ? AND user_id = ?").run(p.id, c.req.param("userId"));
+    storeEvents.emit({ kind: "project", project: p.id });
     return c.body(null, 204);
   });
 
@@ -369,6 +379,7 @@ export function createApp({ cfg, db, kdf }: AppDeps): Hono {
         );
       for (const m of blob.meta) db.prepare("INSERT INTO meta (key, value) VALUES (?, ?)").run(m.key, m.value);
       db.exec("COMMIT");
+      storeEvents.emit({ kind: "project" });
     } catch (e) {
       db.exec("ROLLBACK");
       return c.json({ error: `import failed: ${e instanceof Error ? e.message : String(e)}` }, 400);
@@ -420,6 +431,8 @@ export function createApp({ cfg, db, kdf }: AppDeps): Hono {
       d.id,
     );
     const row = db.prepare("SELECT * FROM documents WHERE id = ?").get(d.id) as DocRowLike;
+    storeEvents.emit({ kind: "docs", project: projectId });
+    if (projectId !== d.project_id) storeEvents.emit({ kind: "docs", project: d.project_id });
     return c.json(docFull(db, toDoc(row, projectId)));
   });
 
@@ -444,6 +457,7 @@ export function createApp({ cfg, db, kdf }: AppDeps): Hono {
       "INSERT INTO pdfs (doc_id, bytes, updated) VALUES (?, ?, ?) ON CONFLICT(doc_id) DO UPDATE SET bytes = excluded.bytes, updated = excluded.updated",
     ).run(d.id, bytes, Date.now());
     db.prepare("UPDATE documents SET kind = 'pdf' WHERE id = ?").run(d.id);
+    storeEvents.emit({ kind: "docs", project: d.project_id });
     return c.body(null, 204);
   });
 
@@ -454,6 +468,7 @@ export function createApp({ cfg, db, kdf }: AppDeps): Hono {
     db.prepare("DELETE FROM documents WHERE id = ?").run(d.id);
     db.prepare("DELETE FROM doc_states WHERE doc_id = ?").run(d.id);
     db.prepare("DELETE FROM pdfs WHERE doc_id = ?").run(d.id);
+    storeEvents.emit({ kind: "docs", project: d.project_id });
     return c.body(null, 204);
   });
 
@@ -495,6 +510,37 @@ export function createApp({ cfg, db, kdf }: AppDeps): Hono {
     db.prepare("UPDATE documents SET versions = ? WHERE id = ?").run(JSON.stringify(versions), d.id);
     return c.json({ versions });
   });
+
+  /**
+   * SSE store-change feed (`GET /api/events`). One stream per connected client; the
+   * client refetches its tree/catalog when an event arrives. EventSource cannot send
+   * an Authorization header, so requireAuth also accepts `?token=` (same as the
+   * realtime WebSocket). The Local account never connects here: its worker delivers
+   * the same signal as a `mutated` port message (worker-client.onLocalMutated).
+   */
+  app.get("/api/events", (c) =>
+    streamSSE(c, async (stream) => {
+      let closed = false;
+      // a write racing a client disconnect must never reject unobserved
+      const send = (event: string, data: string) => {
+        if (closed) return;
+        stream.writeSSE({ event, data }).catch(() => {
+          closed = true;
+        });
+      };
+      const off = storeEvents.subscribe((e) => send(e.kind, JSON.stringify(e)));
+      stream.onAbort(() => {
+        closed = true;
+      });
+      // handshake: the client knows the bus subscription is live from here on
+      await stream.writeSSE({ event: "hello", data: "1" }).catch(() => undefined);
+      // keep proxies from dropping an idle stream
+      const ping = setInterval(() => send("ping", String(Date.now())), 25_000);
+      await new Promise<void>((res) => stream.onAbort(res));
+      clearInterval(ping);
+      off();
+    }),
+  );
 
   app.notFound((c) => c.json({ error: "not found" }, 404));
 

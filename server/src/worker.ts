@@ -75,6 +75,11 @@ let dbRef: Db | undefined;
 let appPromise: Promise<ReturnType<typeof createApp>> | undefined;
 let rooms: RoomManager | undefined;
 
+/** every page currently connected to this worker (shared mode: the ports; dedicated: `dedicated`) */
+type OutPort = { postMessage(msg: unknown, transfer?: Transferable[]): void };
+const peers = new Set<OutPort>();
+let dedicated: OutPort | null = null;
+
 /** the JWT signing key lives in the store itself (stable across reloads, per profile) */
 function loadSecret(db: Db): Uint8Array {
   const row = db.prepare("SELECT value FROM meta WHERE key = 'secret'").get() as { value: string } | undefined;
@@ -129,6 +134,7 @@ async function handle(msg: any, port: { postMessage(msg: unknown, transfer?: Tra
     }
     case "fetch": {
       const app = await appReady();
+      const method = String(msg.method ?? "GET").toUpperCase();
       const req = new Request(msg.url, {
         method: msg.method ?? "GET",
         headers: msg.headers as [string, string][],
@@ -144,6 +150,12 @@ async function handle(msg: any, port: { postMessage(msg: unknown, transfer?: Tra
         headers: [...res.headers.entries()],
         body,
       });
+      // the store moved — tell EVERY connected tab (cross-tab tree/catalog sync;
+      // the sender's own refetch stays, this just keeps the other tabs current)
+      if (res.status < 400 && method !== "GET" && method !== "HEAD" && method !== "OPTIONS") {
+        for (const p of peers) p.postMessage({ type: "mutated" });
+        dedicated?.postMessage({ type: "mutated" });
+      }
       return;
     }
     case "ensure-local": {
@@ -191,8 +203,11 @@ if ("onconnect" in scope) {
     const port = e.ports[0];
     port.onmessage = route(port);
     port.start();
+    peers.add(port);
+    port.addEventListener("close", () => peers.delete(port));
   };
 } else {
   // dedicated-worker fallback (browsers without SharedWorker): per-page server
+  dedicated = scope;
   scope.onmessage = route(scope);
 }
