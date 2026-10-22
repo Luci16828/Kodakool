@@ -22,6 +22,7 @@ import { createApp } from "./app.ts";
 import { webCrypto } from "./auth-web.ts";
 import { openSqlJsDb } from "./sqljs.ts";
 import { RoomManager } from "./realtime.ts";
+import { storeEvents } from "./events.ts";
 import { issueSession, verifyAccessToken } from "./auth.ts";
 import { docAccess } from "./access.ts";
 import { userByEmail } from "./db.ts";
@@ -79,6 +80,19 @@ let rooms: RoomManager | undefined;
 type OutPort = { postMessage(msg: unknown, transfer?: Transferable[]): void };
 const peers = new Set<OutPort>();
 let dedicated: OutPort | null = null;
+
+/**
+ * Tell EVERY connected tab that the store moved. Two sources: successful non-GET
+ * bridge requests (the fetch case below) and the app's own store-events bus — the
+ * bus is what the realtime rooms use: a room persist materializes text + entries
+ * into the documents row WITHOUT any REST request, so marking from another tab
+ * (or this tab's own coding) would otherwise leave every tree count stale.
+ */
+function broadcastMutated(): void {
+  for (const p of peers) p.postMessage({ type: "mutated" });
+  dedicated?.postMessage({ type: "mutated" });
+}
+storeEvents.subscribe(broadcastMutated);
 
 /** the JWT signing key lives in the store itself (stable across reloads, per profile) */
 function loadSecret(db: Db): Uint8Array {
@@ -153,8 +167,7 @@ async function handle(msg: any, port: { postMessage(msg: unknown, transfer?: Tra
       // the store moved — tell EVERY connected tab (cross-tab tree/catalog sync;
       // the sender's own refetch stays, this just keeps the other tabs current)
       if (res.status < 400 && method !== "GET" && method !== "HEAD" && method !== "OPTIONS") {
-        for (const p of peers) p.postMessage({ type: "mutated" });
-        dedicated?.postMessage({ type: "mutated" });
+        broadcastMutated();
       }
       return;
     }

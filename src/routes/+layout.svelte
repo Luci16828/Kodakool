@@ -73,14 +73,39 @@
       `.chip.ex { background: var(--primary); color: var(--on-primary); }`,
     ].join("\n"),
   );
+
+  // persist the generated tokens so the prerendered head script can apply them
+  // on the NEXT load before first paint (kills the default-color flash when a
+  // customized profile reloads a prerendered/static-export page)
+  $effect(() => {
+    if (typeof localStorage === "undefined") return;
+    const css = `:root{${vars(prefs.tokens.light)}}\n:root[data-theme='dark']{${vars(prefs.tokens.dark)}}`;
+    localStorage.setItem("coding-vars", css);
+  });
 </script>
 
 <svelte:head>
   <link rel="icon" href={favicon} />
-  <!-- prerendered theme pick, applied before first paint -->
+  <!-- prerendered theme + saved color tokens, applied before first paint:
+       the baked themeCss carries the BUILD-TIME defaults, so a reload of a
+       customized profile must inject the saved tokens here (hydration would
+       otherwise paint the default palette first — the "colors change when the
+       tab reloads" flash) and a `?theme=` pick must persist like a toggle -->
   <script>
     const params = new URLSearchParams(location.search);
-    document.documentElement.dataset.theme = params.get("theme") ?? localStorage.getItem("coding-theme") ?? "light";
+    let t = params.get("theme");
+    if (t !== "light" && t !== "dark") t = localStorage.getItem("coding-theme");
+    if (t === "light" || t === "dark") {
+      localStorage.setItem("coding-theme", t);
+      document.documentElement.dataset.theme = t;
+    }
+    const savedVars = localStorage.getItem("coding-vars");
+    if (savedVars) {
+      const s = document.createElement("style");
+      s.id = "saved-color-vars";
+      s.textContent = savedVars;
+      document.head.appendChild(s);
+    }
   </script>
   {@html `<style>\n${themeCss}\n</style>`}
 </svelte:head>

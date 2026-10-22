@@ -1,6 +1,14 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import * as Y from "yjs";
 import { LOCAL_BASE, ensureLocalSession, localFetch, onLocalMutated } from "$lib/local/worker-client";
-import { createFolder, saveLocalCatalog, watchLocalCatalog, watchProjectsLocal } from "$lib/local/local-api";
+import { PortProvider } from "$lib/local/port-provider";
+import {
+  createArticleNamed,
+  createFolder,
+  saveLocalCatalog,
+  watchLocalCatalog,
+  watchProjectsLocal,
+} from "$lib/local/local-api";
 import { localBackend, resetArticles, testInstructions } from "./fixtures";
 import type { Instructions } from "$lib/coding/instructions";
 
@@ -83,6 +91,30 @@ describe("live store sync (worker broadcast)", () => {
     expect(got.at(-1)).toBeNull();
     await saveLocalCatalog("catlive", testInstructions);
     await vi.waitFor(() => expect(got.at(-1)?.title).toBe("Test catalog"), { timeout: 5000 });
+    off();
+  });
+
+  it("room persistence (marking) broadcasts the store change", async () => {
+    // marking writes through the Yjs ROOM, never a REST request: the debounced
+    // room persist materializes text + entries into the documents row and emits
+    // on the app's store-events bus — in the worker that bus must reach the
+    // ports too, or every other tab's tree counts stay stale after marking
+    const doc = await createArticleNamed("marks", "marked.md", "text to mark");
+    const { token } = await ensureLocalSession();
+    await quiet();
+    let hits = 0;
+    const off = onLocalMutated(() => hits++);
+    const ydoc = new Y.Doc();
+    const provider = new PortProvider(ydoc, doc.id, token);
+    await vi.waitFor(() => expect(provider.synced).toBe(true), { timeout: 5000 });
+    expect(hits).toBe(0);
+    ydoc
+      .getMap("entries")
+      .set("e1", JSON.stringify({ device: "d1", code: "1", line: 1, range: [0, 4], excerpt: "text" }));
+    // 400 ms persist debounce + materialize emit + port hop
+    await vi.waitFor(() => expect(hits).toBeGreaterThan(0), { timeout: 5000 });
+    provider.destroy();
+    ydoc.destroy();
     off();
   });
 });
